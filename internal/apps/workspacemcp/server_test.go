@@ -73,3 +73,31 @@ func newTestSession(t *testing.T, svc WorkspaceService) (context.Context, func()
 	}
 	return ctx, cleanup, session
 }
+
+func TestStartHTTPServerUsesStreamingSafeTimeouts(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	result, err := StartHTTPServer(ctx, &fakeWorkspaceService{}, "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("StartHTTPServer() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = result.Close()
+	})
+
+	if result.server == nil {
+		t.Fatal("StartHTTPServer() server is nil")
+	}
+	if result.server.ReadHeaderTimeout != httpReadHeaderTimeout {
+		t.Fatalf("ReadHeaderTimeout = %s, want %s", result.server.ReadHeaderTimeout, httpReadHeaderTimeout)
+	}
+	if result.server.IdleTimeout != httpIdleTimeout {
+		t.Fatalf("IdleTimeout = %s, want %s", result.server.IdleTimeout, httpIdleTimeout)
+	}
+	if result.server.ReadTimeout != 0 || result.server.WriteTimeout != 0 {
+		t.Fatalf("streaming MCP server read/write timeouts = %s/%s, want unset", result.server.ReadTimeout, result.server.WriteTimeout)
+	}
+}

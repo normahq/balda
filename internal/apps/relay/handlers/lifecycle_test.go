@@ -73,6 +73,18 @@ func TestStartBundledMCPHTTPServer_MountsRoutesAndAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("startBundledMCPHTTPServer() error = %v", err)
 	}
+	if res.server == nil {
+		t.Fatal("server is nil")
+	}
+	if res.server.ReadHeaderTimeout != internalMCPReadHeaderTimeout {
+		t.Fatalf("ReadHeaderTimeout = %s, want %s", res.server.ReadHeaderTimeout, internalMCPReadHeaderTimeout)
+	}
+	if res.server.IdleTimeout != internalMCPIdleTimeout {
+		t.Fatalf("IdleTimeout = %s, want %s", res.server.IdleTimeout, internalMCPIdleTimeout)
+	}
+	if res.server.ReadTimeout != 0 || res.server.WriteTimeout != 0 {
+		t.Fatalf("streaming MCP server read/write timeouts = %s/%s, want unset", res.server.ReadTimeout, res.server.WriteTimeout)
+	}
 	t.Cleanup(func() {
 		_ = res.Close()
 	})

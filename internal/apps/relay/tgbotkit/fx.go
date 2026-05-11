@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/metalagman/appkit/lifecycle"
 	"github.com/rs/zerolog"
@@ -36,6 +37,12 @@ var Module = fx.Module("relay_tgbotkit",
 const (
 	defaultWebhookListenAddr = "0.0.0.0:8080"
 	defaultWebhookPath       = "/telegram/webhook"
+
+	telegramHTTPClientTimeout = 90 * time.Second
+	webhookReadHeaderTimeout  = 5 * time.Second
+	webhookReadTimeout        = 10 * time.Second
+	webhookWriteTimeout       = 30 * time.Second
+	webhookIdleTimeout        = 60 * time.Second
 )
 
 // NewClient creates a new Telegram API client.
@@ -47,7 +54,9 @@ func NewClient(cfg Config) (client.ClientWithResponsesInterface, error) {
 		return nil, err
 	}
 
-	return client.NewClientWithResponses(serverURL)
+	return client.NewClientWithResponses(serverURL, client.WithHTTPClient(&http.Client{
+		Timeout: telegramHTTPClientTimeout,
+	}))
 }
 
 // NewBot creates a new Telegram bot runtime.
@@ -184,7 +193,13 @@ func (s *webhookUpdateSource) Start(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 	mux.Handle(s.path, s.webhookSource)
-	server := &http.Server{Handler: mux}
+	server := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: webhookReadHeaderTimeout,
+		ReadTimeout:       webhookReadTimeout,
+		WriteTimeout:      webhookWriteTimeout,
+		IdleTimeout:       webhookIdleTimeout,
+	}
 
 	s.mu.Lock()
 	s.listener = listener

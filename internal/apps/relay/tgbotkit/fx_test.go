@@ -37,6 +37,31 @@ func TestNewUpdateSource_WebhookDisabledFallsBackToPolling(t *testing.T) {
 	}
 }
 
+func TestNewClientUsesBoundedHTTPClient(t *testing.T) {
+	t.Parallel()
+
+	got, err := NewClient(Config{Token: "test-token"})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	withResponses, ok := got.(*client.ClientWithResponses)
+	if !ok {
+		t.Fatalf("NewClient() type = %T, want *client.ClientWithResponses", got)
+	}
+	rawClient, ok := withResponses.ClientInterface.(*client.Client)
+	if !ok {
+		t.Fatalf("ClientInterface type = %T, want *client.Client", withResponses.ClientInterface)
+	}
+	httpClient, ok := rawClient.Client.(*http.Client)
+	if !ok {
+		t.Fatalf("HTTP doer type = %T, want *http.Client", rawClient.Client)
+	}
+	if httpClient.Timeout != telegramHTTPClientTimeout {
+		t.Fatalf("HTTP client timeout = %s, want %s", httpClient.Timeout, telegramHTTPClientTimeout)
+	}
+}
+
 func TestNewUpdateSource_WebhookModeRequiresURL(t *testing.T) {
 	t.Parallel()
 
@@ -116,7 +141,23 @@ func TestWebhookUpdateSource_StartServesConfiguredPathAndToken(t *testing.T) {
 
 	src.mu.Lock()
 	addr := src.listener.Addr().String()
+	server := src.server
 	src.mu.Unlock()
+	if server == nil {
+		t.Fatal("webhook server is nil after Start")
+	}
+	if server.ReadHeaderTimeout != webhookReadHeaderTimeout {
+		t.Fatalf("ReadHeaderTimeout = %s, want %s", server.ReadHeaderTimeout, webhookReadHeaderTimeout)
+	}
+	if server.ReadTimeout != webhookReadTimeout {
+		t.Fatalf("ReadTimeout = %s, want %s", server.ReadTimeout, webhookReadTimeout)
+	}
+	if server.WriteTimeout != webhookWriteTimeout {
+		t.Fatalf("WriteTimeout = %s, want %s", server.WriteTimeout, webhookWriteTimeout)
+	}
+	if server.IdleTimeout != webhookIdleTimeout {
+		t.Fatalf("IdleTimeout = %s, want %s", server.IdleTimeout, webhookIdleTimeout)
+	}
 	baseURL := "http://" + addr
 
 	if code := doWebhookRequest(t, baseURL+"/wrong", "my-secret-token"); code != http.StatusNotFound {

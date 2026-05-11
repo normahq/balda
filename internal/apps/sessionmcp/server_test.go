@@ -357,6 +357,18 @@ func TestStartHTTPServerStartsAndReturnsAddr(t *testing.T) {
 	if result.Addr == "" {
 		t.Fatal("StartHTTPServer() Addr is empty")
 	}
+	if result.server == nil {
+		t.Fatal("StartHTTPServer() server is nil")
+	}
+	if result.server.ReadHeaderTimeout != httpReadHeaderTimeout {
+		t.Fatalf("ReadHeaderTimeout = %s, want %s", result.server.ReadHeaderTimeout, httpReadHeaderTimeout)
+	}
+	if result.server.IdleTimeout != httpIdleTimeout {
+		t.Fatalf("IdleTimeout = %s, want %s", result.server.IdleTimeout, httpIdleTimeout)
+	}
+	if result.server.ReadTimeout != 0 || result.server.WriteTimeout != 0 {
+		t.Fatalf("streaming MCP server read/write timeouts = %s/%s, want unset", result.server.ReadTimeout, result.server.WriteTimeout)
+	}
 }
 
 // Test helpers

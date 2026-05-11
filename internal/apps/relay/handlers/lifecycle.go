@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/normahq/relay/internal/apps/relay/auth"
@@ -41,6 +42,9 @@ type InternalMCPManager struct {
 
 const (
 	bundledRelayServerID = "relay"
+
+	internalMCPReadHeaderTimeout = 5 * time.Second
+	internalMCPIdleTimeout       = 60 * time.Second
 )
 
 func bundledRelayServerInstructions(workspaceEnabled bool) string {
@@ -196,6 +200,8 @@ func bundledRegistryURL(addr, serverID string) string {
 type bundledHTTPServerResult struct {
 	Addr  string
 	Close func() error
+
+	server *http.Server
 }
 
 func startBundledMCPHTTPServer(ctx context.Context, addr string, handlersByID map[string]http.Handler) (*bundledHTTPServerResult, error) {
@@ -220,7 +226,11 @@ func startBundledMCPHTTPServer(ctx context.Context, addr string, handlersByID ma
 		return nil, fmt.Errorf("listen on %q: %w", addr, err)
 	}
 
-	httpServer := &http.Server{Handler: mux}
+	httpServer := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: internalMCPReadHeaderTimeout,
+		IdleTimeout:       internalMCPIdleTimeout,
+	}
 
 	go func() {
 		<-ctx.Done()
@@ -232,7 +242,8 @@ func startBundledMCPHTTPServer(ctx context.Context, addr string, handlersByID ma
 	}()
 
 	return &bundledHTTPServerResult{
-		Addr: listener.Addr().String(),
+		Addr:   listener.Addr().String(),
+		server: httpServer,
 		Close: func() error {
 			return httpServer.Close()
 		},

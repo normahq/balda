@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -14,6 +15,9 @@ const (
 	serverName     = "norma-workspace"
 	serverVersion  = "1.0.0"
 	defaultAddress = "127.0.0.1:9091"
+
+	httpReadHeaderTimeout = 5 * time.Second
+	httpIdleTimeout       = 60 * time.Second
 )
 
 const serverInstructions = `Use this server to sync and land relay workspaces when relay workspace mode is enabled.
@@ -86,6 +90,8 @@ func RunHTTP(ctx context.Context, svc WorkspaceService, addr string) error {
 type HTTPServerResult struct {
 	Addr  string
 	Close func() error
+
+	server *http.Server
 }
 
 func StartHTTPServer(ctx context.Context, svc WorkspaceService, addr string) (*HTTPServerResult, error) {
@@ -113,7 +119,11 @@ func StartHTTPServer(ctx context.Context, svc WorkspaceService, addr string) (*H
 	}
 
 	actualAddr := listener.Addr().String()
-	httpServer := &http.Server{Handler: handler}
+	httpServer := &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		IdleTimeout:       httpIdleTimeout,
+	}
 
 	go func() {
 		<-ctx.Done()
@@ -125,7 +135,8 @@ func StartHTTPServer(ctx context.Context, svc WorkspaceService, addr string) (*H
 	}()
 
 	return &HTTPServerResult{
-		Addr: actualAddr,
+		Addr:   actualAddr,
+		server: httpServer,
 		Close: func() error {
 			return httpServer.Close()
 		},

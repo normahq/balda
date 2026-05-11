@@ -4,7 +4,7 @@ Thanks for contributing to `relay`.
 
 ## Development Setup
 
-1. Use Go `1.25.5` (see `go.mod`).
+1. Use Go `1.26.3` (see `go.mod`).
 2. Clone the repository and fetch dependencies:
 
 ```bash

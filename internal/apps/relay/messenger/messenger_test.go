@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/normahq/relay/internal/apps/relay/telegramfmt"
 	"github.com/rs/zerolog"
@@ -18,8 +19,10 @@ type fakeChatActionClient struct {
 	client.ClientWithResponsesInterface
 	chatActions        []client.SendChatActionJSONRequestBody
 	chatActionResults  []sendChatActionResult
+	chatActionContexts []context.Context
 	messages           []client.SendMessageJSONRequestBody
 	sendMessageResults []sendMessageResult
+	messageContexts    []context.Context
 }
 
 type sendChatActionResult struct {
@@ -46,10 +49,11 @@ func successfulSendMessageResponse(messageID int) *client.SendMessageResponse {
 }
 
 func (f *fakeChatActionClient) SendChatActionWithResponse(
-	_ context.Context,
+	ctx context.Context,
 	body client.SendChatActionJSONRequestBody,
 	_ ...client.RequestEditorFn,
 ) (*client.SendChatActionResponse, error) {
+	f.chatActionContexts = append(f.chatActionContexts, ctx)
 	f.chatActions = append(f.chatActions, body)
 	if len(f.chatActionResults) > 0 {
 		result := f.chatActionResults[0]
@@ -69,10 +73,11 @@ func (f *fakeChatActionClient) SendChatActionWithResponse(
 }
 
 func (f *fakeChatActionClient) SendMessageWithResponse(
-	_ context.Context,
+	ctx context.Context,
 	body client.SendMessageJSONRequestBody,
 	_ ...client.RequestEditorFn,
 ) (*client.SendMessageResponse, error) {
+	f.messageContexts = append(f.messageContexts, ctx)
 	f.messages = append(f.messages, body)
 	if len(f.sendMessageResults) > 0 {
 		result := f.sendMessageResults[0]
@@ -80,6 +85,85 @@ func (f *fakeChatActionClient) SendMessageWithResponse(
 		return result.resp, result.err
 	}
 	return successfulSendMessageResponse(len(f.messages)), nil
+}
+
+func TestSendPlainUsesBoundedSendContext(t *testing.T) {
+	t.Parallel()
+
+	tgClient := &fakeChatActionClient{}
+	m := NewMessenger(tgClient, zerolog.Nop())
+
+	if err := m.SendPlain(context.Background(), 9001, "hello", 0); err != nil {
+		t.Fatalf("SendPlain() error = %v", err)
+	}
+
+	if len(tgClient.messageContexts) != 1 {
+		t.Fatalf("message contexts = %d, want 1", len(tgClient.messageContexts))
+	}
+	assertContextDeadlineWithin(t, tgClient.messageContexts[0], telegramSendTimeout)
+}
+
+func TestSendAgentReplyUsesBoundedSendContextForRetry(t *testing.T) {
+	t.Parallel()
+
+	tgClient := &fakeChatActionClient{
+		sendMessageResults: []sendMessageResult{
+			{err: errors.New("network timeout")},
+		},
+	}
+	m := NewMessenger(tgClient, zerolog.Nop())
+	m.SetAgentReplyFormattingMode(telegramfmt.ModeHTML)
+
+	if err := m.SendAgentReply(context.Background(), 9001, "hello", 77); err != nil {
+		t.Fatalf("SendAgentReply() error = %v", err)
+	}
+
+	if len(tgClient.messageContexts) != 2 {
+		t.Fatalf("message contexts = %d, want initial send and retry", len(tgClient.messageContexts))
+	}
+	for _, ctx := range tgClient.messageContexts {
+		assertContextDeadlineWithin(t, ctx, telegramSendTimeout)
+	}
+	if tgClient.messageContexts[0] != tgClient.messageContexts[1] {
+		t.Fatal("retry should reuse the same bounded context as the initial send")
+	}
+}
+
+func TestSendChatActionPreservesParentCancellation(t *testing.T) {
+	t.Parallel()
+
+	tgClient := &fakeChatActionClient{}
+	m := NewMessenger(tgClient, zerolog.Nop())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := m.SendChatAction(ctx, 9001, 0, "typing"); err != nil {
+		t.Fatalf("SendChatAction() error = %v", err)
+	}
+
+	if len(tgClient.chatActionContexts) != 1 {
+		t.Fatalf("chat action contexts = %d, want 1", len(tgClient.chatActionContexts))
+	}
+	if got := tgClient.chatActionContexts[0].Err(); !errors.Is(got, context.Canceled) {
+		t.Fatalf("chat action context err = %v, want context.Canceled", got)
+	}
+}
+
+func assertContextDeadlineWithin(t *testing.T, ctx context.Context, maxDuration time.Duration) {
+	t.Helper()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("context has no deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		t.Fatalf("context deadline already expired: remaining=%s", remaining)
+	}
+	if remaining > maxDuration {
+		t.Fatalf("context deadline remaining = %s, want <= %s", remaining, maxDuration)
+	}
 }
 
 func TestSendChatAction_IncludesMessageThreadIDWhenTopicProvided(t *testing.T) {

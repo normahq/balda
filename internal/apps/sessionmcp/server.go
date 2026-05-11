@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -16,6 +17,9 @@ const (
 
 	codeValidationError = "validation_error"
 	codeBackendError    = "backend_error"
+
+	httpReadHeaderTimeout = 5 * time.Second
+	httpIdleTimeout       = 60 * time.Second
 )
 
 const serverInstructions = `Use this server to persist relay state in relay.db.
@@ -50,6 +54,8 @@ type HTTPServerResult struct {
 	Addr string
 	// Close shuts down the server.
 	Close func() error
+
+	server *http.Server
 }
 
 // StartHTTPServer starts an HTTP server on the given address and returns immediately.
@@ -78,7 +84,11 @@ func StartHTTPServer(ctx context.Context, store Store, addr string) (*HTTPServer
 	}
 
 	actualAddr := listener.Addr().String()
-	httpServer := &http.Server{Handler: handler}
+	httpServer := &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		IdleTimeout:       httpIdleTimeout,
+	}
 
 	go func() {
 		<-ctx.Done()
@@ -90,7 +100,8 @@ func StartHTTPServer(ctx context.Context, store Store, addr string) (*HTTPServer
 	}()
 
 	return &HTTPServerResult{
-		Addr: actualAddr,
+		Addr:   actualAddr,
+		server: httpServer,
 		Close: func() error {
 			return httpServer.Close()
 		},

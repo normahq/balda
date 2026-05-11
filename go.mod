@@ -1,6 +1,6 @@
 module github.com/normahq/relay
 
-go 1.25.9
+go 1.26.3
 
 require (
 	github.com/Mad-Pixels/goldmark-tgmd v0.0.10

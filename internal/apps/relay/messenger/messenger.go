@@ -12,6 +12,8 @@ import (
 	"github.com/tgbotkit/client"
 )
 
+const telegramSendTimeout = 30 * time.Second
+
 // Messenger handles all Telegram message sending for the relay.
 type Messenger struct {
 	client                   client.ClientWithResponsesInterface
@@ -49,7 +51,10 @@ func (m *Messenger) SendDraftPlain(ctx context.Context, chatID int64, draftID in
 		req.MessageThreadId = &topicID
 	}
 
-	resp, err := m.client.SendMessageDraftWithResponse(ctx, req)
+	sendCtx, cancel := telegramSendContext(ctx)
+	defer cancel()
+
+	resp, err := m.client.SendMessageDraftWithResponse(sendCtx, req)
 	if err != nil {
 		return fmt.Errorf("sending plain draft to chat %d: %w", chatID, err)
 	}
@@ -71,7 +76,10 @@ func (m *Messenger) SendPlain(ctx context.Context, chatID int64, text string, to
 	if topicID != 0 {
 		req.MessageThreadId = &topicID
 	}
-	_, err := m.client.SendMessageWithResponse(ctx, req)
+	sendCtx, cancel := telegramSendContext(ctx)
+	defer cancel()
+
+	_, err := m.client.SendMessageWithResponse(sendCtx, req)
 	if err != nil {
 		return fmt.Errorf("sending message to chat %d: %w", chatID, err)
 	}
@@ -125,7 +133,10 @@ func (m *Messenger) sendMessageWithMode(ctx context.Context, chatID int64, text 
 	if topicID != 0 {
 		req.MessageThreadId = &topicID
 	}
-	resp, err := m.client.SendMessageWithResponse(ctx, req)
+	sendCtx, cancel := telegramSendContext(ctx)
+	defer cancel()
+
+	resp, err := m.client.SendMessageWithResponse(sendCtx, req)
 	if shouldRetryWithoutParseMode(mode, resp, err) {
 		retryReason := "transport error"
 		if err == nil && resp != nil && resp.JSON400 != nil {
@@ -133,7 +144,7 @@ func (m *Messenger) sendMessageWithMode(ctx context.Context, chatID int64, text 
 		}
 		m.logger.Warn().Err(err).Int64("chat_id", chatID).Str("retry_reason", retryReason).Msg(logMsg + " failed, retrying without parse_mode")
 		req.ParseMode = nil
-		resp, err = m.client.SendMessageWithResponse(ctx, req)
+		resp, err = m.client.SendMessageWithResponse(sendCtx, req)
 		if err != nil {
 			return fmt.Errorf("%s to chat %d: %w", logMsg, chatID, err)
 		}
@@ -184,7 +195,10 @@ func (m *Messenger) SendChatAction(ctx context.Context, chatID int64, topicID in
 		req.MessageThreadId = &topicID
 	}
 
-	resp, err := m.client.SendChatActionWithResponse(ctx, req)
+	sendCtx, cancel := telegramSendContext(ctx)
+	defer cancel()
+
+	resp, err := m.client.SendChatActionWithResponse(sendCtx, req)
 	if err != nil {
 		return fmt.Errorf("sending chat action %q to chat %d: %w", action, chatID, err)
 	}
@@ -201,6 +215,13 @@ func (m *Messenger) SendChatAction(ctx context.Context, chatID int64, topicID in
 		return fmt.Errorf("sending chat action %q to chat %d: no response body", action, chatID)
 	}
 	return nil
+}
+
+func telegramSendContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithTimeout(ctx, telegramSendTimeout)
 }
 
 // KeepTyping sends typing action every 4 seconds until context is canceled.
