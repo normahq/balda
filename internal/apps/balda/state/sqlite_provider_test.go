@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -237,9 +236,10 @@ func TestSQLiteProvider_WritesSchemaMigrationVersion(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatalf("query schema_migrations version: %v", err)
 	}
-	if version != 8 {
-		t.Fatalf("schema_migrations version = %d, want 8", version)
+	if version != 9 {
+		t.Fatalf("schema_migrations version = %d, want 9", version)
 	}
+	assertSQLiteSchemaHasNoRelayLeftovers(t, ctx, db)
 }
 
 func TestSQLiteProvider_ADKSessionPersistsAcrossReopen(t *testing.T) {
@@ -307,7 +307,7 @@ func TestSQLiteProvider_AdoptsExistingLegacySchema(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "balda.db")
 	ctx := context.Background()
 
-	seedLegacyBaldaDB(t, dbPath)
+	seedLegacyRelayDB(t, dbPath)
 
 	provider, err := NewSQLiteProvider(ctx, dbPath)
 	if err != nil {
@@ -354,38 +354,67 @@ func TestSQLiteProvider_AdoptsExistingLegacySchema(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatalf("query schema_migrations version: %v", err)
 	}
-	if version != 8 {
-		t.Fatalf("schema_migrations version = %d, want 8", version)
+	if version != 9 {
+		t.Fatalf("schema_migrations version = %d, want 9", version)
 	}
 }
 
-func TestSQLiteProvider_RejectsObsoletePreBaldaSchema(t *testing.T) {
+func TestSQLiteProvider_RebrandsRelaySchemaAtVersion8(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "balda.db")
 	ctx := context.Background()
+
+	seedRelayDBAtVersion8(t, dbPath)
+
+	provider, err := NewSQLiteProvider(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteProvider() error = %v", err)
+	}
+	defer closeProvider(t, provider)
+
+	offset, err := provider.PollingOffsetStore().Load(ctx)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if offset != 321 {
+		t.Fatalf("offset = %d, want 321", offset)
+	}
+
+	store := provider.Sessions()
+	record, ok, err := store.GetByAddress(ctx, ChannelTypeTelegram, "1:2")
+	if err != nil {
+		t.Fatalf("GetByAddress() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("GetByAddress() found = false, want true after migration")
+	}
+	if record.SessionID != "tg-1-2" {
+		t.Fatalf("session_id after migration = %q, want tg-1-2", record.SessionID)
+	}
 
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("sql.Open() error = %v", err)
 	}
-	if _, err := db.ExecContext(ctx, `
-		CREATE TABLE schema_migrations (
-			version INTEGER PRIMARY KEY,
-			applied_at TEXT NOT NULL
-		);
-		INSERT INTO schema_migrations(version, applied_at)
-		VALUES(8, datetime('now'));`); err != nil {
-		t.Fatalf("seed obsolete schema: %v", err)
+	defer func() { _ = db.Close() }()
+
+	assertTableExists(t, ctx, db, "balda_app_kv")
+	assertTableMissing(t, ctx, db, "relay_app_kv")
+	assertSQLiteSchemaHasNoRelayLeftovers(t, ctx, db)
+
+	var appName string
+	if err := db.QueryRowContext(ctx, `SELECT app_name FROM balda_adk_sessions WHERE user_id = 'tg-101'`).Scan(&appName); err != nil {
+		t.Fatalf("query migrated adk session app_name: %v", err)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("db.Close() error = %v", err)
+	if appName != "norma-balda" {
+		t.Fatalf("app_name after migration = %q, want norma-balda", appName)
 	}
 
-	_, err = NewSQLiteProvider(ctx, dbPath)
-	if err == nil {
-		t.Fatal("NewSQLiteProvider() error = nil, want obsolete schema error")
+	var version int
+	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
+		t.Fatalf("query schema_migrations version: %v", err)
 	}
-	if !strings.Contains(err.Error(), "obsolete pre-Balda state schema") {
-		t.Fatalf("NewSQLiteProvider() error = %q, want obsolete pre-Balda state schema", err)
+	if version != 9 {
+		t.Fatalf("schema_migrations version = %d, want 9", version)
 	}
 }
 
@@ -407,7 +436,7 @@ func closeProvider(t *testing.T, provider Provider) {
 	}
 }
 
-func seedLegacyBaldaDB(t *testing.T, dbPath string) {
+func seedLegacyRelayDB(t *testing.T, dbPath string) {
 	t.Helper()
 
 	db, err := sql.Open("sqlite", dbPath)
@@ -417,14 +446,14 @@ func seedLegacyBaldaDB(t *testing.T, dbPath string) {
 	defer func() { _ = db.Close() }()
 
 	legacySchema := []string{
-		`CREATE TABLE balda_app_kv (
+		`CREATE TABLE relay_app_kv (
 			namespace TEXT NOT NULL,
 			key TEXT NOT NULL,
 			value_json TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
 			PRIMARY KEY (namespace, key)
 		);`,
-		`CREATE TABLE balda_session_metadata (
+		`CREATE TABLE relay_session_metadata (
 			session_id TEXT PRIMARY KEY,
 			chat_id INTEGER NOT NULL,
 			topic_id INTEGER NOT NULL,
@@ -435,23 +464,224 @@ func seedLegacyBaldaDB(t *testing.T, dbPath string) {
 			updated_at TEXT NOT NULL,
 			UNIQUE (chat_id, topic_id)
 		);`,
-		`CREATE INDEX idx_balda_session_metadata_status ON balda_session_metadata(status);`,
-		`INSERT INTO balda_session_metadata (
+		`CREATE INDEX idx_relay_session_metadata_status ON relay_session_metadata(status);`,
+		`INSERT INTO relay_session_metadata (
 			session_id, chat_id, topic_id, agent_name, workspace_dir, branch_name, status, updated_at
 		)
-		 VALUES ('balda-1-2', 1, 2, 'agent', '/tmp/ws', 'norma/balda/balda-1-2', 'active', '2026-01-01T00:00:00Z');`,
-		`CREATE TABLE balda_telegram_offsets (
+		 VALUES ('relay-1-2', 1, 2, 'agent', '/tmp/ws', 'norma/balda/relay-1-2', 'active', '2026-01-01T00:00:00Z');`,
+		`CREATE TABLE relay_telegram_offsets (
 			bot_key TEXT PRIMARY KEY,
 			offset INTEGER NOT NULL,
 			updated_at TEXT NOT NULL
 		);`,
-		`INSERT INTO balda_telegram_offsets (bot_key, offset, updated_at)
-		 VALUES ('balda-default', 321, '2026-01-01T00:00:00Z');`,
+		`INSERT INTO relay_telegram_offsets (bot_key, offset, updated_at)
+		 VALUES ('relay-default', 321, '2026-01-01T00:00:00Z');`,
 	}
 
 	for _, stmt := range legacySchema {
 		if _, err := db.Exec(stmt); err != nil {
-			t.Fatalf("seed legacy balda db stmt failed: %v\nstmt: %s", err, stmt)
+			t.Fatalf("seed legacy relay db stmt failed: %v\nstmt: %s", err, stmt)
 		}
+	}
+}
+
+func seedRelayDBAtVersion8(t *testing.T, dbPath string) {
+	t.Helper()
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	stmts := []string{
+		`CREATE TABLE schema_migrations (
+			version INTEGER PRIMARY KEY,
+			applied_at TEXT NOT NULL
+		);`,
+		`INSERT INTO schema_migrations(version, applied_at)
+		 VALUES(8, datetime('now'));`,
+		`CREATE TABLE goose_db_version (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			version_id INTEGER NOT NULL,
+			is_applied INTEGER NOT NULL,
+			tstamp TIMESTAMP DEFAULT (datetime('now'))
+		);`,
+		`INSERT INTO goose_db_version(version_id, is_applied)
+		 VALUES(0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1), (7, 1), (8, 1);`,
+		`CREATE TABLE relay_app_kv (
+			namespace TEXT NOT NULL,
+			key TEXT NOT NULL,
+			value_json TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			expires_at TEXT,
+			PRIMARY KEY (namespace, key)
+		);`,
+		`CREATE TABLE relay_session_metadata (
+			session_id TEXT PRIMARY KEY,
+			chat_id INTEGER NOT NULL,
+			topic_id INTEGER NOT NULL,
+			agent_name TEXT NOT NULL,
+			workspace_dir TEXT NOT NULL,
+			branch_name TEXT NOT NULL,
+			status TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			channel_type TEXT NOT NULL DEFAULT 'telegram',
+			address_key TEXT NOT NULL DEFAULT '',
+			address_json TEXT NOT NULL DEFAULT '{}',
+			user_id TEXT NOT NULL DEFAULT '',
+			UNIQUE (chat_id, topic_id)
+		);`,
+		`CREATE INDEX idx_relay_session_metadata_status ON relay_session_metadata(status);`,
+		`CREATE UNIQUE INDEX idx_relay_session_metadata_channel_address
+		 ON relay_session_metadata(channel_type, address_key);`,
+		`INSERT INTO relay_session_metadata (
+			session_id, user_id, chat_id, topic_id, channel_type, address_key, address_json,
+			agent_name, workspace_dir, branch_name, status, updated_at
+		)
+		 VALUES (
+			'tg-1-2', '', 1, 2, 'telegram', '1:2', '{"chat_id":1,"topic_id":2}',
+			'agent', '/tmp/ws', 'norma/balda/tg-1-2', 'active', '2026-01-01T00:00:00Z'
+		);`,
+		`CREATE TABLE relay_telegram_offsets (
+			bot_key TEXT PRIMARY KEY,
+			offset INTEGER NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
+		`INSERT INTO relay_telegram_offsets (bot_key, offset, updated_at)
+		 VALUES ('relay-default', 321, '2026-01-01T00:00:00Z');`,
+		`CREATE TABLE relay_collaborators (
+			user_id TEXT PRIMARY KEY,
+			username TEXT NOT NULL DEFAULT '',
+			first_name TEXT NOT NULL DEFAULT '',
+			added_by TEXT NOT NULL,
+			added_at TEXT NOT NULL
+		);`,
+		`CREATE TABLE relay_adk_app_state (
+			app_name TEXT PRIMARY KEY,
+			state_json TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
+		`INSERT INTO relay_adk_app_state (app_name, state_json, updated_at)
+		 VALUES ('norma-relay', '{}', '2026-01-01T00:00:00Z');`,
+		`CREATE TABLE relay_adk_user_state (
+			app_name TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			state_json TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (app_name, user_id)
+		);`,
+		`INSERT INTO relay_adk_user_state (app_name, user_id, state_json, updated_at)
+		 VALUES ('norma-relay', 'tg-101', '{}', '2026-01-01T00:00:00Z');`,
+		`CREATE TABLE relay_adk_sessions (
+			app_name TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			session_id TEXT NOT NULL,
+			state_json TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			PRIMARY KEY (app_name, user_id, session_id)
+		);`,
+		`INSERT INTO relay_adk_sessions (app_name, user_id, session_id, state_json, updated_at)
+		 VALUES ('norma-relay', 'tg-101', 'tg-1-2', '{}', '2026-01-01T00:00:00Z');`,
+		`CREATE TABLE relay_adk_events (
+			app_name TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			session_id TEXT NOT NULL,
+			event_id TEXT NOT NULL,
+			ordinal INTEGER NOT NULL,
+			timestamp TEXT NOT NULL,
+			event_json TEXT NOT NULL,
+			PRIMARY KEY (app_name, user_id, session_id, event_id),
+			FOREIGN KEY (app_name, user_id, session_id)
+				REFERENCES relay_adk_sessions(app_name, user_id, session_id)
+				ON DELETE CASCADE
+		);`,
+		`CREATE INDEX idx_relay_adk_sessions_app_user
+		 ON relay_adk_sessions(app_name, user_id);`,
+		`CREATE INDEX idx_relay_adk_events_session_order
+		 ON relay_adk_events(app_name, user_id, session_id, timestamp, ordinal);`,
+		`INSERT INTO relay_adk_events (
+			app_name, user_id, session_id, event_id, ordinal, timestamp, event_json
+		)
+		 VALUES (
+			'norma-relay', 'tg-101', 'tg-1-2', 'event-1', 1, '2026-01-01T00:00:00Z', '{}'
+		);`,
+		`CREATE TABLE relay_scheduled_jobs (
+			job_id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			address_key TEXT NOT NULL,
+			address_json TEXT NOT NULL,
+			prompt TEXT NOT NULL,
+			schedule_spec TEXT NOT NULL,
+			timezone TEXT NOT NULL DEFAULT 'UTC',
+			status TEXT NOT NULL DEFAULT 'active',
+			max_retries INTEGER NOT NULL DEFAULT 3,
+			retry_count INTEGER NOT NULL DEFAULT 0,
+			last_dispatch_key TEXT NOT NULL DEFAULT '',
+			next_run_at TEXT NOT NULL,
+			last_run_at TEXT NOT NULL DEFAULT '',
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX idx_relay_scheduled_jobs_due
+		 ON relay_scheduled_jobs(status, next_run_at);`,
+		`CREATE INDEX idx_relay_scheduled_jobs_locator
+		 ON relay_scheduled_jobs(channel_type, address_key);`,
+	}
+
+	for _, stmt := range stmts {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("seed relay version 8 db stmt failed: %v\nstmt: %s", err, stmt)
+		}
+	}
+}
+
+func assertTableExists(t *testing.T, ctx context.Context, db *sql.DB, name string) {
+	t.Helper()
+	if exists, err := sqliteTableExists(ctx, db, name); err != nil {
+		t.Fatalf("sqliteTableExists(%q) error = %v", name, err)
+	} else if !exists {
+		t.Fatalf("sqliteTableExists(%q) = false, want true", name)
+	}
+}
+
+func assertTableMissing(t *testing.T, ctx context.Context, db *sql.DB, name string) {
+	t.Helper()
+	if exists, err := sqliteTableExists(ctx, db, name); err != nil {
+		t.Fatalf("sqliteTableExists(%q) error = %v", name, err)
+	} else if exists {
+		t.Fatalf("sqliteTableExists(%q) = true, want false", name)
+	}
+}
+
+func assertSQLiteSchemaHasNoRelayLeftovers(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT type, name
+		FROM sqlite_master
+		WHERE lower(name) LIKE '%relay%'
+		   OR lower(coalesce(sql, '')) LIKE '%relay%'
+		ORDER BY type, name`)
+	if err != nil {
+		t.Fatalf("query sqlite schema relay leftovers: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var leftovers []string
+	for rows.Next() {
+		var objectType, name string
+		if err := rows.Scan(&objectType, &name); err != nil {
+			t.Fatalf("scan sqlite schema relay leftover: %v", err)
+		}
+		leftovers = append(leftovers, objectType+":"+name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate sqlite schema relay leftovers: %v", err)
+	}
+	if len(leftovers) > 0 {
+		t.Fatalf("sqlite schema has relay leftovers: %v", leftovers)
 	}
 }

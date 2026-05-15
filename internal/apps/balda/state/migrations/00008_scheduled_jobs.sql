@@ -1,6 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
-CREATE TABLE IF NOT EXISTS balda_scheduled_jobs (
+CREATE TABLE IF NOT EXISTS relay_scheduled_jobs (
     job_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
     channel_type TEXT NOT NULL,
@@ -20,11 +20,11 @@ CREATE TABLE IF NOT EXISTS balda_scheduled_jobs (
     updated_at TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_balda_scheduled_jobs_due
-    ON balda_scheduled_jobs(status, next_run_at);
+CREATE INDEX IF NOT EXISTS idx_relay_scheduled_jobs_due
+    ON relay_scheduled_jobs(status, next_run_at);
 
-CREATE INDEX IF NOT EXISTS idx_balda_scheduled_jobs_locator
-    ON balda_scheduled_jobs(channel_type, address_key);
+CREATE INDEX IF NOT EXISTS idx_relay_scheduled_jobs_locator
+    ON relay_scheduled_jobs(channel_type, address_key);
 
 INSERT OR IGNORE INTO schema_migrations(version, applied_at)
 VALUES(8, datetime('now'));
@@ -33,8 +33,8 @@ VALUES(8, datetime('now'));
 -- +goose Down
 -- +goose StatementBegin
 DELETE FROM schema_migrations WHERE version = 8;
-DROP INDEX IF EXISTS idx_balda_scheduled_jobs_locator;
-DROP INDEX IF EXISTS idx_balda_scheduled_jobs_due;
-DROP TABLE IF EXISTS balda_scheduled_jobs;
+DROP INDEX IF EXISTS idx_relay_scheduled_jobs_locator;
+DROP INDEX IF EXISTS idx_relay_scheduled_jobs_due;
+DROP TABLE IF EXISTS relay_scheduled_jobs;
 -- +goose StatementEnd
 

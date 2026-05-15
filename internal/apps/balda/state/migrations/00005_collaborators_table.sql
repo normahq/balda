@@ -1,6 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
-CREATE TABLE IF NOT EXISTS balda_collaborators (
+CREATE TABLE IF NOT EXISTS relay_collaborators (
     user_id TEXT PRIMARY KEY,
     username TEXT NOT NULL DEFAULT '',
     first_name TEXT NOT NULL DEFAULT '',
@@ -15,5 +15,5 @@ VALUES(5, datetime('now'));
 -- +goose Down
 -- +goose StatementBegin
 DELETE FROM schema_migrations WHERE version = 5;
-DROP TABLE IF EXISTS balda_collaborators;
+DROP TABLE IF EXISTS relay_collaborators;
 -- +goose StatementEnd

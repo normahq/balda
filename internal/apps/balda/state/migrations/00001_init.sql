@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS balda_app_kv (
+CREATE TABLE IF NOT EXISTS relay_app_kv (
     namespace TEXT NOT NULL,
     key TEXT NOT NULL,
     value_json TEXT NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS balda_app_kv (
     PRIMARY KEY (namespace, key)
 );
 
-CREATE TABLE IF NOT EXISTS balda_session_metadata (
+CREATE TABLE IF NOT EXISTS relay_session_metadata (
     session_id TEXT PRIMARY KEY,
     chat_id INTEGER NOT NULL,
     topic_id INTEGER NOT NULL,
@@ -25,9 +25,9 @@ CREATE TABLE IF NOT EXISTS balda_session_metadata (
     UNIQUE (chat_id, topic_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_balda_session_metadata_status ON balda_session_metadata(status);
+CREATE INDEX IF NOT EXISTS idx_relay_session_metadata_status ON relay_session_metadata(status);
 
-CREATE TABLE IF NOT EXISTS balda_telegram_offsets (
+CREATE TABLE IF NOT EXISTS relay_telegram_offsets (
     bot_key TEXT PRIMARY KEY,
     offset INTEGER NOT NULL,
     updated_at TEXT NOT NULL
@@ -40,9 +40,9 @@ VALUES(1, datetime('now'));
 -- +goose Down
 -- +goose StatementBegin
 DELETE FROM schema_migrations WHERE version = 1;
-DROP INDEX IF EXISTS idx_balda_session_metadata_status;
-DROP TABLE IF EXISTS balda_telegram_offsets;
-DROP TABLE IF EXISTS balda_session_metadata;
-DROP TABLE IF EXISTS balda_app_kv;
+DROP INDEX IF EXISTS idx_relay_session_metadata_status;
+DROP TABLE IF EXISTS relay_telegram_offsets;
+DROP TABLE IF EXISTS relay_session_metadata;
+DROP TABLE IF EXISTS relay_app_kv;
 DROP TABLE IF EXISTS schema_migrations;
 -- +goose StatementEnd

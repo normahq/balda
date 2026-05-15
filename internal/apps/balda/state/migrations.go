@@ -26,10 +26,6 @@ var requiredBaldaSQLiteTables = []string{
 }
 
 func migrate(ctx context.Context, db *sql.DB) error {
-	if err := rejectObsoletePreBaldaSchema(ctx, db); err != nil {
-		return err
-	}
-
 	migrationsDir, err := fs.Sub(baldaMigrationsFS, "migrations")
 	if err != nil {
 		return fmt.Errorf("open balda migrations fs: %w", err)
@@ -47,26 +43,6 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	return nil
-}
-
-func rejectObsoletePreBaldaSchema(ctx context.Context, db *sql.DB) error {
-	hasMigrations, err := sqliteTableExists(ctx, db, "schema_migrations")
-	if err != nil {
-		return fmt.Errorf("inspect schema_migrations table: %w", err)
-	}
-	if !hasMigrations {
-		return nil
-	}
-
-	hasBaldaSchema, err := sqliteTableExists(ctx, db, "balda_app_kv")
-	if err != nil {
-		return fmt.Errorf("inspect balda_app_kv table: %w", err)
-	}
-	if hasBaldaSchema {
-		return nil
-	}
-
-	return fmt.Errorf("obsolete pre-Balda state schema detected; back up and remove .config/balda/balda.db, then run balda init again")
 }
 
 func validateBaldaSQLiteSchema(ctx context.Context, db *sql.DB) error {
