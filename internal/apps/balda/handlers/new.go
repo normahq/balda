@@ -105,7 +105,7 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 
 func (h *CommandHandler) onGoalCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
 	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner or collaborators can use this command."); err != nil {
+		if err := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Only the bot owner or collaborators can use this command."); err != nil {
 			return err
 		}
 		return nil
@@ -113,14 +113,14 @@ func (h *CommandHandler) onGoalCommand(ctx context.Context, commandCtx baldatele
 
 	objective := strings.TrimSpace(commandCtx.Args)
 	if objective == "" {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /goal <objective>"); err != nil {
+		if err := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Usage: /goal <objective>"); err != nil {
 			return err
 		}
 		return nil
 	}
 
 	if h.goalRunner == nil {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "Goal runs are unavailable right now. Please try again."); err != nil {
+		if err := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Goal runs are unavailable right now. Please try again."); err != nil {
 			return err
 		}
 		return nil
@@ -129,13 +129,13 @@ func (h *CommandHandler) onGoalCommand(ctx context.Context, commandCtx baldatele
 	started, err := h.goalRunner.Start(ctx, commandCtx.Locator, objective, baldatelegram.UserID(commandCtx.UserID))
 	if err != nil {
 		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to start /goal run")
-		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to start goal run: %v", err)); sendErr != nil {
+		if sendErr := h.channel.SendAgentReply(ctx, commandCtx.Locator, fmt.Sprintf("Failed to start goal run: %v", err)); sendErr != nil {
 			return sendErr
 		}
 		return nil
 	}
 	if !started {
-		if err := h.channel.SendPlain(ctx, commandCtx.Locator, "A goal run is already active for this session."); err != nil {
+		if err := h.channel.SendAgentReply(ctx, commandCtx.Locator, "A goal run is already active for this session."); err != nil {
 			return err
 		}
 		return nil

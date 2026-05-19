@@ -161,18 +161,18 @@ func (g *GoalRunner) runGoalLoop(
 	objective string,
 ) {
 	if ts == nil {
-		_ = g.channel.SendPlain(ctx, locator, "Goal run failed: session is unavailable.")
+		g.sendGoalMessage(ctx, locator, "Goal run failed: session is unavailable.")
 		return
 	}
 
 	maxIterations := g.maxIterations
 	goalSessionID := strings.TrimSpace(ts.GetAgentSessionID())
 	if goalSessionID == "" {
-		_ = g.channel.SendPlain(ctx, locator, "Goal run failed: session is unavailable.")
+		g.sendGoalMessage(ctx, locator, "Goal run failed: session is unavailable.")
 		return
 	}
 	if g.runtimeManager == nil {
-		_ = g.channel.SendPlain(ctx, locator, "Goal run failed: runtime is unavailable.")
+		g.sendGoalMessage(ctx, locator, "Goal run failed: runtime is unavailable.")
 		return
 	}
 
@@ -183,7 +183,7 @@ func (g *GoalRunner) runGoalLoop(
 		MaxIterations: uint(maxIterations),
 	})
 	if err != nil {
-		_ = g.channel.SendPlain(context.Background(), locator, fmt.Sprintf("Goal run failed: %v", err))
+		g.sendGoalMessage(context.Background(), locator, fmt.Sprintf("Goal run failed: %v", err))
 		return
 	}
 	defer func() {
@@ -192,7 +192,7 @@ func (g *GoalRunner) runGoalLoop(
 		}
 	}()
 
-	_ = g.channel.SendPlain(
+	g.sendGoalMessage(
 		ctx,
 		locator,
 		fmt.Sprintf("Goal run started. Max iterations: %d.\nGoal: %s", maxIterations, objective),
@@ -209,24 +209,31 @@ func (g *GoalRunner) runGoalLoop(
 			if msg == "" {
 				return
 			}
-			_ = g.channel.SendPlain(ctx, locator, msg)
+			g.sendGoalMessage(ctx, locator, msg)
 		},
 	)
 	if err != nil {
 		if ctx.Err() != nil {
-			_ = g.channel.SendPlain(context.Background(), locator, "Goal run canceled.")
+			g.sendGoalMessage(context.Background(), locator, "Goal run canceled.")
 			return
 		}
-		_ = g.channel.SendPlain(context.Background(), locator, fmt.Sprintf("Goal run failed: %v", err))
+		g.sendGoalMessage(context.Background(), locator, fmt.Sprintf("Goal run failed: %v", err))
 		return
 	}
 
 	if result.GoalReached {
-		_ = g.channel.SendPlain(ctx, locator, "Goal run completed.")
+		g.sendGoalMessage(ctx, locator, "Goal run completed.")
 		return
 	}
 
-	_ = g.channel.SendPlain(ctx, locator, "Goal run reached max iterations without passing validation.")
+	g.sendGoalMessage(ctx, locator, "Goal run reached max iterations without passing validation.")
+}
+
+func (g *GoalRunner) sendGoalMessage(ctx context.Context, locator baldasession.SessionLocator, text string) {
+	if g == nil || g.channel == nil {
+		return
+	}
+	_ = g.channel.SendAgentReply(ctx, locator, text)
 }
 
 type goalRunResult struct {

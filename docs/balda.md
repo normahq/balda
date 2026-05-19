@@ -472,7 +472,7 @@ Balda runs with a single provider per process (`balda.provider`).
 - `/topic <name>` (DM only, owner/collaborator): creates a new Telegram topic and a topic-bound session.
   - `<name>` is required.
   - `<name>` is a session label, not a provider selector.
-- `/goal <objective>` (owner/collaborator): starts a Goalkeeper worker -> validator loop in the current session context/workspace and posts started/validation/final updates. See [`docs/goalkeeper.md`](goalkeeper.md).
+- `/goal <objective>` (owner/collaborator): starts a Goalkeeper worker -> validator loop in the current session context/workspace and posts started/validation/final updates using `balda.telegram.formatting_mode`. See [`docs/goalkeeper.md`](goalkeeper.md).
   - concurrent `/goal` runs in the same session are rejected.
 - `/close` (DM only, owner/collaborator): resets current session history, then in the owner DM `topic_id=0` stops the owner session; in topic contexts, closes that topic.
 - `/reset` (owner/collaborator): cancels queued work and clears the current session's persisted ADK conversation history without deleting Balda metadata or the workspace branch.

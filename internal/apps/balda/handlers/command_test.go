@@ -16,7 +16,11 @@ import (
 	"github.com/tgbotkit/runtime/events"
 )
 
-const testProviderAlpha = "alpha"
+const (
+	testProviderAlpha     = "alpha"
+	testTelegramUserID101 = "tg-101"
+	testParseModeMarkdown = "MarkdownV2"
+)
 
 func TestCommandHandlerOnCommand_CloseTopicAndStopSession(t *testing.T) {
 	handler, sm, turns, tgClient := newCommandHandlerTestHarness(t)
@@ -243,7 +247,7 @@ func TestCommandHandlerOnCommand_TopicCreatesTopicSession(t *testing.T) {
 	if len(turns.cancelCalls) != 0 {
 		t.Fatalf("CancelSession calls = %d, want 0", len(turns.cancelCalls))
 	}
-	if sm.createCalls[0].SessionID != "tg-9001-456" || sm.createCalls[0].UserID != "tg-101" || sm.createCalls[0].AgentName != "alpha" {
+	if sm.createCalls[0].SessionID != "tg-9001-456" || sm.createCalls[0].UserID != testTelegramUserID101 || sm.createCalls[0].AgentName != "alpha" {
 		t.Fatalf("CreateSession call = %+v, want session=tg-9001-456 user=tg-101 agent=alpha", sm.createCalls[0])
 	}
 	assertLastSentContains(t, tgClient, "Name")
@@ -322,7 +326,7 @@ func TestCommandHandlerOnCommand_GoalStartsRun(t *testing.T) {
 		t.Fatalf("GoalRunner Start calls = %d, want 1", len(goal.startCalls))
 	}
 	call := goal.startCalls[0]
-	if call.SessionID != "tg-9001-99" || call.Objective != "deploy release" || call.TransportUserID != "tg-101" {
+	if call.SessionID != "tg-9001-99" || call.Objective != "deploy release" || call.TransportUserID != testTelegramUserID101 {
 		t.Fatalf("GoalRunner Start call = %+v, want session=tg-9001-99 objective='deploy release' user=tg-101", call)
 	}
 	if len(tgClient.messages) != 0 {
@@ -341,6 +345,27 @@ func TestCommandHandlerOnCommand_GoalRejectsConcurrentRun(t *testing.T) {
 	}
 
 	assertLastSentContains(t, tgClient, "A goal run is already active for this session.")
+}
+
+func TestCommandHandlerOnCommand_GoalRejectsConcurrentRun_UsesAgentReplyFormatting(t *testing.T) {
+	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
+	handler.messenger.SetAgentReplyFormattingMode("markdownv2")
+	goal := handler.goalRunner.(*fakeGoalRunner)
+	goal.startResult = false
+
+	err := handler.onCommand(context.Background(), newCommandEvent("goal", "deploy release", 101, 9001, nil))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(tgClient.messages) == 0 {
+		t.Fatal("sent messages = 0, want concurrent-run message")
+	}
+	last := tgClient.messages[len(tgClient.messages)-1]
+	if last.ParseMode == nil || *last.ParseMode != testParseModeMarkdown {
+		t.Fatalf("parse_mode = %v, want MarkdownV2", last.ParseMode)
+	}
+	assertLastSentContains(t, tgClient, "A goal run is already active for this session")
 }
 
 func TestCommandHandlerOnCommand_GoalWithoutArgsShowsUsage(t *testing.T) {
@@ -678,6 +703,7 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 
 	tgClient := &fakeTelegramClient{}
 	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
+	msg.SetAgentReplyFormattingMode("none")
 	sessionManager := &fakeCommandSessionManager{}
 	turnDispatcher := &fakeTurnDispatcher{}
 	goalRunner := &fakeGoalRunner{startResult: true}

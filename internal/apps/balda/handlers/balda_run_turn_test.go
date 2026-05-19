@@ -199,7 +199,7 @@ func TestRunTurn_SendsProgressForNonTerminalEventsInDM(t *testing.T) {
 	if !strings.Contains(tgClient.messages[0].Text, baldaRunTurnFinalAnswerText) {
 		t.Fatalf("message text = %q, want to contain final answer", tgClient.messages[0].Text)
 	}
-	if tgClient.messages[0].ParseMode == nil || *tgClient.messages[0].ParseMode != "MarkdownV2" {
+	if tgClient.messages[0].ParseMode == nil || *tgClient.messages[0].ParseMode != testParseModeMarkdown {
 		t.Fatalf("parse_mode = %v, want MarkdownV2", tgClient.messages[0].ParseMode)
 	}
 }

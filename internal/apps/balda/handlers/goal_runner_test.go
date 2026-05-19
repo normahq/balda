@@ -53,6 +53,7 @@ func TestGoalRunnerRunGoalLoopUsesCopiedWorkflowRuntime(t *testing.T) {
 
 	tgClient := &fakeTelegramClient{}
 	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
+	msg.SetAgentReplyFormattingMode("none")
 	runner := &GoalRunner{
 		runtimeManager: &fakeGoalkeeperRuntimeBuilder{runtime: goalRuntime},
 		channel: baldatelegram.NewAdapter(baldatelegram.AdapterParams{
@@ -122,6 +123,7 @@ func TestGoalRunnerRunGoalLoopRetriesFailVerdictUntilMax(t *testing.T) {
 
 	tgClient := &fakeTelegramClient{}
 	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
+	msg.SetAgentReplyFormattingMode("none")
 	runner := &GoalRunner{
 		runtimeManager: &fakeGoalkeeperRuntimeBuilder{runtime: goalRuntime},
 		channel: baldatelegram.NewAdapter(baldatelegram.AdapterParams{
@@ -249,4 +251,49 @@ func goalRunnerSentText(tgClient *fakeTelegramClient) string {
 		parts = append(parts, msg.Text)
 	}
 	return strings.Join(parts, "\n")
+}
+
+func TestGoalRunnerRunGoalLoopUsesAgentFormattingMode(t *testing.T) {
+	goalRuntime, agentSessionID := newGoalRunnerWorkflowRuntime(t, 1,
+		func(ctx adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+			return func(yield func(*adksession.Event, error) bool) {
+				yield(goalRunnerTextEvent(ctx.InvocationID(), "**worker** done"), nil)
+			}
+		},
+		func(ctx adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+			return func(yield func(*adksession.Event, error) bool) {
+				yield(goalRunnerTextEvent(ctx.InvocationID(), "verdict: pass\n`ok`"), nil)
+			}
+		},
+	)
+
+	locator := baldatelegram.NewLocator(-1002667079342, 9940)
+	ts := newSchedulerTopicSession(t, locator, "tg-101", agentSessionID, nil)
+	setUnexportedField(t, ts, "workspaceDir", t.TempDir())
+	setUnexportedField(t, ts, "branchName", "norma/balda/"+locator.SessionID)
+
+	tgClient := &fakeTelegramClient{}
+	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
+	msg.SetAgentReplyFormattingMode("markdownv2")
+	runner := &GoalRunner{
+		runtimeManager: &fakeGoalkeeperRuntimeBuilder{runtime: goalRuntime},
+		channel: baldatelegram.NewAdapter(baldatelegram.AdapterParams{
+			Messenger: msg,
+			TGClient:  tgClient,
+			Logger:    zerolog.Nop(),
+		}),
+		logger:        zerolog.Nop(),
+		maxIterations: 1,
+	}
+
+	runner.runGoalLoop(context.Background(), locator, ts, "deploy release")
+
+	if len(tgClient.messages) == 0 {
+		t.Fatal("sent messages = 0, want at least one goal update")
+	}
+	for i, sent := range tgClient.messages {
+		if sent.ParseMode == nil || *sent.ParseMode != testParseModeMarkdown {
+			t.Fatalf("messages[%d].parse_mode = %v, want MarkdownV2", i, sent.ParseMode)
+		}
+	}
 }

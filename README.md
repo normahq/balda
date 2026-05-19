@@ -144,7 +144,7 @@ Built-in provider types:
 ## Bot Commands
 
 - `/topic <name>`: create a named topic session.
-- `/goal <objective>`: start a Goalkeeper worker -> validator loop in the current session context/workspace. See [`docs/goalkeeper.md`](docs/goalkeeper.md).
+- `/goal <objective>`: start a Goalkeeper worker -> validator loop in the current session context/workspace. Goal updates are sent with `balda.telegram.formatting_mode`. See [`docs/goalkeeper.md`](docs/goalkeeper.md).
 - `/reset`: clear conversation history for the current session.
 - `/close`: reset history, then close the current topic or restart the owner session on the next message.
 - `/cancel`: cancel in-flight work, drop queued turns, and abort active `/goal` run for the current session.
