@@ -43,6 +43,36 @@ func TestNewRequiresValidator(t *testing.T) {
 	}
 }
 
+func TestWorkflowSubAgentsAreProvidedWorkerAndValidator(t *testing.T) {
+	t.Parallel()
+
+	worker := mustNewTestAgent(t, "worker", func(agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(func(*session.Event, error) bool) {}
+	})
+	validator := mustNewTestAgent(t, "validator", func(agent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(func(*session.Event, error) bool) {}
+	})
+
+	workflow, err := New(NewOptions(worker, validator))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	subAgents := workflow.SubAgents()
+	if len(subAgents) != 2 {
+		t.Fatalf("len(SubAgents()) = %d, want 2", len(subAgents))
+	}
+	if subAgents[0] != worker || subAgents[1] != validator {
+		t.Fatalf("SubAgents() = [%s, %s], want provided worker and validator", subAgents[0].Name(), subAgents[1].Name())
+	}
+	if got := workflow.FindAgent(worker.Name()); got != worker {
+		t.Fatalf("FindAgent(%q) = %v, want provided worker", worker.Name(), got)
+	}
+	if got := workflow.FindAgent(validator.Name()); got != validator {
+		t.Fatalf("FindAgent(%q) = %v, want provided validator", validator.Name(), got)
+	}
+}
+
 func TestWorkflowRunsWorkerThenValidatorWithSharedSession(t *testing.T) {
 	t.Parallel()
 

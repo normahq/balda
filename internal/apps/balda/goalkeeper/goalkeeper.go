@@ -57,7 +57,7 @@ func New(opts Options) (agent.Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return loopagent.New(loopagent.Config{
+	workflow, err := loopagent.New(loopagent.Config{
 		MaxIterations: opts.maxIterations,
 		AgentConfig: agent.Config{
 			Name:        rootAgentName,
@@ -65,6 +65,38 @@ func New(opts Options) (agent.Agent, error) {
 			SubAgents:   []agent.Agent{worker, validator},
 		},
 	})
+	if err != nil {
+		return nil, err
+	}
+	return &subAgentViewAgent{
+		Agent:     workflow,
+		subAgents: []agent.Agent{opts.worker, opts.validator},
+	}, nil
+}
+
+type subAgentViewAgent struct {
+	agent.Agent
+	subAgents []agent.Agent
+}
+
+func (a *subAgentViewAgent) SubAgents() []agent.Agent {
+	return a.subAgents
+}
+
+func (a *subAgentViewAgent) FindAgent(name string) agent.Agent {
+	if a.Name() == name {
+		return a
+	}
+	return a.FindSubAgent(name)
+}
+
+func (a *subAgentViewAgent) FindSubAgent(name string) agent.Agent {
+	for _, subAgent := range a.SubAgents() {
+		if result := subAgent.FindAgent(name); result != nil {
+			return result
+		}
+	}
+	return nil
 }
 
 func newStepEventAgent(inner agent.Agent, spec stepSpec) (agent.Agent, error) {
