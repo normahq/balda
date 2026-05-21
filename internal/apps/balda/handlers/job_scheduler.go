@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
@@ -23,31 +24,21 @@ const (
 	defaultSchedulerMaxRetries   = 3
 )
 
-// JobLocatorAlias defines a config alias to a canonical session locator.
-type JobLocatorAlias struct {
-	ChannelType string
-	AddressKey  string
-	AddressJSON string
-	SessionID   string
-}
-
 // ConfiguredScheduledJob defines a startup-managed recurring job.
 type ConfiguredScheduledJob struct {
 	ID     string
-	Alias  string
 	Cron   string
 	Prompt string
 }
 
 // JobSchedulerConfig controls startup job reconciliation.
 type JobSchedulerConfig struct {
-	LocatorAliases map[string]JobLocatorAlias
-	Jobs           []ConfiguredScheduledJob
+	Jobs []ConfiguredScheduledJob
 }
 
 type schedulerSessionManager interface {
 	GetSession(locator baldasession.SessionLocator) (*baldasession.TopicSession, error)
-	GetSessionInfo(ctx context.Context, sessionID string) (baldasession.TopicSessionInfo, error)
+	EnsureSession(ctx context.Context, sessionCtx baldasession.SessionContext, label string) (*baldasession.TopicSession, error)
 	RestoreSession(ctx context.Context, sessionCtx baldasession.SessionContext) (*baldasession.TopicSession, error)
 }
 
@@ -64,6 +55,7 @@ type jobSchedulerParams struct {
 	SessionManager *baldasession.Manager
 	TurnDispatcher *TurnDispatcher
 	Channel        *baldatelegram.Adapter
+	OwnerStore     *auth.OwnerStore
 	Logger         zerolog.Logger
 	Config         JobSchedulerConfig
 }
@@ -74,6 +66,7 @@ type JobScheduler struct {
 	sessions schedulerSessionManager
 	dispatch turnQueue
 	channel  schedulerChannel
+	owner    *auth.OwnerStore
 	logger   zerolog.Logger
 	config   JobSchedulerConfig
 
@@ -102,12 +95,16 @@ func NewJobScheduler(params jobSchedulerParams) (*JobScheduler, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(config.Jobs) > 0 && params.OwnerStore == nil {
+		return nil, fmt.Errorf("balda owner store is required for scheduler jobs")
+	}
 
 	scheduler := &JobScheduler{
 		jobStore:     params.StateProvider.ScheduledJobs(),
 		sessions:     params.SessionManager,
 		dispatch:     params.TurnDispatcher,
 		channel:      params.Channel,
+		owner:        params.OwnerStore,
 		logger:       params.Logger.With().Str("component", "balda.job_scheduler").Logger(),
 		config:       config,
 		pollInterval: defaultSchedulerPollInterval,
@@ -180,19 +177,26 @@ func (s *JobScheduler) stop(ctx context.Context) error {
 func (s *JobScheduler) reconcileConfiguredJobs(ctx context.Context) error {
 	desired := make(map[string]struct{}, len(s.config.Jobs))
 	now := s.now().UTC()
+	var target resolvedEnvelopeTarget
+	if len(s.config.Jobs) > 0 {
+		var err error
+		target, err = resolveEnvelopeTarget(ctx, s.owner, ownerEnvelopeTarget())
+		if err != nil {
+			return fmt.Errorf("resolve scheduler target: %w", err)
+		}
+	}
 
 	for _, job := range s.config.Jobs {
-		alias := s.config.LocatorAliases[job.Alias]
 		nextRunAt, err := nextRunAtFromSpec(job.Cron, now)
 		if err != nil {
 			return fmt.Errorf("compute next run for scheduler job %q: %w", job.ID, err)
 		}
 		record := baldastate.ScheduledJobRecord{
 			JobID:        job.ID,
-			SessionID:    alias.SessionID,
-			ChannelType:  alias.ChannelType,
-			AddressKey:   alias.AddressKey,
-			AddressJSON:  alias.AddressJSON,
+			SessionID:    target.Locator.SessionID,
+			ChannelType:  target.Locator.ChannelType,
+			AddressKey:   target.Locator.AddressKey,
+			AddressJSON:  target.Locator.AddressJSON,
 			Prompt:       job.Prompt,
 			ScheduleSpec: job.Cron,
 			Timezone:     "UTC",
@@ -263,12 +267,13 @@ func (s *JobScheduler) dispatchJob(ctx context.Context, job baldastate.Scheduled
 		return nil
 	}
 
-	locator, err := baldasession.NewSessionLocator(current.ChannelType, current.AddressKey, current.AddressJSON, current.SessionID)
+	target, err := resolveEnvelopeTarget(ctx, s.owner, ownerEnvelopeTarget())
 	if err != nil {
-		return s.markFailure(ctx, jobID, fmt.Errorf("invalid job locator: %w", err))
+		return s.markFailure(ctx, jobID, fmt.Errorf("resolve scheduler target: %w", err))
 	}
+	locator := target.Locator
 
-	ts, err := s.resolveTopicSession(ctx, locator, strings.TrimSpace(current.SessionID))
+	ts, err := s.resolveTopicSession(ctx, target)
 	if err != nil {
 		return s.markFailure(ctx, jobID, fmt.Errorf("resolve session: %w", err))
 	}
@@ -283,6 +288,10 @@ func (s *JobScheduler) dispatchJob(ctx context.Context, job baldastate.Scheduled
 	current.LastError = ""
 	current.Status = baldastate.ScheduledJobStatusActive
 	current.NextRunAt = nextRunAt
+	current.SessionID = locator.SessionID
+	current.ChannelType = locator.ChannelType
+	current.AddressKey = locator.AddressKey
+	current.AddressJSON = locator.AddressJSON
 	if err := s.jobStore.Upsert(ctx, current); err != nil {
 		return fmt.Errorf("update job %q before enqueue: %w", jobID, err)
 	}
@@ -302,30 +311,32 @@ func (s *JobScheduler) dispatchJob(ctx context.Context, job baldastate.Scheduled
 
 func (s *JobScheduler) resolveTopicSession(
 	ctx context.Context,
-	locator baldasession.SessionLocator,
-	sessionID string,
+	target resolvedEnvelopeTarget,
 ) (*baldasession.TopicSession, error) {
+	locator := target.Locator
 	ts, err := s.sessions.GetSession(locator)
 	if err == nil {
 		return ts, nil
 	}
-	if strings.TrimSpace(sessionID) == "" {
-		sessionID = strings.TrimSpace(locator.SessionID)
-	}
 
-	info, infoErr := s.sessions.GetSessionInfo(ctx, sessionID)
-	if infoErr != nil {
-		return nil, infoErr
-	}
-	userID := strings.TrimSpace(info.UserID)
+	userID := strings.TrimSpace(target.UserID)
 	if userID == "" {
-		return nil, fmt.Errorf("session %q has no user id for restore", sessionID)
+		return nil, fmt.Errorf("owner target user id is required")
 	}
-
-	return s.sessions.RestoreSession(ctx, baldasession.SessionContext{
+	ts, err = s.sessions.RestoreSession(ctx, baldasession.SessionContext{
 		Locator: locator,
 		UserID:  userID,
 	})
+	if err == nil {
+		return ts, nil
+	}
+	if !errors.Is(err, baldasession.ErrNoPersistedSession) {
+		return nil, err
+	}
+	return s.sessions.EnsureSession(ctx, baldasession.SessionContext{
+		Locator: locator,
+		UserID:  userID,
+	}, ownerSessionLabel)
 }
 
 func (s *JobScheduler) executeJobTurn(
@@ -335,24 +346,20 @@ func (s *JobScheduler) executeJobTurn(
 	prompt string,
 	ts *baldasession.TopicSession,
 ) error {
-	reply, err := runGoalIteration(ctx, ts.GetRunner(), ts.GetUserID(), ts.GetAgentSessionID(), prompt)
+	_, err := runGoalIteration(ctx, ts.GetRunner(), ts.GetUserID(), ts.GetAgentSessionID(), prompt)
 	if err != nil {
 		if isScheduledJobCancellation(ctx, err) {
 			s.logger.Info().Str("job_id", jobID).Msg("scheduled job turn canceled")
 			return nil
 		}
 		_ = s.markFailure(context.Background(), jobID, fmt.Errorf("execute scheduled job: %w", err))
-		_ = s.channel.SendPlain(context.Background(), locator, fmt.Sprintf("Scheduled job %s failed: %v", jobID, err))
 		return err
 	}
 
 	if err := s.markSuccess(context.Background(), jobID); err != nil {
 		s.logger.Warn().Err(err).Str("job_id", jobID).Msg("failed to mark scheduled job success")
 	}
-	if strings.TrimSpace(reply) != "" {
-		return s.channel.SendAgentReply(ctx, locator, reply)
-	}
-	return s.channel.SendPlain(ctx, locator, fmt.Sprintf("Scheduled job %s completed.", jobID))
+	return nil
 }
 
 func isScheduledJobCancellation(ctx context.Context, err error) bool {
@@ -414,34 +421,7 @@ func (s *JobScheduler) markFailure(ctx context.Context, jobID string, cause erro
 
 func normalizeJobSchedulerConfig(raw JobSchedulerConfig) (JobSchedulerConfig, error) {
 	cfg := JobSchedulerConfig{
-		LocatorAliases: make(map[string]JobLocatorAlias, len(raw.LocatorAliases)),
-		Jobs:           make([]ConfiguredScheduledJob, 0, len(raw.Jobs)),
-	}
-
-	for rawAlias, rawLocator := range raw.LocatorAliases {
-		alias := strings.TrimSpace(rawAlias)
-		if alias == "" {
-			return JobSchedulerConfig{}, fmt.Errorf("balda.locators alias is required")
-		}
-		if _, exists := cfg.LocatorAliases[alias]; exists {
-			return JobSchedulerConfig{}, fmt.Errorf("duplicate balda.locators alias %q", alias)
-		}
-
-		locator, err := baldasession.NewSessionLocator(
-			strings.TrimSpace(rawLocator.ChannelType),
-			strings.TrimSpace(rawLocator.AddressKey),
-			strings.TrimSpace(rawLocator.AddressJSON),
-			strings.TrimSpace(rawLocator.SessionID),
-		)
-		if err != nil {
-			return JobSchedulerConfig{}, fmt.Errorf("invalid balda.locators.%s: %w", alias, err)
-		}
-		cfg.LocatorAliases[alias] = JobLocatorAlias{
-			ChannelType: locator.ChannelType,
-			AddressKey:  locator.AddressKey,
-			AddressJSON: locator.AddressJSON,
-			SessionID:   locator.SessionID,
-		}
+		Jobs: make([]ConfiguredScheduledJob, 0, len(raw.Jobs)),
 	}
 
 	seenJobIDs := make(map[string]struct{}, len(raw.Jobs))
@@ -454,14 +434,6 @@ func normalizeJobSchedulerConfig(raw JobSchedulerConfig) (JobSchedulerConfig, er
 			return JobSchedulerConfig{}, fmt.Errorf("duplicate balda.scheduler.jobs id %q", jobID)
 		}
 		seenJobIDs[jobID] = struct{}{}
-
-		alias := strings.TrimSpace(rawJob.Alias)
-		if alias == "" {
-			return JobSchedulerConfig{}, fmt.Errorf("balda.scheduler.jobs[%d].alias is required", idx)
-		}
-		if _, ok := cfg.LocatorAliases[alias]; !ok {
-			return JobSchedulerConfig{}, fmt.Errorf("balda.scheduler.jobs[%d].alias %q references undefined balda.locators key", idx, alias)
-		}
 
 		cronSpec := strings.TrimSpace(rawJob.Cron)
 		if cronSpec == "" {
@@ -478,7 +450,6 @@ func normalizeJobSchedulerConfig(raw JobSchedulerConfig) (JobSchedulerConfig, er
 
 		cfg.Jobs = append(cfg.Jobs, ConfiguredScheduledJob{
 			ID:     jobID,
-			Alias:  alias,
 			Cron:   cronSpec,
 			Prompt: prompt,
 		})

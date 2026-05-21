@@ -20,10 +20,10 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
 	"github.com/normahq/balda/internal/apps/sessionmcp"
 	"github.com/normahq/balda/internal/git"
-	"github.com/normahq/runtime/agentconfig"
-	"github.com/normahq/runtime/agentfactory"
-	runtimeconfig "github.com/normahq/runtime/appconfig"
-	"github.com/normahq/runtime/mcpregistry"
+	"github.com/normahq/norma/pkg/runtime/agentconfig"
+	"github.com/normahq/norma/pkg/runtime/agentfactory"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
+	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/runtime"
@@ -516,58 +516,32 @@ func validateSessionPersistence(raw string) (string, error) {
 }
 
 func buildJobSchedulerConfig(cfg BaldaConfig) handlers.JobSchedulerConfig {
-	locatorAliases := make(map[string]handlers.JobLocatorAlias, len(cfg.Locators))
-	for alias, locator := range cfg.Locators {
-		trimmedAlias := strings.TrimSpace(alias)
-		locatorAliases[trimmedAlias] = handlers.JobLocatorAlias{
-			ChannelType: strings.TrimSpace(locator.ChannelType),
-			AddressKey:  strings.TrimSpace(locator.AddressKey),
-			AddressJSON: strings.TrimSpace(locator.AddressJSON),
-			SessionID:   strings.TrimSpace(locator.SessionID),
-		}
-	}
-
 	jobs := make([]handlers.ConfiguredScheduledJob, 0, len(cfg.Scheduler.Jobs))
 	for _, job := range cfg.Scheduler.Jobs {
 		jobs = append(jobs, handlers.ConfiguredScheduledJob{
 			ID:     strings.TrimSpace(job.ID),
-			Alias:  strings.TrimSpace(job.Alias),
 			Cron:   strings.TrimSpace(job.Cron),
 			Prompt: strings.TrimSpace(job.Prompt),
 		})
 	}
 
 	return handlers.JobSchedulerConfig{
-		LocatorAliases: locatorAliases,
-		Jobs:           jobs,
+		Jobs: jobs,
 	}
 }
 
 func buildInboundWebhookConfig(cfg BaldaConfig) handlers.InboundWebhookConfig {
-	locatorAliases := make(map[string]handlers.WebhookLocatorAlias, len(cfg.Locators))
-	for alias, locator := range cfg.Locators {
-		trimmedAlias := strings.TrimSpace(alias)
-		locatorAliases[trimmedAlias] = handlers.WebhookLocatorAlias{
-			ChannelType: strings.TrimSpace(locator.ChannelType),
-			AddressKey:  strings.TrimSpace(locator.AddressKey),
-			AddressJSON: strings.TrimSpace(locator.AddressJSON),
-			SessionID:   strings.TrimSpace(locator.SessionID),
-		}
-	}
-
-	routes := make(map[string]handlers.InboundWebhookRouteConfig, len(cfg.InboundWebhooks.Routes))
-	for routeName, route := range cfg.InboundWebhooks.Routes {
+	routes := make(map[string]handlers.InboundWebhookRouteConfig, len(cfg.Webhooks.Routes))
+	for routeName, route := range cfg.Webhooks.Routes {
 		routes[strings.TrimSpace(routeName)] = handlers.InboundWebhookRouteConfig{
 			Path:           strings.TrimSpace(route.Path),
-			ReportTo:       strings.TrimSpace(route.ReportTo),
 			PromptTemplate: strings.TrimSpace(route.PromptTemplate),
 		}
 	}
 
 	return handlers.InboundWebhookConfig{
-		Enabled:        cfg.InboundWebhooks.Enabled,
-		ListenAddr:     strings.TrimSpace(cfg.InboundWebhooks.ListenAddr),
-		LocatorAliases: locatorAliases,
-		Routes:         routes,
+		Enabled:    cfg.Webhooks.Enabled,
+		ListenAddr: strings.TrimSpace(cfg.Webhooks.ListenAddr),
+		Routes:     routes,
 	}
 }

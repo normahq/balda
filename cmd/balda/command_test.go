@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	baldaapp "github.com/normahq/balda/internal/apps/balda"
-	"github.com/normahq/runtime/appconfig"
+	"github.com/normahq/norma/pkg/runtime/appconfig"
 )
 
 type baldaTestConfigDocument struct {

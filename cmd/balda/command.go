@@ -12,7 +12,7 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda"
 	"github.com/normahq/balda/internal/apps/balda/shutdown"
-	"github.com/normahq/runtime/appconfig"
+	"github.com/normahq/norma/pkg/runtime/appconfig"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

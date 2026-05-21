@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
@@ -44,7 +45,7 @@ func TestJobSchedulerDispatchJob_EnqueuesAndReschedules(t *testing.T) {
 	sessions := &fakeSchedulerSessionManager{session: ts}
 	queue := &fakeSchedulerTurnQueue{}
 	channel := &fakeSchedulerChannel{}
-	scheduler := newSchedulerForTest(store, sessions, queue, channel, now)
+	scheduler := newSchedulerForTest(t, store, sessions, queue, channel, now)
 
 	if err := scheduler.dispatchJob(ctx, record, now); err != nil {
 		t.Fatalf("dispatchJob() error = %v", err)
@@ -102,7 +103,7 @@ func TestJobSchedulerDispatchJob_RestoresSessionWhenNotInMemory(t *testing.T) {
 		restore: restoreTS,
 	}
 	queue := &fakeSchedulerTurnQueue{}
-	scheduler := newSchedulerForTest(store, sessions, queue, &fakeSchedulerChannel{}, now)
+	scheduler := newSchedulerForTest(t, store, sessions, queue, &fakeSchedulerChannel{}, now)
 
 	if err := scheduler.dispatchJob(ctx, record, now); err != nil {
 		t.Fatalf("dispatchJob() error = %v", err)
@@ -143,7 +144,7 @@ func TestJobSchedulerDispatchJob_IdempotentForSameDueSlot(t *testing.T) {
 		session: newSchedulerTopicSession(t, locator, "tg-303", "adk-3", nil),
 	}
 	queue := &fakeSchedulerTurnQueue{}
-	scheduler := newSchedulerForTest(store, sessions, queue, &fakeSchedulerChannel{}, now)
+	scheduler := newSchedulerForTest(t, store, sessions, queue, &fakeSchedulerChannel{}, now)
 
 	if err := scheduler.dispatchJob(ctx, record, now); err != nil {
 		t.Fatalf("dispatchJob() first call error = %v", err)
@@ -268,21 +269,13 @@ func TestJobSchedulerReconcileConfiguredJobs_UpsertsAndDeletes(t *testing.T) {
 
 	scheduler := &JobScheduler{
 		jobStore: store,
+		owner:    newOwnerStoreForTest(t, 101, 9001),
 		logger:   zerolog.Nop(),
 		now:      func() time.Time { return now },
 		config: JobSchedulerConfig{
-			LocatorAliases: map[string]JobLocatorAlias{
-				"owner": {
-					ChannelType: locator.ChannelType,
-					AddressKey:  locator.AddressKey,
-					AddressJSON: locator.AddressJSON,
-					SessionID:   locator.SessionID,
-				},
-			},
 			Jobs: []ConfiguredScheduledJob{
 				{
 					ID:     "managed-job",
-					Alias:  "owner",
 					Cron:   "@every 2s",
 					Prompt: "review queue",
 				},
@@ -340,28 +333,27 @@ func TestNextRunAtFromSpec_ParsesCronExpression(t *testing.T) {
 	}
 }
 
-func TestNormalizeJobSchedulerConfig_RejectsMissingAlias(t *testing.T) {
+func TestNormalizeJobSchedulerConfig_AllowsJobWithoutAlias(t *testing.T) {
 	t.Parallel()
 
-	_, err := normalizeJobSchedulerConfig(JobSchedulerConfig{
+	got, err := normalizeJobSchedulerConfig(JobSchedulerConfig{
 		Jobs: []ConfiguredScheduledJob{
 			{
 				ID:     "job-1",
-				Alias:  "missing",
 				Cron:   "@every 1m",
 				Prompt: "check",
 			},
 		},
 	})
-	if err == nil {
-		t.Fatal("normalizeJobSchedulerConfig() error = nil, want non-nil")
-	}
-	if !strings.Contains(err.Error(), "references undefined balda.locators key") {
+	if err != nil {
 		t.Fatalf("normalizeJobSchedulerConfig() error = %v", err)
+	}
+	if len(got.Jobs) != 1 {
+		t.Fatalf("jobs = %d, want 1", len(got.Jobs))
 	}
 }
 
-func TestJobSchedulerExecuteJobTurn_SuccessResetsRetryAndSendsReply(t *testing.T) {
+func TestJobSchedulerExecuteJobTurn_SuccessResetsRetryWithoutReply(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -400,8 +392,11 @@ func TestJobSchedulerExecuteJobTurn_SuccessResetsRetryAndSendsReply(t *testing.T
 	if err := scheduler.executeJobTurn(ctx, locator, record.JobID, "ship it", ts); err != nil {
 		t.Fatalf("executeJobTurn() error = %v", err)
 	}
-	if got := len(channel.agentReplies); got != 1 {
-		t.Fatalf("agent reply sends = %d, want 1", got)
+	if got := len(channel.agentReplies); got != 0 {
+		t.Fatalf("agent reply sends = %d, want 0", got)
+	}
+	if got := len(channel.plainTexts); got != 0 {
+		t.Fatalf("plain sends = %d, want 0", got)
 	}
 
 	updated, ok, err := store.GetByID(ctx, record.JobID)
@@ -498,6 +493,9 @@ type fakeSchedulerSessionManager struct {
 	restore      *baldasession.TopicSession
 	restoreErr   error
 	restoreCalls int
+	ensure       *baldasession.TopicSession
+	ensureErr    error
+	ensureCalls  int
 }
 
 func (f *fakeSchedulerSessionManager) GetSession(_ baldasession.SessionLocator) (*baldasession.TopicSession, error) {
@@ -526,6 +524,22 @@ func (f *fakeSchedulerSessionManager) RestoreSession(_ context.Context, _ baldas
 		return nil, errors.New("restore unavailable")
 	}
 	return f.restore, nil
+}
+
+func (f *fakeSchedulerSessionManager) EnsureSession(
+	_ context.Context,
+	_ baldasession.SessionContext,
+	_ string,
+) (*baldasession.TopicSession, error) {
+	f.ensureCalls++
+	if f.ensureErr != nil {
+		return nil, f.ensureErr
+	}
+	if f.ensure != nil {
+		f.session = f.ensure
+		return f.ensure, nil
+	}
+	return nil, errors.New("ensure unavailable")
 }
 
 type fakeSchedulerTurnQueue struct {
@@ -565,6 +579,7 @@ func (c *schedulerClock) Now() time.Time {
 }
 
 func newSchedulerForTest(
+	t *testing.T,
 	store baldastate.ScheduledJobStore,
 	sessions schedulerSessionManager,
 	queue turnQueue,
@@ -576,11 +591,25 @@ func newSchedulerForTest(
 		sessions:     sessions,
 		dispatch:     queue,
 		channel:      channel,
+		owner:        newOwnerStoreForTest(t, 101, 9001),
 		logger:       zerolog.Nop(),
 		pollInterval: defaultSchedulerPollInterval,
 		dueBatchSize: defaultSchedulerDueBatchSize,
 		now:          func() time.Time { return now },
 	}
+}
+
+func newOwnerStoreForTest(t *testing.T, userID int64, chatID int64) *auth.OwnerStore {
+	t.Helper()
+
+	store, err := auth.NewOwnerStore(&fakeOwnerKVStore{})
+	if err != nil {
+		t.Fatalf("NewOwnerStore() error = %v", err)
+	}
+	if _, err := store.RegisterOwner(userID, chatID, "owner", "Owner", "", false); err != nil {
+		t.Fatalf("RegisterOwner() error = %v", err)
+	}
+	return store
 }
 
 func newSchedulerJobStore(t *testing.T) baldastate.ScheduledJobStore {

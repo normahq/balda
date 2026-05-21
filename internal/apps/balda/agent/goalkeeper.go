@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/normahq/balda/internal/apps/balda/goalkeeper"
-	"github.com/normahq/runtime/agentfactory"
+	"github.com/normahq/norma/pkg/runtime/agentfactory"
 	adkagent "google.golang.org/adk/agent"
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"

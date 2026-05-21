@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -34,8 +35,8 @@ func (s *sqliteSessionStore) Upsert(ctx context.Context, record SessionRecord) e
 		record.Status = SessionStatusActive
 	}
 
-	// Keep legacy chat_id/topic_id columns populated with zero values.
-	// Canonical routing now uses channel_type/address_key/address_json only.
+	chatID, topicID := legacyTelegramAddress(record)
+
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO balda_session_metadata (
 			session_id, user_id, chat_id, topic_id, channel_type, address_key, address_json, agent_name, workspace_dir, branch_name, status, updated_at
@@ -55,8 +56,8 @@ func (s *sqliteSessionStore) Upsert(ctx context.Context, record SessionRecord) e
 			updated_at = excluded.updated_at`,
 		sessionID,
 		strings.TrimSpace(record.UserID),
-		0,
-		0,
+		chatID,
+		topicID,
 		channelType,
 		addressKey,
 		addressJSON,
@@ -70,6 +71,26 @@ func (s *sqliteSessionStore) Upsert(ctx context.Context, record SessionRecord) e
 	}
 
 	return nil
+}
+
+func legacyTelegramAddress(record SessionRecord) (int64, int64) {
+	if strings.TrimSpace(record.ChannelType) != ChannelTypeTelegram {
+		return 0, 0
+	}
+
+	chatIDRaw, topicIDRaw, ok := strings.Cut(strings.TrimSpace(record.AddressKey), ":")
+	if !ok {
+		return 0, 0
+	}
+	chatID, err := strconv.ParseInt(strings.TrimSpace(chatIDRaw), 10, 64)
+	if err != nil {
+		return 0, 0
+	}
+	topicID, err := strconv.ParseInt(strings.TrimSpace(topicIDRaw), 10, 64)
+	if err != nil {
+		return 0, 0
+	}
+	return chatID, topicID
 }
 
 func (s *sqliteSessionStore) GetByAddress(ctx context.Context, channelType, addressKey string) (SessionRecord, bool, error) {

@@ -349,7 +349,38 @@ func (h *BaldaHandler) runTurnTask(
 	topicID int,
 	progressPolicy baldachannel.ProgressPolicy,
 ) error {
-	err := h.runTurn(ctx, text, r, userID, sessionID, agentSessionID, locator, messageID, progressPolicy)
+	return h.runTurnTaskWithDelivery(
+		ctx,
+		text,
+		r,
+		userID,
+		sessionID,
+		agentSessionID,
+		locator,
+		messageID,
+		topicID,
+		progressPolicy,
+		true,
+	)
+}
+
+func (h *BaldaHandler) runTurnTaskWithDelivery(
+	ctx context.Context,
+	text string,
+	r *runner.Runner,
+	userID string,
+	sessionID string,
+	agentSessionID string,
+	locator baldasession.SessionLocator,
+	messageID int,
+	topicID int,
+	progressPolicy baldachannel.ProgressPolicy,
+	deliver bool,
+) error {
+	if !deliver {
+		progressPolicy = baldachannel.ProgressPolicy{}
+	}
+	err := h.runTurnWithDelivery(ctx, text, r, userID, sessionID, agentSessionID, locator, messageID, progressPolicy, deliver)
 	if err == nil {
 		return nil
 	}
@@ -366,6 +397,14 @@ func (h *BaldaHandler) runTurnTask(
 			Int("topic_id", topicID).
 			Msg("suppressing balda turn error for inactive session")
 		return nil
+	}
+	if !deliver {
+		h.logger.Warn().
+			Err(err).
+			Str("session_id", sessionID).
+			Int("topic_id", topicID).
+			Msg("fire-and-forget balda turn failed")
+		return err
 	}
 
 	log.Error().Err(err).Int("topic_id", topicID).Msg("agent execution failed")
@@ -443,6 +482,21 @@ func (h *BaldaHandler) runTurn(
 	locator baldasession.SessionLocator,
 	messageID int,
 	progressPolicy baldachannel.ProgressPolicy,
+) error {
+	return h.runTurnWithDelivery(ctx, text, r, userID, sessionID, agentSessionID, locator, messageID, progressPolicy, true)
+}
+
+func (h *BaldaHandler) runTurnWithDelivery(
+	ctx context.Context,
+	text string,
+	r *runner.Runner,
+	userID string,
+	sessionID string,
+	agentSessionID string,
+	locator baldasession.SessionLocator,
+	messageID int,
+	progressPolicy baldachannel.ProgressPolicy,
+	deliver bool,
 ) error {
 	if strings.TrimSpace(agentSessionID) == "" {
 		agentSessionID = sessionID
@@ -634,7 +688,9 @@ func (h *BaldaHandler) runTurn(
 			responseEmitted := false
 			responseSource := "none"
 			handledEmptyTerminalReason := false
-			if strings.TrimSpace(responseText) != "" {
+			if !deliver {
+				responseSource = "fire_and_forget"
+			} else if strings.TrimSpace(responseText) != "" {
 				if sendErr := h.channel.SendAgentReply(ctx, locator, responseText); sendErr != nil {
 					log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send balda response")
 				} else {

@@ -25,37 +25,28 @@ func TestNormalizeInboundWebhookConfig_RequiresRoutesWhenEnabled(t *testing.T) {
 	if err == nil {
 		t.Fatal("normalizeInboundWebhookConfig() error = nil, want non-nil")
 	}
-	if !strings.Contains(err.Error(), "balda.inbound_webhooks.routes is required") {
+	if !strings.Contains(err.Error(), "balda.webhooks.routes is required") {
 		t.Fatalf("normalizeInboundWebhookConfig() error = %v", err)
 	}
 }
 
-func TestNormalizeInboundWebhookConfig_RejectsUndefinedAlias(t *testing.T) {
+func TestNormalizeInboundWebhookConfig_AllowsRouteWithoutReportTo(t *testing.T) {
 	t.Parallel()
 
-	_, err := normalizeInboundWebhookConfig(InboundWebhookConfig{
+	got, err := normalizeInboundWebhookConfig(InboundWebhookConfig{
 		Enabled: true,
-		LocatorAliases: map[string]WebhookLocatorAlias{
-			"owner": {
-				ChannelType: "telegram",
-				AddressKey:  "9001:0",
-				AddressJSON: `{"chat_id":9001,"topic_id":0}`,
-				SessionID:   "tg-9001-0",
-			},
-		},
 		Routes: map[string]InboundWebhookRouteConfig{
 			"webhook1": {
 				Path:           "/webhook1",
-				ReportTo:       "missing",
 				PromptTemplate: "{{.RawBody}}",
 			},
 		},
 	})
-	if err == nil {
-		t.Fatal("normalizeInboundWebhookConfig() error = nil, want non-nil")
-	}
-	if !strings.Contains(err.Error(), "references undefined balda.locators key") {
+	if err != nil {
 		t.Fatalf("normalizeInboundWebhookConfig() error = %v", err)
+	}
+	if _, ok := got.Routes["/webhook1"]; !ok {
+		t.Fatal("route /webhook1 missing")
 	}
 }
 
@@ -64,23 +55,13 @@ func TestNormalizeInboundWebhookConfig_RejectsDuplicatePaths(t *testing.T) {
 
 	_, err := normalizeInboundWebhookConfig(InboundWebhookConfig{
 		Enabled: true,
-		LocatorAliases: map[string]WebhookLocatorAlias{
-			"owner": {
-				ChannelType: "telegram",
-				AddressKey:  "9001:0",
-				AddressJSON: `{"chat_id":9001,"topic_id":0}`,
-				SessionID:   "tg-9001-0",
-			},
-		},
 		Routes: map[string]InboundWebhookRouteConfig{
 			"webhook1": {
 				Path:           "/shared",
-				ReportTo:       "owner",
 				PromptTemplate: "first",
 			},
 			"webhook2": {
 				Path:           "shared",
-				ReportTo:       "owner",
 				PromptTemplate: "second",
 			},
 		},
@@ -96,7 +77,7 @@ func TestNormalizeInboundWebhookConfig_RejectsDuplicatePaths(t *testing.T) {
 func TestInboundWebhookReceiver_InvalidMethod(t *testing.T) {
 	t.Parallel()
 
-	receiver := newInboundWebhookReceiverForTest()
+	receiver := newInboundWebhookReceiverForTest(t)
 	req := httptest.NewRequest(http.MethodGet, "/webhook1", nil)
 	rec := httptest.NewRecorder()
 
@@ -108,7 +89,7 @@ func TestInboundWebhookReceiver_InvalidMethod(t *testing.T) {
 func TestInboundWebhookReceiver_RouteNotFound(t *testing.T) {
 	t.Parallel()
 
-	receiver := newInboundWebhookReceiverForTest()
+	receiver := newInboundWebhookReceiverForTest(t)
 	req := httptest.NewRequest(http.MethodPost, "/missing", bytes.NewBufferString("payload"))
 	rec := httptest.NewRecorder()
 
@@ -120,13 +101,11 @@ func TestInboundWebhookReceiver_RouteNotFound(t *testing.T) {
 func TestInboundWebhookReceiver_TemplateRenderError(t *testing.T) {
 	t.Parallel()
 
-	receiver := newInboundWebhookReceiverForTest()
-	locator := baldatelegram.NewLocator(9001, 77)
+	receiver := newInboundWebhookReceiverForTest(t)
 	receiver.routes = map[string]inboundWebhookRoute{
 		"/webhook1": {
 			Name:           "webhook1",
 			Path:           "/webhook1",
-			Locator:        locator,
 			PromptTemplate: template.Must(template.New("webhook1").Option("missingkey=error").Parse("{{.Missing}}")),
 		},
 	}
@@ -145,7 +124,7 @@ func TestInboundWebhookReceiver_SessionNotFound(t *testing.T) {
 	sessionMgr := &fakeInboundSessionManager{
 		infoErr: errors.New("missing session"),
 	}
-	receiver := newInboundWebhookReceiverForTest()
+	receiver := newInboundWebhookReceiverForTest(t)
 	receiver.sessions = sessionMgr
 
 	req := httptest.NewRequest(http.MethodPost, "/webhook1", bytes.NewBufferString("payload"))
@@ -159,7 +138,7 @@ func TestInboundWebhookReceiver_SessionNotFound(t *testing.T) {
 func TestInboundWebhookReceiver_QueueFull(t *testing.T) {
 	t.Parallel()
 
-	locator := baldatelegram.NewLocator(9001, 77)
+	locator := baldatelegram.NewLocator(9001, 0)
 	ts := newSchedulerTopicSession(t, locator, "tg-101", locator.SessionID, nil)
 
 	sessionMgr := &fakeInboundSessionManager{
@@ -168,14 +147,13 @@ func TestInboundWebhookReceiver_QueueFull(t *testing.T) {
 	queue := &fakeInboundTurnQueue{
 		enqueueErr: ErrTurnQueueFull,
 	}
-	receiver := newInboundWebhookReceiverForTest()
+	receiver := newInboundWebhookReceiverForTest(t)
 	receiver.sessions = sessionMgr
 	receiver.dispatch = queue
 	receiver.routes = map[string]inboundWebhookRoute{
 		"/webhook1": {
 			Name:           "webhook1",
 			Path:           "/webhook1",
-			Locator:        locator,
 			PromptTemplate: template.Must(template.New("webhook1").Option("missingkey=error").Parse("{{.RawBody}}")),
 		},
 	}
@@ -191,7 +169,7 @@ func TestInboundWebhookReceiver_QueueFull(t *testing.T) {
 func TestInboundWebhookReceiver_AcceptsAndDispatches(t *testing.T) {
 	t.Parallel()
 
-	locator := baldatelegram.NewLocator(9001, 99)
+	locator := baldatelegram.NewLocator(9001, 0)
 	ts := newSchedulerTopicSession(t, locator, "tg-101", locator.SessionID, nil)
 
 	sessionMgr := &fakeInboundSessionManager{
@@ -202,7 +180,7 @@ func TestInboundWebhookReceiver_AcceptsAndDispatches(t *testing.T) {
 	}
 	queue := &fakeInboundTurnQueue{runImmediately: true}
 	executor := &fakeInboundTurnExecutor{}
-	receiver := newInboundWebhookReceiverForTest()
+	receiver := newInboundWebhookReceiverForTest(t)
 	receiver.sessions = sessionMgr
 	receiver.dispatch = queue
 	receiver.balda = executor
@@ -210,7 +188,6 @@ func TestInboundWebhookReceiver_AcceptsAndDispatches(t *testing.T) {
 		"/webhook1": {
 			Name:           "webhook1",
 			Path:           "/webhook1",
-			Locator:        locator,
 			PromptTemplate: template.Must(template.New("webhook1").Option("missingkey=error").Parse("route={{.Path}} body={{.RawBody}}")),
 		},
 	}
@@ -247,6 +224,9 @@ func TestInboundWebhookReceiver_AcceptsAndDispatches(t *testing.T) {
 	if got, want := executor.prompt, "route=/webhook1 body={\"event\":\"release\"}"; got != want {
 		t.Fatalf("executor prompt = %q, want %q", got, want)
 	}
+	if executor.deliver {
+		t.Fatal("executor deliver = true, want false for omitted report_to")
+	}
 	if got := sessionMgr.restoreCalls; got != 1 {
 		t.Fatalf("restore calls = %d, want 1", got)
 	}
@@ -261,6 +241,9 @@ type fakeInboundSessionManager struct {
 	restoreResult *baldasession.TopicSession
 	restoreErr    error
 	restoreCalls  int
+	ensureResult  *baldasession.TopicSession
+	ensureErr     error
+	ensureCalls   int
 }
 
 func (f *fakeInboundSessionManager) GetSession(_ baldasession.SessionLocator) (*baldasession.TopicSession, error) {
@@ -298,6 +281,22 @@ func (f *fakeInboundSessionManager) RestoreSession(
 	return nil, errors.New("no restore result")
 }
 
+func (f *fakeInboundSessionManager) EnsureSession(
+	_ context.Context,
+	_ baldasession.SessionContext,
+	_ string,
+) (*baldasession.TopicSession, error) {
+	f.ensureCalls++
+	if f.ensureErr != nil {
+		return nil, f.ensureErr
+	}
+	if f.ensureResult != nil {
+		f.session = f.ensureResult
+		return f.ensureResult, nil
+	}
+	return nil, errors.New("no ensure result")
+}
+
 type fakeInboundTurnQueue struct {
 	tasks          []TurnTask
 	enqueueErr     error
@@ -321,11 +320,12 @@ func (*fakeInboundTurnQueue) CancelSession(baldasession.SessionLocator, bool) (b
 }
 
 type fakeInboundTurnExecutor struct {
-	calls  int
-	prompt string
+	calls   int
+	prompt  string
+	deliver bool
 }
 
-func (f *fakeInboundTurnExecutor) runTurnTask(
+func (f *fakeInboundTurnExecutor) runTurnTaskWithDelivery(
 	_ context.Context,
 	text string,
 	_ *runner.Runner,
@@ -336,27 +336,30 @@ func (f *fakeInboundTurnExecutor) runTurnTask(
 	_ int,
 	_ int,
 	_ baldachannel.ProgressPolicy,
+	deliver bool,
 ) error {
 	f.calls++
 	f.prompt = text
+	f.deliver = deliver
 	return nil
 }
 
-func newInboundWebhookReceiverForTest() *InboundWebhookReceiver {
-	locator := baldatelegram.NewLocator(9001, 77)
+func newInboundWebhookReceiverForTest(t *testing.T) *InboundWebhookReceiver {
+	t.Helper()
+
 	return &InboundWebhookReceiver{
 		enabled: true,
 		routes: map[string]inboundWebhookRoute{
 			"/webhook1": {
 				Name:           "webhook1",
 				Path:           "/webhook1",
-				Locator:        locator,
 				PromptTemplate: template.Must(template.New("webhook1").Option("missingkey=error").Parse("{{.RawBody}}")),
 			},
 		},
 		sessions: &fakeInboundSessionManager{},
 		dispatch: &fakeInboundTurnQueue{},
 		balda:    &fakeInboundTurnExecutor{},
+		owner:    newOwnerStoreForTest(t, 101, 9001),
 		logger:   zerolog.Nop(),
 	}
 }

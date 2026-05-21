@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
-	"github.com/normahq/runtime/appconfig"
+	"github.com/normahq/norma/pkg/runtime/appconfig"
 	"gopkg.in/yaml.v3"
 )
 

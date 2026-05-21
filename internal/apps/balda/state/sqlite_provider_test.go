@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const expectedSQLiteSchemaMigrationVersion = 10
+const expectedSQLiteSchemaMigrationVersion = 11
 
 func TestSQLiteProvider_KVRoundTrip(t *testing.T) {
 	provider := newTestProvider(t)
@@ -87,6 +88,89 @@ func TestSQLiteProvider_SessionStoreRoundTrip(t *testing.T) {
 	}
 	if got.UserID != record.UserID {
 		t.Fatalf("user_id = %q, want %q", got.UserID, record.UserID)
+	}
+}
+
+func TestSQLiteProvider_SessionStoreUpsert_AllowsMultipleTelegramSessions(t *testing.T) {
+	provider := newTestProvider(t)
+	defer closeProvider(t, provider)
+
+	ctx := context.Background()
+	store := provider.Sessions()
+
+	records := []SessionRecord{
+		{
+			SessionID:    "tg--1002667079342-8939",
+			UserID:       "tg-101",
+			ChannelType:  ChannelTypeTelegram,
+			AddressKey:   "-1002667079342:8939",
+			AddressJSON:  `{"chat_id":-1002667079342,"topic_id":8939}`,
+			AgentName:    "agent",
+			WorkspaceDir: "/tmp/ws-1",
+			BranchName:   "norma/balda/tg--1002667079342-8939",
+			Status:       SessionStatusActive,
+		},
+		{
+			SessionID:    "tg--1002667079342-8940",
+			UserID:       "tg-101",
+			ChannelType:  ChannelTypeTelegram,
+			AddressKey:   "-1002667079342:8940",
+			AddressJSON:  `{"chat_id":-1002667079342,"topic_id":8940}`,
+			AgentName:    "agent",
+			WorkspaceDir: "/tmp/ws-2",
+			BranchName:   "norma/balda/tg--1002667079342-8940",
+			Status:       SessionStatusActive,
+		},
+	}
+	for _, record := range records {
+		if err := store.Upsert(ctx, record); err != nil {
+			t.Fatalf("Upsert(%q) error = %v", record.SessionID, err)
+		}
+	}
+}
+
+func TestSQLiteProvider_SessionStoreUpsert_PopulatesLegacyTelegramColumns(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "state.db")
+	ctx := context.Background()
+
+	provider, err := NewSQLiteProvider(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteProvider() error = %v", err)
+	}
+
+	record := SessionRecord{
+		SessionID:    "tg--1002667079342-8939",
+		UserID:       "tg-101",
+		ChannelType:  ChannelTypeTelegram,
+		AddressKey:   "-1002667079342:8939",
+		AddressJSON:  `{"chat_id":-1002667079342,"topic_id":8939}`,
+		AgentName:    "agent",
+		WorkspaceDir: "/tmp/ws",
+		BranchName:   "norma/balda/tg--1002667079342-8939",
+		Status:       SessionStatusActive,
+	}
+	if err := provider.Sessions().Upsert(ctx, record); err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+	closeProvider(t, provider)
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var chatID, topicID int64
+	if err := db.QueryRowContext(ctx, `
+		SELECT chat_id, topic_id
+		FROM balda_session_metadata
+		WHERE session_id = ?`,
+		record.SessionID,
+	).Scan(&chatID, &topicID); err != nil {
+		t.Fatalf("query legacy telegram columns: %v", err)
+	}
+	if chatID != -1002667079342 || topicID != 8939 {
+		t.Fatalf("legacy telegram columns = %d/%d, want -1002667079342/8939", chatID, topicID)
 	}
 }
 
@@ -242,6 +326,7 @@ func TestSQLiteProvider_WritesSchemaMigrationVersion(t *testing.T) {
 		t.Fatalf("schema_migrations version = %d, want %d", version, expectedSQLiteSchemaMigrationVersion)
 	}
 	assertSQLiteSchemaHasNoRelayLeftovers(t, ctx, db)
+	assertSessionMetadataHasNoLegacyChatTopicUnique(t, ctx, db)
 }
 
 func TestSQLiteProvider_ADKSessionPersistsAcrossReopen(t *testing.T) {
@@ -428,6 +513,7 @@ func TestSQLiteProvider_RebrandsRelaySchemaAtVersion8(t *testing.T) {
 	assertTableExists(t, ctx, db, "balda_app_kv")
 	assertTableMissing(t, ctx, db, "relay_app_kv")
 	assertSQLiteSchemaHasNoRelayLeftovers(t, ctx, db)
+	assertSessionMetadataHasNoLegacyChatTopicUnique(t, ctx, db)
 	assertKVNamespaceMissing(t, ctx, db, "relay.app")
 	assertKVNamespaceMissing(t, ctx, db, "relay.session_mcp")
 
@@ -446,6 +532,36 @@ func TestSQLiteProvider_RebrandsRelaySchemaAtVersion8(t *testing.T) {
 	if version != expectedSQLiteSchemaMigrationVersion {
 		t.Fatalf("schema_migrations version = %d, want %d", version, expectedSQLiteSchemaMigrationVersion)
 	}
+}
+
+func TestSQLiteProvider_Migration11BackfillsBuggyLegacySessionColumns(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "state.db")
+	ctx := context.Background()
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	seedBaldaDBAtVersion10WithBuggyZeroLegacySession(t, db)
+
+	if err := migrate(ctx, db); err != nil {
+		t.Fatalf("migrate() error = %v", err)
+	}
+
+	var chatID, topicID int64
+	if err := db.QueryRowContext(ctx, `
+		SELECT chat_id, topic_id
+		FROM balda_session_metadata
+		WHERE session_id = 'tg--1002667079342-8939'`,
+	).Scan(&chatID, &topicID); err != nil {
+		t.Fatalf("query migrated legacy telegram columns: %v", err)
+	}
+	if chatID != -1002667079342 || topicID != 8939 {
+		t.Fatalf("migrated legacy telegram columns = %d/%d, want -1002667079342/8939", chatID, topicID)
+	}
+	assertSessionMetadataHasNoLegacyChatTopicUnique(t, ctx, db)
 }
 
 func newTestProvider(t *testing.T) Provider {
@@ -678,6 +794,69 @@ func seedRelayDBAtVersion8(t *testing.T, dbPath string) {
 	}
 }
 
+func seedBaldaDBAtVersion10WithBuggyZeroLegacySession(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	stmts := []string{
+		`CREATE TABLE schema_migrations (
+			version INTEGER PRIMARY KEY,
+			applied_at TEXT NOT NULL
+		);`,
+		`INSERT INTO schema_migrations(version, applied_at)
+		 VALUES(10, datetime('now'));`,
+		`CREATE TABLE goose_db_version (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			version_id INTEGER NOT NULL,
+			is_applied INTEGER NOT NULL,
+			tstamp TIMESTAMP DEFAULT (datetime('now'))
+		);`,
+		`INSERT INTO goose_db_version(version_id, is_applied)
+		 VALUES(0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1), (7, 1), (8, 1), (9, 1), (10, 1);`,
+		`CREATE TABLE balda_app_kv (id INTEGER);`,
+		`CREATE TABLE balda_session_metadata (
+			session_id TEXT PRIMARY KEY,
+			chat_id INTEGER NOT NULL,
+			topic_id INTEGER NOT NULL,
+			agent_name TEXT NOT NULL,
+			workspace_dir TEXT NOT NULL,
+			branch_name TEXT NOT NULL,
+			status TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			channel_type TEXT NOT NULL DEFAULT 'telegram',
+			address_key TEXT NOT NULL DEFAULT '',
+			address_json TEXT NOT NULL DEFAULT '{}',
+			user_id TEXT NOT NULL DEFAULT '',
+			UNIQUE (chat_id, topic_id)
+		);`,
+		`CREATE INDEX idx_balda_session_metadata_status
+		 ON balda_session_metadata(status);`,
+		`CREATE UNIQUE INDEX idx_balda_session_metadata_channel_address
+		 ON balda_session_metadata(channel_type, address_key);`,
+		`INSERT INTO balda_session_metadata (
+			session_id, user_id, chat_id, topic_id, channel_type, address_key, address_json,
+			agent_name, workspace_dir, branch_name, status, updated_at
+		)
+		 VALUES (
+			'tg--1002667079342-8939', 'tg-101', 0, 0, 'telegram', '-1002667079342:8939',
+			'{"chat_id":-1002667079342,"topic_id":8939}',
+			'agent', '/tmp/ws', 'norma/balda/tg--1002667079342-8939', 'active', '2026-01-01T00:00:00Z'
+		);`,
+		`CREATE TABLE balda_telegram_offsets (id INTEGER);`,
+		`CREATE TABLE balda_collaborators (id INTEGER);`,
+		`CREATE TABLE balda_adk_app_state (id INTEGER);`,
+		`CREATE TABLE balda_adk_user_state (id INTEGER);`,
+		`CREATE TABLE balda_adk_sessions (id INTEGER);`,
+		`CREATE TABLE balda_adk_events (id INTEGER);`,
+		`CREATE TABLE balda_scheduled_jobs (id INTEGER);`,
+	}
+
+	for _, stmt := range stmts {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("seed balda version 10 db stmt failed: %v\nstmt: %s", err, stmt)
+		}
+	}
+}
+
 func assertTableExists(t *testing.T, ctx context.Context, db *sql.DB, name string) {
 	t.Helper()
 	if exists, err := sqliteTableExists(ctx, db, name); err != nil {
@@ -723,6 +902,23 @@ func assertSQLiteSchemaHasNoRelayLeftovers(t *testing.T, ctx context.Context, db
 	}
 	if len(leftovers) > 0 {
 		t.Fatalf("sqlite schema has relay leftovers: %v", leftovers)
+	}
+}
+
+func assertSessionMetadataHasNoLegacyChatTopicUnique(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+
+	var createSQL string
+	if err := db.QueryRowContext(ctx, `
+		SELECT sql
+		FROM sqlite_master
+		WHERE type = 'table' AND name = 'balda_session_metadata'`,
+	).Scan(&createSQL); err != nil {
+		t.Fatalf("query balda_session_metadata schema: %v", err)
+	}
+	normalized := strings.ToLower(strings.Join(strings.Fields(createSQL), " "))
+	if strings.Contains(normalized, "unique (chat_id, topic_id)") {
+		t.Fatalf("balda_session_metadata still has legacy chat/topic uniqueness: %s", createSQL)
 	}
 }
 

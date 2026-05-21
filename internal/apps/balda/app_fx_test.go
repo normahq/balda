@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	runtimeconfig "github.com/normahq/runtime/appconfig"
+	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/fx"
 )
