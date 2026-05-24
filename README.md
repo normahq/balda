@@ -206,6 +206,16 @@ balda:
     scheduler_mode: "shadow"
     shadow:
       enabled: true
+    queue:
+      default_mode: "followup"
+      debounce_ms: 500
+      cap: 20
+      drop: "summarize"
+      by_namespace:
+        task.control: "interrupt"
+        webhook.inbound: "followup"
+        schedule.inbound: "collect"
+        memory.sync: "collect"
   scheduler:
     jobs: []
   workspace:
@@ -230,6 +240,7 @@ Common settings:
 - `balda.swarm.webhook_mode`: `shadow` by default; controls only generic inbound webhook intake (`legacy|shadow|mailbox`).
 - `balda.swarm.scheduler_mode`: `shadow` by default; controls only config-managed recurring jobs (`legacy|shadow|mailbox`).
 - `balda.swarm.shadow.enabled`: `true` by default; stores Telegram, webhook, schedule, and `/goal` envelopes with `status=shadow` for rollout comparison when a resolved mode is `shadow`.
+- `balda.swarm.queue.*`: mailbox-mode queue policy only; defaults to `followup`, `500ms` collect debounce, cap `20`, and `summarize` overflow handling. Namespace overrides make `task.control` interrupt active work, while webhook intake follows up and schedule/memory inputs can collect. Deterministic collect/summarize rewrites only session envelopes; typed task envelopes keep their original payload contracts.
 - `balda.scheduler.jobs`: startup-reconciled recurring jobs (`id`, `cron`, `prompt`) that target the owner DM session.
 - `${balda.state_dir}/SOUL.md`: optional operator instructions read at session start/restore when the file exists.
 - `balda.workspace.mode`: `auto` by default; uses git worktrees when Balda runs in a git repository.

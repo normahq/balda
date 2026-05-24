@@ -273,6 +273,99 @@ func (s *sqliteSwarmStore) CancelBySession(ctx context.Context, sessionID string
 	return s.cancelWhere(ctx, "session_id = ?", trimmed, reason)
 }
 
+func (s *sqliteSwarmStore) PendingCount(ctx context.Context, mailbox string) (int, error) {
+	trimmed := strings.TrimSpace(mailbox)
+	if trimmed == "" {
+		return 0, fmt.Errorf("mailbox is required")
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM swarm_messages
+		WHERE mailbox = ? AND status IN (?, ?)`,
+		trimmed,
+		SwarmMessageStatusQueued,
+		SwarmMessageStatusRetry,
+	).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count pending swarm messages: %w", err)
+	}
+	return count, nil
+}
+
+func (s *sqliteSwarmStore) CancelDroppable(
+	ctx context.Context,
+	mailbox string,
+	limit int,
+	reason string,
+) ([]SwarmMessageRecord, error) {
+	trimmed := strings.TrimSpace(mailbox)
+	if trimmed == "" {
+		return nil, fmt.Errorf("mailbox is required")
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin cancel droppable swarm messages: %w", err)
+	}
+	defer rollbackSwarmTx(tx)
+
+	rows, err := tx.QueryContext(ctx, swarmMessageSelectSQL+`
+		WHERE mailbox = ? AND status IN (?, ?)
+		ORDER BY priority ASC, created_at ASC
+		LIMIT ?`,
+		trimmed,
+		SwarmMessageStatusQueued,
+		SwarmMessageStatusRetry,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("select droppable swarm messages: %w", err)
+	}
+	records := make([]SwarmMessageRecord, 0, limit)
+	for rows.Next() {
+		record, ok, err := scanSwarmMessage(rows.Scan)
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		if ok {
+			records = append(records, record)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close droppable swarm message rows: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate droppable swarm messages: %w", err)
+	}
+
+	for _, record := range records {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE swarm_messages
+			SET status = ?, completed_at = ?, lease_owner = NULL, lease_until = NULL, updated_at = ?, error = ?
+			WHERE mailbox = ? AND id = ? AND status IN (?, ?)`,
+			SwarmMessageStatusCanceled,
+			now.Format(time.RFC3339),
+			now.Format(time.RFC3339),
+			nullIfEmpty(reason),
+			trimmed,
+			record.ID,
+			SwarmMessageStatusQueued,
+			SwarmMessageStatusRetry,
+		); err != nil {
+			return nil, fmt.Errorf("cancel droppable swarm message %q: %w", record.ID, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit cancel droppable swarm messages: %w", err)
+	}
+	return records, nil
+}
+
 func (s *sqliteSwarmStore) cancelWhere(ctx context.Context, predicate string, arg string, reason string) (int, error) {
 	now := time.Now().UTC()
 	result, err := s.db.ExecContext(ctx, `

@@ -18,6 +18,12 @@ func TestConfigNormalized_DefaultsModesToShadow(t *testing.T) {
 	if got.SchedulerMode != ModeShadow {
 		t.Fatalf("SchedulerMode = %q, want %q", got.SchedulerMode, ModeShadow)
 	}
+	if got.Queue.DefaultMode != QueueModeFollowup {
+		t.Fatalf("Queue.DefaultMode = %q, want %q", got.Queue.DefaultMode, QueueModeFollowup)
+	}
+	if got.Queue.ByNamespace[NamespaceTaskControl] != QueueModeInterrupt {
+		t.Fatalf("Queue task.control mode = %q, want %q", got.Queue.ByNamespace[NamespaceTaskControl], QueueModeInterrupt)
+	}
 }
 
 func TestConfigNormalized_RejectsInvalidModes(t *testing.T) {
@@ -31,6 +37,44 @@ func TestConfigNormalized_RejectsInvalidModes(t *testing.T) {
 		if _, err := cfg.Normalized(); err == nil {
 			t.Fatalf("Normalized(%+v) error = nil, want non-nil", cfg)
 		}
+	}
+}
+
+func TestConfigNormalized_RejectsInvalidQueuePolicy(t *testing.T) {
+	t.Parallel()
+
+	for _, cfg := range []Config{
+		{Queue: QueueConfig{DefaultMode: "invalid"}},
+		{Queue: QueueConfig{Drop: "invalid"}},
+		{Queue: QueueConfig{ByNamespace: map[string]string{NamespaceTaskControl: "invalid"}}},
+	} {
+		if _, err := cfg.Normalized(); err == nil {
+			t.Fatalf("Normalized(%+v) error = nil, want non-nil", cfg)
+		}
+	}
+}
+
+func TestQueueConfigPolicyForAppliesOverridesAndPriority(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := (QueueConfig{
+		DefaultMode: QueueModeFollowup,
+		ByNamespace: map[string]string{
+			NamespaceWebhookInbound: QueueModeInterrupt,
+		},
+	}).Normalized()
+	if err != nil {
+		t.Fatalf("Normalized() error = %v", err)
+	}
+	policy := cfg.PolicyFor(NamespaceWebhookInbound)
+	if policy.Mode != QueueModeInterrupt {
+		t.Fatalf("Mode = %q, want %q", policy.Mode, QueueModeInterrupt)
+	}
+	if policy.Priority != 80 {
+		t.Fatalf("Priority = %d, want 80", policy.Priority)
+	}
+	if policy.Cap != defaultQueueCap {
+		t.Fatalf("Cap = %d, want %d", policy.Cap, defaultQueueCap)
 	}
 }
 

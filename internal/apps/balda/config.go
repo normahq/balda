@@ -85,11 +85,21 @@ type SwarmConfig struct {
 	WebhookMode   string            `mapstructure:"webhook_mode"`
 	SchedulerMode string            `mapstructure:"scheduler_mode"`
 	Shadow        SwarmShadowConfig `mapstructure:"shadow"`
+	Queue         SwarmQueueConfig  `mapstructure:"queue"`
 }
 
 // SwarmShadowConfig controls safe dual-write rollout behavior.
 type SwarmShadowConfig struct {
 	Enabled bool `mapstructure:"enabled"`
+}
+
+// SwarmQueueConfig controls mailbox queue policy.
+type SwarmQueueConfig struct {
+	DefaultMode string         `mapstructure:"default_mode"`
+	DebounceMS  int            `mapstructure:"debounce_ms"`
+	Cap         int            `mapstructure:"cap"`
+	Drop        string         `mapstructure:"drop"`
+	ByNamespace map[string]any `mapstructure:"by_namespace"`
 }
 
 // SchedulerConfig controls startup-managed recurring jobs.

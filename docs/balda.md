@@ -397,6 +397,12 @@ session-start snapshot. New or restored sessions read the latest file.
 - `balda.swarm.webhook_mode`: generic inbound webhook runtime mode (`legacy|shadow|mailbox`, default `shadow`)
 - `balda.swarm.scheduler_mode`: config-managed recurring job runtime mode (`legacy|shadow|mailbox`, default `shadow`)
 - `balda.swarm.shadow.enabled`: enables shadow dual-write when any resolved swarm mode is `shadow` (default `true`).
+- `balda.swarm.queue.default_mode`: mailbox queue mode (`followup|collect|interrupt`, default `followup`).
+- `balda.swarm.queue.debounce_ms`: collect debounce window in milliseconds (default `500`).
+- `balda.swarm.queue.cap`: queued/retry message cap per mailbox (default `20`).
+- `balda.swarm.queue.drop`: overflow behavior (`summarize|old|new`, default `summarize`).
+- `balda.swarm.queue.by_namespace`: namespace queue mode overrides. Defaults: `task.control=interrupt`, `webhook.inbound=followup`, `schedule.inbound=collect`, `memory.sync=collect`.
+- Queue collect/summarize rewrites only session-actor envelopes. Typed task envelopes keep their original payload contracts; if they cannot be safely summarized, overflow handling falls back to canceling old queued messages.
 - internal durable memory uses `${balda.state_dir}/MEMORY.md` when `balda.memory.enabled=true`
   - `/memory` reads the current file in owner/collaborator direct messages.
   - `balda.memory.read` reads the file from MCP.

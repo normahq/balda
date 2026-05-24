@@ -145,6 +145,50 @@ func TestSQLiteSwarmStore_DedupeAndCancel(t *testing.T) {
 	}
 }
 
+func TestSQLiteSwarmStore_PendingCountAndCancelDroppable(t *testing.T) {
+	provider := newTestProvider(t)
+	defer closeProvider(t, provider)
+
+	ctx := context.Background()
+	store := provider.Swarm()
+
+	if _, err := store.Publish(ctx, swarmRecord("newer-high", "session:drop", 20)); err != nil {
+		t.Fatalf("Publish(newer-high) error = %v", err)
+	}
+	if _, err := store.Publish(ctx, swarmRecord("older-low", "session:drop", 1)); err != nil {
+		t.Fatalf("Publish(older-low) error = %v", err)
+	}
+	if _, err := store.Publish(ctx, swarmRecord("newer-low", "session:drop", 1)); err != nil {
+		t.Fatalf("Publish(newer-low) error = %v", err)
+	}
+
+	count, err := store.PendingCount(ctx, "session:drop")
+	if err != nil {
+		t.Fatalf("PendingCount() error = %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("PendingCount() = %d, want 3", count)
+	}
+
+	dropped, err := store.CancelDroppable(ctx, "session:drop", 2, "cap")
+	if err != nil {
+		t.Fatalf("CancelDroppable() error = %v", err)
+	}
+	if len(dropped) != 2 {
+		t.Fatalf("CancelDroppable() len = %d, want 2", len(dropped))
+	}
+	if dropped[0].ID != "older-low" || dropped[1].ID != "newer-low" {
+		t.Fatalf("dropped ids = %q, %q; want older-low, newer-low", dropped[0].ID, dropped[1].ID)
+	}
+	count, err = store.PendingCount(ctx, "session:drop")
+	if err != nil {
+		t.Fatalf("PendingCount(after) error = %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("PendingCount(after) = %d, want 1", count)
+	}
+}
+
 func TestSQLiteSwarmStore_ShadowMessagesAreNotClaimable(t *testing.T) {
 	provider := newTestProvider(t)
 	defer closeProvider(t, provider)

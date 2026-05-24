@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,10 +19,12 @@ const (
 )
 
 type MailboxService struct {
-	store   baldastate.SwarmStore
-	bus     WakeBus
-	cfg     Config
-	metrics *ShadowMetrics
+	store     baldastate.SwarmStore
+	bus       WakeBus
+	cfg       Config
+	metrics   *ShadowMetrics
+	collectMu sync.Mutex
+	collect   *CollectBuffer
 }
 
 type mailboxServiceParams struct {
@@ -88,6 +91,14 @@ type SubmittedMessage struct {
 }
 
 func (s *MailboxService) Publish(ctx context.Context, env Envelope) (SubmittedMessage, error) {
+	return s.publish(ctx, env, publishOptions{})
+}
+
+type publishOptions struct {
+	skipCollect bool
+}
+
+func (s *MailboxService) publish(ctx context.Context, env Envelope, opts publishOptions) (SubmittedMessage, error) {
 	if !s.Enabled() {
 		return SubmittedMessage{}, fmt.Errorf("swarm mailbox runtime is disabled")
 	}
@@ -98,6 +109,24 @@ func (s *MailboxService) Publish(ctx context.Context, env Envelope) (SubmittedMe
 		return SubmittedMessage{}, err
 	}
 	mailbox, err := env.To.MailboxID()
+	if err != nil {
+		return SubmittedMessage{}, err
+	}
+	policy := s.cfg.Queue.PolicyFor(env.Namespace)
+	env = applyDefaultPriority(env, policy)
+	if policy.Mode == QueueModeCollect && !opts.skipCollect {
+		if canCollect(env) {
+			s.collectBuffer(policy.Debounce).Add(env)
+			return SubmittedMessage{MessageID: env.ID, MailboxID: mailbox, Published: false}, nil
+		}
+	}
+	if policy.Mode == QueueModeInterrupt {
+		if err := s.cancelInterrupted(ctx, env); err != nil {
+			return SubmittedMessage{}, err
+		}
+		env = withQueueMode(env, QueueModeInterrupt)
+	}
+	pendingBefore, env, err := s.enforceCap(ctx, mailbox, env, policy)
 	if err != nil {
 		return SubmittedMessage{}, err
 	}
@@ -114,7 +143,12 @@ func (s *MailboxService) Publish(ctx context.Context, env Envelope) (SubmittedMe
 			return SubmittedMessage{}, err
 		}
 	}
-	return SubmittedMessage{MessageID: env.ID, MailboxID: mailbox, Published: result.Published}, nil
+	return SubmittedMessage{
+		MessageID:     env.ID,
+		MailboxID:     mailbox,
+		QueuePosition: queuePosition(pendingBefore),
+		Published:     result.Published,
+	}, nil
 }
 
 func (s *MailboxService) PublishShadow(ctx context.Context, env Envelope) (SubmittedMessage, error) {
@@ -154,42 +188,8 @@ func (s *MailboxService) PublishBatch(ctx context.Context, envs []Envelope) erro
 	if !s.Enabled() {
 		return fmt.Errorf("swarm mailbox runtime is disabled")
 	}
-	if len(envs) == 0 {
-		return nil
-	}
-	records := make([]baldastate.SwarmMessageRecord, 0, len(envs))
-	mailboxes := make(map[string]ActorAddress, len(envs))
-	for idx := range envs {
-		if strings.TrimSpace(envs[idx].ID) == "" {
-			envs[idx].ID = uuid.NewString()
-		}
-		if err := envs[idx].Validate(); err != nil {
-			return err
-		}
-		mailbox, err := envs[idx].To.MailboxID()
-		if err != nil {
-			return err
-		}
-		record, err := envelopeToRecord(envs[idx], mailbox)
-		if err != nil {
-			return err
-		}
-		records = append(records, record)
-		mailboxes[mailbox] = envs[idx].To
-	}
-	results, err := s.store.PublishBatch(ctx, records)
-	if err != nil {
-		return err
-	}
-	for _, result := range results {
-		if !result.Published {
-			continue
-		}
-		addr, ok := mailboxes[result.Mailbox]
-		if !ok {
-			continue
-		}
-		if err := s.Notify(ctx, addr); err != nil {
+	for _, env := range envs {
+		if _, err := s.Publish(ctx, env); err != nil {
 			return err
 		}
 	}
@@ -256,6 +256,118 @@ func (s *MailboxService) RecordShadowDispatch() {
 
 func (s *MailboxService) ShadowMetricsSnapshot() map[string]uint64 {
 	return s.metrics.Snapshot()
+}
+
+func (s *MailboxService) collectBuffer(debounce time.Duration) *CollectBuffer {
+	s.collectMu.Lock()
+	defer s.collectMu.Unlock()
+	if s.collect == nil {
+		s.collect = NewCollectBuffer(debounce, func(envs []Envelope) error {
+			return s.flushCollected(envs)
+		})
+	}
+	return s.collect
+}
+
+func (s *MailboxService) flushCollected(envs []Envelope) error {
+	for _, env := range mergeCollected(envs) {
+		if _, err := s.publish(context.Background(), env, publishOptions{skipCollect: true}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *MailboxService) cancelInterrupted(ctx context.Context, env Envelope) error {
+	reason := "interrupted by newer queue message"
+	if taskID := strings.TrimSpace(env.TaskID); taskID != "" {
+		if _, err := s.store.CancelByTask(ctx, taskID, reason); err != nil {
+			return err
+		}
+	}
+	if sessionID := strings.TrimSpace(env.SessionID); sessionID != "" {
+		if _, err := s.store.CancelBySession(ctx, sessionID, reason); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *MailboxService) enforceCap(
+	ctx context.Context,
+	mailbox string,
+	env Envelope,
+	policy QueuePolicy,
+) (int, Envelope, error) {
+	if policy.Cap <= 0 {
+		return 0, env, nil
+	}
+	pending, err := s.store.PendingCount(ctx, mailbox)
+	if err != nil {
+		return 0, Envelope{}, err
+	}
+	overflow := pending - policy.Cap + 1
+	if overflow <= 0 {
+		return pending, env, nil
+	}
+	switch policy.Drop {
+	case QueueDropNew:
+		return pending, Envelope{}, queueFull(mailbox, policy.Cap)
+	case QueueDropOld:
+		_, err := s.store.CancelDroppable(ctx, mailbox, overflow, "queue cap reached")
+		return pending, env, err
+	case QueueDropSummarize:
+		return s.summarizeForCap(ctx, mailbox, pending, overflow, env)
+	default:
+		return pending, Envelope{}, fmt.Errorf("unsupported queue drop policy %q", policy.Drop)
+	}
+}
+
+func (s *MailboxService) summarizeForCap(
+	ctx context.Context,
+	mailbox string,
+	pending int,
+	overflow int,
+	env Envelope,
+) (int, Envelope, error) {
+	dropped, err := s.store.CancelDroppable(ctx, mailbox, overflow, "queue cap summarized")
+	if err != nil {
+		return pending, Envelope{}, err
+	}
+	if len(dropped) == 0 {
+		return pending, Envelope{}, queueFull(mailbox, pending)
+	}
+	droppedEnvs, err := recordsToEnvelopes(dropped)
+	if err != nil {
+		return pending, Envelope{}, err
+	}
+	summary, ok := summarizeSessionEnvelopes(append(droppedEnvs, env), "summarized")
+	if !ok {
+		return pending, env, nil
+	}
+	return pending, summary, nil
+}
+
+func mergeCollected(envs []Envelope) []Envelope {
+	if len(envs) <= 1 {
+		return envs
+	}
+	summary, ok := summarizeSessionEnvelopes(envs, "collected")
+	if !ok {
+		return envs
+	}
+	return []Envelope{summary}
+}
+
+func canCollect(env Envelope) bool {
+	return strings.EqualFold(strings.TrimSpace(env.To.Target), ActorTypeSession)
+}
+
+func queuePosition(pendingBefore int) int {
+	if pendingBefore <= 0 {
+		return 0
+	}
+	return pendingBefore
 }
 
 func envelopeToRecord(env Envelope, mailbox string) (baldastate.SwarmMessageRecord, error) {

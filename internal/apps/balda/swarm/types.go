@@ -19,8 +19,11 @@ const (
 	NamespaceHumanInbound    = "human.inbound"
 	NamespaceWebhookInbound  = "webhook.inbound"
 	NamespaceScheduleInbound = "schedule.inbound"
+	NamespaceAgentResult     = "agent.result"
 	NamespaceAgentCommand    = "agent.command"
 	NamespaceTaskControl     = "task.control"
+	NamespaceMemorySync      = "memory.sync"
+	NamespaceTelemetry       = "telemetry"
 
 	KindMessage      = "message"
 	KindWebhookEvent = "webhook_event"

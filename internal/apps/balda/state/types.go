@@ -187,6 +187,8 @@ type SwarmStore interface {
 	DeadLetter(ctx context.Context, mailbox string, messageID string, reason string) error
 	CancelByTask(ctx context.Context, taskID string, reason string) (int, error)
 	CancelBySession(ctx context.Context, sessionID string, reason string) (int, error)
+	PendingCount(ctx context.Context, mailbox string) (int, error)
+	CancelDroppable(ctx context.Context, mailbox string, limit int, reason string) ([]SwarmMessageRecord, error)
 	Recover(ctx context.Context, now time.Time) (SwarmRecoveryResult, error)
 	ListReadyMailboxes(ctx context.Context, limit int) ([]string, error)
 	GetMessage(ctx context.Context, messageID string) (SwarmMessageRecord, bool, error)

@@ -70,6 +70,9 @@ func (h *BaldaHandler) submitSessionTurnToSwarm(ctx context.Context, payload ses
 	}
 	submitted, err := h.swarmCoordinator.Submit(ctx, env)
 	if err != nil {
+		if errors.Is(err, swarm.ErrQueueFull) {
+			return 0, ErrTurnQueueFull
+		}
 		return 0, err
 	}
 	return submitted.QueuePosition, nil
@@ -190,6 +193,12 @@ func (e *sessionActorExecutor) enqueueTurn(ctx context.Context, env swarm.Envelo
 	}
 	if e.handler.turnDispatcher == nil {
 		return e.handler.runSessionTurnPayload(ctx, payload)
+	}
+	if swarm.QueueModeOf(env) == swarm.QueueModeInterrupt {
+		_, _, err := e.handler.turnDispatcher.CancelSession(payload.Locator, true)
+		if err != nil {
+			return swarm.TransientError(fmt.Errorf("interrupt session turn: %w", err))
+		}
 	}
 
 	done := make(chan error, 1)
