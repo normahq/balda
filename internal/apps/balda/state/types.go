@@ -198,6 +198,19 @@ type SwarmRecoveryResult struct {
 	Expired       int
 }
 
+// SwarmStatusCount describes an aggregate count by status.
+type SwarmStatusCount struct {
+	Status string
+	Count  int
+}
+
+// SwarmMailboxStatusCount describes one mailbox/status aggregate.
+type SwarmMailboxStatusCount struct {
+	Mailbox string
+	Status  string
+	Count   int
+}
+
 // SwarmTaskRecord persists one assignable work item.
 type SwarmTaskRecord struct {
 	ID            string
@@ -246,10 +259,12 @@ type SwarmStore interface {
 	CancelDroppable(ctx context.Context, mailbox string, limit int, reason string) ([]SwarmMessageRecord, error)
 	Recover(ctx context.Context, now time.Time) (SwarmRecoveryResult, error)
 	ListReadyMailboxes(ctx context.Context, limit int) ([]string, error)
+	ListMailboxStatusCounts(ctx context.Context, limit int) ([]SwarmMailboxStatusCount, error)
 	GetMessage(ctx context.Context, messageID string) (SwarmMessageRecord, bool, error)
 	CreateTask(ctx context.Context, record SwarmTaskRecord) (bool, error)
 	GetTask(ctx context.Context, taskID string) (SwarmTaskRecord, bool, error)
 	ListActiveTasksBySession(ctx context.Context, sessionID string) ([]SwarmTaskRecord, error)
+	ListTaskStatusCounts(ctx context.Context) ([]SwarmStatusCount, error)
 	UpdateTaskStatus(ctx context.Context, taskID string, status string, reason string) error
 	SetTaskPlan(ctx context.Context, taskID string, planJSON string) error
 	SetTaskResult(ctx context.Context, taskID string, resultJSON string, status string, reason string) error

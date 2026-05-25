@@ -57,7 +57,7 @@ func (a *taskDeliveryActor) Handle(ctx context.Context, env swarm.Envelope) erro
 		return swarm.TransientError(err)
 	}
 	if a.tasks != nil && strings.TrimSpace(payload.TaskID) != "" {
-		if err := a.tasks.AppendEvent(ctx, payload.TaskID, swarm.TaskEventDelivered, "delivery.actor", env.ID, map[string]any{
+		if err := a.tasks.AppendEvent(ctx, payload.TaskID, swarm.TaskEventDeliverySent, "delivery.actor", env.ID, map[string]any{
 			"text": text,
 		}); err != nil {
 			a.logger.Warn().Err(err).Str("task_id", payload.TaskID).Msg("failed to record task delivery event")

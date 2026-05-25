@@ -147,7 +147,13 @@ Built-in provider types:
 ## Bot Commands
 
 - `/topic <name>`: create a named topic session.
-- `/goal <objective>`: create a durable task record and work toward the goal in the current session context/workspace. Legacy/shadow modes run the Goalkeeper worker -> validator loop directly; mailbox mode routes the task through task, planner, executor, reviewer, and delivery actors. Goal updates use `balda.telegram.formatting_mode`. See [`docs/goalkeeper.md`](docs/goalkeeper.md).
+- `/goal <objective>`: create a durable task record and work toward the goal in the current session context/workspace. Legacy/shadow modes run the Goalkeeper worker -> validator loop directly; mailbox mode routes the task through task, planner, executor, reviewer, and delivery actors. Goal updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See [`docs/goalkeeper.md`](docs/goalkeeper.md).
+- `/tasks`: list active task records for the current session.
+- `/task <id>`: inspect task status, objective, latest events, and reviewable outcome when the task is terminal.
+- `/task <id> events`: print the task event stream.
+- `/task <id> cancel`: cancel queued mailbox work, the active task run when present, and mark the task canceled.
+- `/swarm status`: show swarm rollout mode, runtime state, shadow counters, configured logical agents, task status counts, and ready mailboxes.
+- `/mailbox status`: show non-terminal mailbox message counts by mailbox and status.
 - `/reset`: clear conversation history for the current session.
 - `/close`: reset history, then close the current topic or restart the owner session on the next message.
 - `/cancel`: cancel in-flight work, drop queued turns, cancel active task records, and abort active `/goal` work for the current session.
@@ -255,6 +261,7 @@ Common settings:
 - `balda.swarm.shadow.enabled`: `true` by default; stores Telegram, webhook, schedule, and `/goal` envelopes with `status=shadow` for rollout comparison when a resolved mode is `shadow`.
 - `balda.swarm.queue.*`: mailbox-mode queue policy only; defaults to `followup`, `500ms` collect debounce, cap `20`, and `summarize` overflow handling. Namespace overrides make `task.control` interrupt active work, while webhook intake follows up and schedule/memory inputs can collect. Deterministic collect/summarize rewrites only session envelopes; typed task envelopes keep their original payload contracts.
 - `balda.swarm.agents.*`: logical single-process agent roles used by the swarm allocator. Defaults are `planner`, `executor`, `reviewer`, and `memory`; `tools` are advisory routing hints (`workspace`, `shell`, `mcp`, `memory`), not separate runtimes. Optional `cost_penalty` lowers allocator preference for expensive roles.
+- Task visibility: `/tasks`, `/task <id>`, `/task <id> events`, `/task <id> cancel`, `/swarm status`, and `/mailbox status` read from `swarm_tasks`, `swarm_task_events`, and mailbox state.
 - `balda.scheduler.jobs`: startup-reconciled recurring jobs (`id`, `cron`, `prompt`) that target the owner DM session.
 - `${balda.state_dir}/SOUL.md`: optional operator instructions read at session start/restore when the file exists.
 - `balda.workspace.mode`: `auto` by default; uses git worktrees when Balda runs in a git repository.

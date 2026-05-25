@@ -37,7 +37,13 @@ go tool golangci-lint run
 - `/start owner=<owner_token>`: direct message only; owner authentication/bootstrap entrypoint.
 - `/start invite=<invite_token>`: direct message only; collaborator invite onboarding entrypoint.
 - `/topic <name>`: owner/collaborator, direct message only; creates a topic session labeled `<name>` using the configured balda provider.
-- `/goal <objective>`: owner/collaborator; starts a Goalkeeper worker -> validator loop in the current session context/workspace with started/validation/final updates.
+- `/goal <objective>`: owner/collaborator; starts a Goalkeeper worker -> validator loop in the current session context/workspace with started/validation/final updates and terminal Result/Artifacts/Confidence/Next action outcome.
+- `/tasks`: owner/collaborator; lists active task records for the current session.
+- `/task <id>`: owner/collaborator; inspects task status, latest events, and terminal reviewable outcome.
+- `/task <id> events`: owner/collaborator; prints the task event stream.
+- `/task <id> cancel`: owner/collaborator; cancels queued mailbox work, active task run when present, and marks the task canceled.
+- `/swarm status`: owner/collaborator; shows swarm rollout mode, runtime state, logical agents, task counts, and ready mailboxes.
+- `/mailbox status`: owner/collaborator; shows non-terminal mailbox message counts.
 - `/close`: owner/collaborator, direct message only; closes a topic session or stops the owner session.
 - `/cancel`: owner/collaborator; cancels in-flight turn processing, drops queued turns, and aborts active `/goal` run for the current session.
 - `/user add|list|remove <user_id>`: owner only; collaborator invite and management commands.

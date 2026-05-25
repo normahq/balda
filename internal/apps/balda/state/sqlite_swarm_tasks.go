@@ -95,6 +95,31 @@ func (s *sqliteSwarmStore) ListActiveTasksBySession(ctx context.Context, session
 	return out, nil
 }
 
+func (s *sqliteSwarmStore) ListTaskStatusCounts(ctx context.Context) ([]SwarmStatusCount, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT status, COUNT(*)
+		FROM swarm_tasks
+		GROUP BY status
+		ORDER BY status ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list task status counts: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []SwarmStatusCount
+	for rows.Next() {
+		var record SwarmStatusCount
+		if err := rows.Scan(&record.Status, &record.Count); err != nil {
+			return nil, fmt.Errorf("scan task status count: %w", err)
+		}
+		out = append(out, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate task status counts: %w", err)
+	}
+	return out, nil
+}
+
 func (s *sqliteSwarmStore) UpdateTaskStatus(ctx context.Context, taskID string, status string, reason string) error {
 	trimmedTaskID := strings.TrimSpace(taskID)
 	if trimmedTaskID == "" {

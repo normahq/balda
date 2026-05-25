@@ -486,6 +486,40 @@ func (s *sqliteSwarmStore) ListReadyMailboxes(ctx context.Context, limit int) ([
 	return out, nil
 }
 
+func (s *sqliteSwarmStore) ListMailboxStatusCounts(ctx context.Context, limit int) ([]SwarmMailboxStatusCount, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT mailbox, status, COUNT(*)
+		FROM swarm_messages
+		WHERE status NOT IN (?, ?)
+		GROUP BY mailbox, status
+		ORDER BY mailbox ASC, status ASC
+		LIMIT ?`,
+		SwarmMessageStatusAcked,
+		SwarmMessageStatusShadow,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list mailbox status counts: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []SwarmMailboxStatusCount
+	for rows.Next() {
+		var record SwarmMailboxStatusCount
+		if err := rows.Scan(&record.Mailbox, &record.Status, &record.Count); err != nil {
+			return nil, fmt.Errorf("scan mailbox status count: %w", err)
+		}
+		out = append(out, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate mailbox status counts: %w", err)
+	}
+	return out, nil
+}
+
 func (s *sqliteSwarmStore) GetMessage(ctx context.Context, messageID string) (SwarmMessageRecord, bool, error) {
 	record, ok, err := scanSwarmMessage(s.db.QueryRowContext(ctx, swarmMessageSelectSQL+` WHERE id = ?`, strings.TrimSpace(messageID)).Scan)
 	if err != nil {

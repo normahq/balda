@@ -12,13 +12,17 @@ import (
 )
 
 const (
-	TaskEventCreated       = "created"
-	TaskEventQueued        = "queued"
-	TaskEventStatusChanged = "status_changed"
-	TaskEventPlanCreated   = "plan_created"
-	TaskEventAgentCommand  = "agent_command"
-	TaskEventAgentResult   = "agent_result"
-	TaskEventDelivered     = "delivered"
+	TaskEventTaskCreated    = "task.created"
+	TaskEventTaskAssigned   = "task.assigned"
+	TaskEventTaskStarted    = "task.started"
+	TaskEventAgentStarted   = "agent.started"
+	TaskEventAgentProgress  = "agent.progress"
+	TaskEventAgentResult    = "agent.result"
+	TaskEventTaskValidating = "task.validating"
+	TaskEventTaskCompleted  = "task.completed"
+	TaskEventTaskFailed     = "task.failed"
+	TaskEventTaskCanceled   = "task.canceled"
+	TaskEventDeliverySent   = "delivery.sent"
 )
 
 type TaskService struct {
@@ -47,7 +51,7 @@ func (s *TaskService) Create(ctx context.Context, record baldastate.SwarmTaskRec
 		return false, err
 	}
 	if created {
-		if err := s.AppendEvent(ctx, record.ID, TaskEventCreated, actor, "", payload); err != nil {
+		if err := s.AppendEvent(ctx, record.ID, TaskEventTaskCreated, actor, "", payload); err != nil {
 			return false, err
 		}
 	}
@@ -61,6 +65,27 @@ func (s *TaskService) Get(ctx context.Context, taskID string) (baldastate.SwarmT
 	return s.store.GetTask(ctx, taskID)
 }
 
+func (s *TaskService) ListActiveBySession(ctx context.Context, sessionID string) ([]baldastate.SwarmTaskRecord, error) {
+	if s == nil {
+		return nil, nil
+	}
+	return s.store.ListActiveTasksBySession(ctx, sessionID)
+}
+
+func (s *TaskService) ListEvents(ctx context.Context, taskID string) ([]baldastate.SwarmTaskEventRecord, error) {
+	if s == nil {
+		return nil, nil
+	}
+	return s.store.ListTaskEvents(ctx, taskID)
+}
+
+func (s *TaskService) StatusCounts(ctx context.Context) ([]baldastate.SwarmStatusCount, error) {
+	if s == nil {
+		return nil, nil
+	}
+	return s.store.ListTaskStatusCounts(ctx)
+}
+
 func (s *TaskService) MarkStatus(ctx context.Context, taskID string, status string, actor string, messageID string, reason string, payload any) error {
 	if s == nil {
 		return nil
@@ -68,7 +93,11 @@ func (s *TaskService) MarkStatus(ctx context.Context, taskID string, status stri
 	if err := s.store.UpdateTaskStatus(ctx, taskID, status, reason); err != nil {
 		return err
 	}
-	return s.AppendEvent(ctx, taskID, TaskEventStatusChanged, actor, messageID, mergePayload(payload, map[string]any{
+	eventType := taskEventForStatus(status)
+	if eventType == "" {
+		return nil
+	}
+	return s.AppendEvent(ctx, taskID, eventType, actor, messageID, mergePayload(payload, map[string]any{
 		"status": status,
 		"reason": reason,
 	}))
@@ -85,7 +114,7 @@ func (s *TaskService) SetPlan(ctx context.Context, taskID string, actor string, 
 	if err := s.store.SetTaskPlan(ctx, taskID, data); err != nil {
 		return err
 	}
-	return s.AppendEvent(ctx, taskID, TaskEventPlanCreated, actor, "", plan)
+	return nil
 }
 
 func (s *TaskService) SetResult(ctx context.Context, taskID string, result any, status string, actor string, reason string) error {
@@ -99,7 +128,7 @@ func (s *TaskService) SetResult(ctx context.Context, taskID string, result any, 
 	if err := s.store.SetTaskResult(ctx, taskID, data, status, reason); err != nil {
 		return err
 	}
-	return s.AppendEvent(ctx, taskID, TaskEventStatusChanged, actor, "", mergePayload(result, map[string]any{
+	return s.AppendEvent(ctx, taskID, taskEventForStatus(status), actor, "", mergePayload(result, map[string]any{
 		"status": status,
 		"reason": reason,
 	}))
@@ -141,8 +170,34 @@ func (s *TaskService) CancelBySession(ctx context.Context, sessionID string, act
 	return ids, nil
 }
 
+func (s *TaskService) CancelTask(ctx context.Context, taskID string, actor string, reason string) error {
+	if s == nil {
+		return nil
+	}
+	return s.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusCanceled, actor, "", reason, nil)
+}
+
 func (s *TaskService) DeadLetter(ctx context.Context, taskID string, actor string, messageID string, reason string) error {
 	return s.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusDeadLettered, actor, messageID, reason, nil)
+}
+
+func taskEventForStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case baldastate.SwarmTaskStatusQueued, baldastate.SwarmTaskStatusWaitingForAgent, baldastate.SwarmTaskStatusWaitingForUser:
+		return TaskEventTaskAssigned
+	case baldastate.SwarmTaskStatusRunning:
+		return TaskEventTaskStarted
+	case baldastate.SwarmTaskStatusValidating:
+		return TaskEventTaskValidating
+	case baldastate.SwarmTaskStatusCompleted:
+		return TaskEventTaskCompleted
+	case baldastate.SwarmTaskStatusFailed, baldastate.SwarmTaskStatusDeadLettered:
+		return TaskEventTaskFailed
+	case baldastate.SwarmTaskStatusCanceled:
+		return TaskEventTaskCanceled
+	default:
+		return ""
+	}
 }
 
 func marshalPayload(payload any) (string, error) {

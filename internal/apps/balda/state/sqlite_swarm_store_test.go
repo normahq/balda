@@ -187,6 +187,13 @@ func TestSQLiteSwarmStore_PendingCountAndCancelDroppable(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("PendingCount(after) = %d, want 1", count)
 	}
+	statusCounts, err := store.ListMailboxStatusCounts(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListMailboxStatusCounts() error = %v", err)
+	}
+	if len(statusCounts) != 2 {
+		t.Fatalf("mailbox status counts = %+v, want queued and canceled", statusCounts)
+	}
 }
 
 func TestSQLiteSwarmStore_ShadowMessagesAreNotClaimable(t *testing.T) {
@@ -298,7 +305,7 @@ func TestSQLiteSwarmStore_TaskLifecycle(t *testing.T) {
 	if err := store.AppendTaskEvent(ctx, SwarmTaskEventRecord{
 		ID:          "event-1",
 		TaskID:      "task-1",
-		EventType:   "agent_command",
+		EventType:   "agent.started",
 		Actor:       "task.actor",
 		PayloadJSON: `{"role":"executor"}`,
 	}); err != nil {
@@ -335,8 +342,15 @@ func TestSQLiteSwarmStore_TaskLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTaskEvents() error = %v", err)
 	}
-	if len(events) != 1 || events[0].EventType != "agent_command" {
-		t.Fatalf("events = %+v, want agent_command", events)
+	if len(events) != 1 || events[0].EventType != "agent.started" {
+		t.Fatalf("events = %+v, want agent.started", events)
+	}
+	counts, err := store.ListTaskStatusCounts(ctx)
+	if err != nil {
+		t.Fatalf("ListTaskStatusCounts() error = %v", err)
+	}
+	if len(counts) != 1 || counts[0].Status != SwarmTaskStatusCompleted || counts[0].Count != 1 {
+		t.Fatalf("task status counts = %+v, want completed=1", counts)
 	}
 }
 

@@ -492,8 +492,14 @@ Balda runs with a single provider per process (`balda.provider`).
 - `/topic <name>` (DM only, owner/collaborator): creates a new Telegram topic and a topic-bound session.
   - `<name>` is required.
   - `<name>` is a session label, not a provider selector.
-- `/goal <objective>` (owner/collaborator): creates a durable `swarm_tasks` record and starts work in the current session context/workspace. Legacy/shadow modes run the Goalkeeper worker -> validator loop directly; mailbox mode routes through TaskActor -> AgentActor planner/executor/reviewer -> DeliveryActor. Started/validation/final updates use `balda.telegram.formatting_mode`. See [`docs/goalkeeper.md`](goalkeeper.md).
+- `/goal <objective>` (owner/collaborator): creates a durable `swarm_tasks` record and starts work in the current session context/workspace. Legacy/shadow modes run the Goalkeeper worker -> validator loop directly; mailbox mode routes through TaskActor -> AgentActor planner/executor/reviewer -> DeliveryActor. Started/validation/final updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See [`docs/goalkeeper.md`](goalkeeper.md).
   - concurrent `/goal` runs in the same session are rejected.
+- `/tasks` (owner/collaborator): lists active task records for the current session.
+- `/task <id>` (owner/collaborator): shows task status, objective, source, timestamps, latest events, and the reviewable outcome when the task is terminal.
+- `/task <id> events` (owner/collaborator): prints the append-only task event stream.
+- `/task <id> cancel` (owner/collaborator): cancels queued mailbox work, cancels the active task run when present, and marks the task `canceled`.
+- `/swarm status` (owner/collaborator): shows swarm rollout mode, runtime state, shadow counters, configured logical agents, task status counts, and ready mailboxes.
+- `/mailbox status` (owner/collaborator): shows non-terminal mailbox message counts grouped by mailbox and status.
 - `/close` (DM only, owner/collaborator): resets current session history, then in the owner DM `topic_id=0` stops the owner session; in topic contexts, closes that topic.
 - `/reset` (owner/collaborator): cancels queued work and clears the current session's persisted ADK conversation history without deleting Balda metadata or the workspace branch.
 - `/cancel` (owner/collaborator): cancels active turn, drops queued turns, marks active session tasks canceled, and aborts active `/goal` work for current session.
@@ -517,9 +523,20 @@ record, regardless of the active swarm rollout mode.
 - Task statuses are `created`, `queued`, `running`, `waiting_for_agent`,
   `waiting_for_user`, `validating`, `completed`, `failed`, `canceled`, and
   `deadlettered`.
+- Task events are append-only and use semantic event types: `task.created`,
+  `task.assigned`, `task.started`, `agent.started`, `agent.progress`,
+  `agent.result`, `task.validating`, `task.completed`, `task.failed`,
+  `task.canceled`, and `delivery.sent`.
 - Runtime deadletters mark the owning task `deadlettered`. `/cancel` cancels
   queued mailbox messages, marks active session tasks `canceled`, and cancels
   any currently running task agent turn.
+- Terminal task delivery and `/task <id>` render reviewable outcomes with:
+  Result, Artifacts, Confidence, and Next action. Artifacts are best-effort
+  workspace data from the bound session: changed files, branch, current commit,
+  workspace export hint, and validation output.
+- Visibility commands are read-only except `/task <id> cancel`. `/tasks` is
+  scoped to the current session; `/task <id>` can inspect any visible task ID
+  known to the instance.
 
 ### Scheduled job runtime semantics (internal)
 

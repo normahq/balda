@@ -256,12 +256,12 @@ func (g *GoalRunner) runGoalLoop(
 
 	if result.GoalReached {
 		g.setTaskResult(ctx, taskID, result, baldastate.SwarmTaskStatusCompleted, "")
-		g.sendGoalMessage(ctx, locator, "Goal run completed.")
+		g.sendGoalMessage(ctx, locator, g.renderTaskOutcome(ctx, taskID, ts, "Goal run completed."))
 		return
 	}
 
 	g.setTaskResult(ctx, taskID, result, baldastate.SwarmTaskStatusFailed, "max iterations reached")
-	g.sendGoalMessage(ctx, locator, "Goal run reached max iterations without passing validation.")
+	g.sendGoalMessage(ctx, locator, g.renderTaskOutcome(ctx, taskID, ts, "Goal run reached max iterations without passing validation."))
 }
 
 func (g *GoalRunner) markTaskStatus(ctx context.Context, taskID string, status string, actor string, reason string, payload any) {
@@ -287,6 +287,22 @@ func (g *GoalRunner) setTaskResult(ctx context.Context, taskID string, result go
 	}
 }
 
+func (g *GoalRunner) renderTaskOutcome(ctx context.Context, taskID string, ts *baldasession.TopicSession, fallback string) string {
+	if strings.TrimSpace(taskID) == "" || g == nil || g.tasks == nil {
+		return fallback
+	}
+	task, ok, err := g.tasks.Get(ctx, taskID)
+	if err != nil || !ok {
+		return fallback
+	}
+	artifacts := taskArtifactSnapshot{}
+	if ts != nil {
+		artifacts.WorkspaceDir = strings.TrimSpace(ts.GetWorkspaceDir())
+		artifacts.BranchName = strings.TrimSpace(ts.GetBranchName())
+	}
+	return renderReviewableOutcome(task, enrichGitArtifacts(ctx, artifacts))
+}
+
 func (g *GoalRunner) recordGoalProgress(ctx context.Context, taskID string, update goalPhaseUpdate) {
 	if strings.TrimSpace(taskID) == "" || g == nil || g.tasks == nil {
 		return
@@ -307,6 +323,11 @@ func (g *GoalRunner) recordGoalProgress(ctx context.Context, taskID string, upda
 		"text":         update.Text,
 		"goal_reached": update.GoalReached,
 		"failed":       update.Failed,
+	}
+	if update.Kind == goalPhaseStarted {
+		if err := g.tasks.AppendEvent(ctx, taskID, swarm.TaskEventAgentStarted, "goal.runner", "", payload); err != nil {
+			g.logger.Warn().Err(err).Str("task_id", taskID).Msg("failed to append goal task agent start")
+		}
 	}
 	if status != "" {
 		g.markTaskStatus(ctx, taskID, status, "goal.runner", "", payload)
@@ -489,6 +510,17 @@ func runAgentTurn(
 	goalSessionID string,
 	prompt string,
 ) (string, error) {
+	return runAgentTurnWithProgress(ctx, r, userID, goalSessionID, prompt, nil)
+}
+
+func runAgentTurnWithProgress(
+	ctx context.Context,
+	r *runner.Runner,
+	userID string,
+	goalSessionID string,
+	prompt string,
+	onProgress func(string),
+) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -515,6 +547,9 @@ func runAgentTurn(
 					continue
 				}
 				out.WriteString(part.Text)
+				if onProgress != nil && !ev.IsFinalResponse() {
+					onProgress(part.Text)
+				}
 			}
 		}
 		if ev.TurnComplete {

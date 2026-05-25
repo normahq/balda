@@ -250,6 +250,7 @@ type taskActorExecutor struct {
 	tasks       *swarm.TaskService
 	coordinator *swarm.Coordinator
 	agents      *swarm.AgentAllocator
+	sessions    *baldasession.Manager
 	scheduler   *JobScheduler
 	maxIters    int
 }
@@ -260,6 +261,7 @@ type taskActorExecutorParams struct {
 	TaskService *swarm.TaskService
 	Coordinator *swarm.Coordinator
 	Agents      *swarm.AgentAllocator `optional:"true"`
+	Sessions    *baldasession.Manager `optional:"true"`
 	Scheduler   *JobScheduler         `optional:"true"`
 	MaxIters    int                   `name:"balda_goal_max_iterations"`
 }
@@ -269,6 +271,7 @@ func newTaskActorExecutor(params taskActorExecutorParams) swarm.Actor {
 		tasks:       params.TaskService,
 		coordinator: params.Coordinator,
 		agents:      params.Agents,
+		sessions:    params.Sessions,
 		scheduler:   params.Scheduler,
 		maxIters:    normalizeGoalMaxIterations(params.MaxIters),
 	}
@@ -447,7 +450,7 @@ func (e *taskActorExecutor) dispatchAgent(ctx context.Context, payload taskAgent
 	); err != nil {
 		return err
 	}
-	if err := e.tasks.AppendEvent(ctx, payload.TaskID, swarm.TaskEventAgentCommand, "task.actor", "", map[string]any{
+	if err := e.tasks.AppendEvent(ctx, payload.TaskID, swarm.TaskEventAgentStarted, "task.actor", "", map[string]any{
 		"role":            role,
 		"agent_name":      agentName,
 		"requested_tools": payload.RequestedTools,
@@ -607,7 +610,7 @@ func (e *taskActorExecutor) handleReviewerResult(ctx context.Context, payload ta
 		if err := e.tasks.SetResult(ctx, payload.TaskID, taskResultPayload(payload, true), baldastate.SwarmTaskStatusCompleted, "task.actor", ""); err != nil {
 			return swarm.TransientError(err)
 		}
-		return e.deliver(ctx, payload.TaskID, payload.Locator, "Goal run completed.", "completed")
+		return e.deliver(ctx, payload.TaskID, payload.Locator, e.renderTaskOutcome(ctx, payload.TaskID, "Goal run completed."), "completed")
 	}
 
 	maxIterations := normalizeGoalMaxIterations(payload.MaxIterations)
@@ -615,7 +618,7 @@ func (e *taskActorExecutor) handleReviewerResult(ctx context.Context, payload ta
 		if err := e.tasks.SetResult(ctx, payload.TaskID, taskResultPayload(payload, false), baldastate.SwarmTaskStatusFailed, "task.actor", "max iterations reached"); err != nil {
 			return swarm.TransientError(err)
 		}
-		return e.deliver(ctx, payload.TaskID, payload.Locator, "Goal run reached max iterations without passing validation.", "max-iterations")
+		return e.deliver(ctx, payload.TaskID, payload.Locator, e.renderTaskOutcome(ctx, payload.TaskID, "Goal run reached max iterations without passing validation."), "max-iterations")
 	}
 
 	return e.dispatchAgent(ctx, taskAgentCommandPayload{
@@ -630,6 +633,17 @@ func (e *taskActorExecutor) handleReviewerResult(ctx context.Context, payload ta
 		ReviewerFeedback: text,
 		MaxIterations:    maxIterations,
 	})
+}
+
+func (e *taskActorExecutor) renderTaskOutcome(ctx context.Context, taskID string, fallback string) string {
+	if e == nil || e.tasks == nil {
+		return fallback
+	}
+	task, ok, err := e.tasks.Get(ctx, taskID)
+	if err != nil || !ok {
+		return fallback
+	}
+	return renderReviewableOutcome(task, taskArtifactsFromSessionProvider(ctx, e.sessions, task))
 }
 
 func (e *taskActorExecutor) deliver(

@@ -34,6 +34,9 @@ type CommandHandler struct {
 	sessionManager    commandSessionManager
 	turnDispatcher    turnQueue
 	swarmCoordinator  *swarm.Coordinator
+	swarmConfig       swarm.Config
+	agentRegistry     *swarm.AgentRegistry
+	mailboxes         *swarm.MailboxService
 	tasks             *swarm.TaskService
 	taskRuns          *taskRunRegistry
 	goalRunner        goalCommandRunner
@@ -55,6 +58,9 @@ type commandHandlerParams struct {
 	SessionManager    *session.Manager
 	TurnDispatcher    *TurnDispatcher
 	SwarmCoordinator  *swarm.Coordinator
+	SwarmConfig       swarm.Config
+	AgentRegistry     *swarm.AgentRegistry
+	MailboxService    *swarm.MailboxService
 	TaskService       *swarm.TaskService
 	TaskRuns          *taskRunRegistry
 	GoalRunner        *GoalRunner
@@ -72,6 +78,9 @@ func NewCommandHandler(params commandHandlerParams) *CommandHandler {
 		sessionManager:    params.SessionManager,
 		turnDispatcher:    params.TurnDispatcher,
 		swarmCoordinator:  params.SwarmCoordinator,
+		swarmConfig:       params.SwarmConfig,
+		agentRegistry:     params.AgentRegistry,
+		mailboxes:         params.MailboxService,
 		tasks:             params.TaskService,
 		taskRuns:          params.TaskRuns,
 		goalRunner:        params.GoalRunner,
@@ -103,6 +112,14 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 		return h.onCancelCommand(ctx, commandCtx)
 	case "goal":
 		return h.onGoalCommand(ctx, commandCtx)
+	case "tasks":
+		return h.onTasksCommand(ctx, commandCtx)
+	case "task":
+		return h.onTaskCommand(ctx, commandCtx)
+	case "swarm":
+		return h.onSwarmCommand(ctx, commandCtx)
+	case "mailbox":
+		return h.onMailboxCommand(ctx, commandCtx)
 	case "memory":
 		return h.onMemoryCommand(ctx, commandCtx)
 	case "user":

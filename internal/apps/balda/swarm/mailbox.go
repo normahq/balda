@@ -243,6 +243,13 @@ func (s *MailboxService) ListReadyMailboxes(ctx context.Context, limit int) ([]s
 	return s.store.ListReadyMailboxes(ctx, limit)
 }
 
+func (s *MailboxService) StatusCounts(ctx context.Context, limit int) ([]baldastate.SwarmMailboxStatusCount, error) {
+	if s == nil || s.store == nil {
+		return nil, nil
+	}
+	return s.store.ListMailboxStatusCounts(ctx, limit)
+}
+
 func (s *MailboxService) PendingCount(ctx context.Context, mailbox string) (int, error) {
 	if s == nil || s.store == nil {
 		return 0, nil

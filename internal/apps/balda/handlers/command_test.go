@@ -659,6 +659,7 @@ type fakeCommandSessionManager struct {
 	createCalls   []createSessionCall
 	baldaProvider string
 	metadata      session.AgentMetadata
+	sessionInfos  map[string]session.TopicSessionInfo
 	resetErr      error
 }
 
@@ -711,6 +712,15 @@ func (f *fakeCommandSessionManager) StopSession(locator session.SessionLocator) 
 func (f *fakeCommandSessionManager) ResetSession(_ context.Context, locator session.SessionLocator) error {
 	f.resetCalls = append(f.resetCalls, resetSessionCall{SessionID: locator.SessionID})
 	return f.resetErr
+}
+
+func (f *fakeCommandSessionManager) GetSessionInfo(_ context.Context, sessionID string) (session.TopicSessionInfo, error) {
+	if f.sessionInfos != nil {
+		if info, ok := f.sessionInfos[sessionID]; ok {
+			return info, nil
+		}
+	}
+	return session.TopicSessionInfo{SessionID: sessionID}, nil
 }
 
 type fakeTurnDispatcher struct {

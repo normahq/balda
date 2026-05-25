@@ -25,6 +25,7 @@ type taskAgentActor struct {
 	runtimeBuilder taskAgentRuntimeBuilder
 	coordinator    *swarm.Coordinator
 	agents         *swarm.AgentRegistry
+	tasks          *swarm.TaskService
 	taskRuns       *taskRunRegistry
 	logger         zerolog.Logger
 }
@@ -36,6 +37,7 @@ type taskAgentActorParams struct {
 	RuntimeManager *baldaagent.RuntimeManager
 	Coordinator    *swarm.Coordinator
 	Agents         *swarm.AgentRegistry
+	TaskService    *swarm.TaskService
 	TaskRuns       *taskRunRegistry
 	Logger         zerolog.Logger
 }
@@ -46,6 +48,7 @@ func newTaskAgentActor(params taskAgentActorParams) swarm.Actor {
 		runtimeBuilder: params.RuntimeManager,
 		coordinator:    params.Coordinator,
 		agents:         params.Agents,
+		tasks:          params.TaskService,
 		taskRuns:       params.TaskRuns,
 		logger:         params.Logger.With().Str("component", "balda.task_agent_actor").Logger(),
 	}
@@ -115,7 +118,9 @@ func (a *taskAgentActor) Handle(ctx context.Context, env swarm.Envelope) error {
 	defer cancel()
 
 	prompt := formatTaskAgentPrompt(payload, spec)
-	text, err := runAgentTurn(runCtx, runtime.Runner, ts.GetUserID(), ts.GetAgentSessionID(), prompt)
+	text, err := runAgentTurnWithProgress(runCtx, runtime.Runner, ts.GetUserID(), ts.GetAgentSessionID(), prompt, func(progress string) {
+		a.recordProgress(ctx, payload, progress)
+	})
 	if err != nil {
 		if errors.Is(runCtx.Err(), context.Canceled) {
 			return a.publishResult(ctx, env, payload, "", fmt.Errorf("goal run canceled"))
@@ -123,6 +128,24 @@ func (a *taskAgentActor) Handle(ctx context.Context, env swarm.Envelope) error {
 		return a.publishResult(ctx, env, payload, text, err)
 	}
 	return a.publishResult(ctx, env, payload, text, nil)
+}
+
+func (a *taskAgentActor) recordProgress(ctx context.Context, payload taskAgentCommandPayload, text string) {
+	if a == nil || a.tasks == nil {
+		return
+	}
+	progress := strings.TrimSpace(text)
+	if progress == "" {
+		return
+	}
+	if err := a.tasks.AppendEvent(ctx, payload.TaskID, swarm.TaskEventAgentProgress, "agent:"+payload.AgentName, "", map[string]any{
+		"role":       payload.Role,
+		"agent_name": payload.AgentName,
+		"iteration":  payload.Iteration,
+		"text":       progress,
+	}); err != nil {
+		a.logger.Warn().Err(err).Str("task_id", payload.TaskID).Str("agent_name", payload.AgentName).Msg("failed to record task agent progress")
+	}
 }
 
 func (a *taskAgentActor) resolveAgentSpec(name string) (swarm.AgentSpec, bool) {
