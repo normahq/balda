@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
@@ -16,11 +17,14 @@ import (
 
 type handlerShadowWakeBus struct{}
 
-func (handlerShadowWakeBus) Publish(context.Context, swarm.ActorAddress) error { return nil }
-func (handlerShadowWakeBus) Subscribe(context.Context, swarm.MessageHandler) error {
-	return nil
+func (handlerShadowWakeBus) Publish(context.Context, string, swarm.Envelope) error { return nil }
+func (handlerShadowWakeBus) Subscribe(context.Context, string, swarm.EventHandler) (swarm.Subscription, error) {
+	return swarm.NewNoopEventBus("test").Subscribe(context.Background(), "", nil)
 }
-func (handlerShadowWakeBus) Close() error { return nil }
+func (handlerShadowWakeBus) Request(context.Context, string, swarm.Envelope, time.Duration) (*swarm.Envelope, error) {
+	return nil, nil
+}
+func (handlerShadowWakeBus) Drain(context.Context) error { return nil }
 
 func TestBaldaHandlerSubmitSessionTurn_WebhookLegacyEnqueuesDirectOnly(t *testing.T) {
 	ctx := context.Background()
@@ -219,7 +223,7 @@ func newHandlerSwarmCoordinator(
 	app := fxtest.New(t,
 		fx.Supply(
 			fx.Annotate(provider, fx.As(new(baldastate.Provider))),
-			fx.Annotate(handlerShadowWakeBus{}, fx.As(new(swarm.WakeBus))),
+			fx.Annotate(handlerShadowWakeBus{}, fx.As(new(swarm.EventBus))),
 			cfg,
 		),
 		fx.Provide(

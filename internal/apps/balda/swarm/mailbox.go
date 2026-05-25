@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
+	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 )
 
@@ -20,9 +21,10 @@ const (
 
 type MailboxService struct {
 	store     baldastate.SwarmStore
-	bus       WakeBus
+	bus       EventBus
 	cfg       Config
 	metrics   *ShadowMetrics
+	logger    zerolog.Logger
 	collectMu sync.Mutex
 	collect   *CollectBuffer
 }
@@ -31,9 +33,10 @@ type mailboxServiceParams struct {
 	fx.In
 
 	StateProvider baldastate.Provider
-	Bus           WakeBus
+	Bus           EventBus
 	Config        Config
 	Metrics       *ShadowMetrics
+	Logger        zerolog.Logger `optional:"true"`
 }
 
 func NewMailboxService(params mailboxServiceParams) (*MailboxService, error) {
@@ -41,13 +44,14 @@ func NewMailboxService(params mailboxServiceParams) (*MailboxService, error) {
 		return nil, fmt.Errorf("balda state provider is required")
 	}
 	if params.Bus == nil {
-		return nil, fmt.Errorf("swarm wake bus is required")
+		return nil, fmt.Errorf("swarm event bus is required")
 	}
 	return &MailboxService{
 		store:   params.StateProvider.Swarm(),
 		bus:     params.Bus,
 		cfg:     params.Config,
 		metrics: params.Metrics,
+		logger:  params.Logger.With().Str("component", "balda.swarm.mailbox").Logger(),
 	}, nil
 }
 
@@ -139,8 +143,11 @@ func (s *MailboxService) publish(ctx context.Context, env Envelope, opts publish
 		return SubmittedMessage{}, err
 	}
 	if result.Published {
-		if err := s.Notify(ctx, env.To); err != nil {
-			return SubmittedMessage{}, err
+		if err := s.publishCommandShadow(ctx, env); err != nil {
+			s.logger.Warn().Err(err).Str("message_id", env.ID).Msg("failed to shadow publish command")
+		}
+		if err := s.Notify(ctx, env); err != nil {
+			s.logger.Warn().Err(err).Str("message_id", env.ID).Msg("failed to publish mailbox wakeup")
 		}
 	}
 	return SubmittedMessage{
@@ -257,11 +264,11 @@ func (s *MailboxService) PendingCount(ctx context.Context, mailbox string) (int,
 	return s.store.PendingCount(ctx, mailbox)
 }
 
-func (s *MailboxService) Notify(ctx context.Context, addr ActorAddress) error {
+func (s *MailboxService) Notify(ctx context.Context, env Envelope) error {
 	if !s.Enabled() {
 		return nil
 	}
-	return s.bus.Publish(ctx, addr)
+	return s.bus.Publish(ctx, SubjectWakeupMailbox, env)
 }
 
 func (s *MailboxService) RecordShadowDispatch() {
@@ -270,6 +277,13 @@ func (s *MailboxService) RecordShadowDispatch() {
 
 func (s *MailboxService) ShadowMetricsSnapshot() map[string]uint64 {
 	return s.metrics.Snapshot()
+}
+
+func (s *MailboxService) publishCommandShadow(ctx context.Context, env Envelope) error {
+	if publisher, ok := s.bus.(CommandShadowPublisher); ok {
+		return publisher.PublishCommandShadow(ctx, env)
+	}
+	return nil
 }
 
 func (s *MailboxService) collectBuffer(debounce time.Duration) *CollectBuffer {

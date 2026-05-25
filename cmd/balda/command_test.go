@@ -134,6 +134,15 @@ balda:
 	if doc.Balda.Swarm.SchedulerMode != testBaldaSwarmModeShadow {
 		t.Fatalf("swarm.scheduler_mode = %q, want shadow from defaults", doc.Balda.Swarm.SchedulerMode)
 	}
+	if doc.Balda.EventBus.Mode != "nats_core" {
+		t.Fatalf("event_bus.mode = %q, want nats_core from defaults", doc.Balda.EventBus.Mode)
+	}
+	if !doc.Balda.EventBus.NATS.Embedded {
+		t.Fatal("event_bus.nats.embedded = false, want true from defaults")
+	}
+	if doc.Balda.EventBus.NATS.StoreDir != ".balda/nats" {
+		t.Fatalf("event_bus.nats.store_dir = %q, want .balda/nats from defaults", doc.Balda.EventBus.NATS.StoreDir)
+	}
 	if !doc.Balda.Swarm.Shadow.Enabled {
 		t.Fatal("swarm.shadow.enabled = false, want true from defaults")
 	}

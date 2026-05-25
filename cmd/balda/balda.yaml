@@ -89,11 +89,38 @@ balda:
     # Balda clamps invalid values to 25.
     max_iterations: 25
 
+  event_bus:
+    # sqlite: no NATS; durable SQLite mailbox polling only.
+    # nats_core: SQLite remains durable; embedded NATS provides wakeups/events.
+    # nats_jetstream: JetStream receives command shadows and owns streams for future mailbox mode.
+    mode: "nats_core"
+    nats:
+      embedded: true
+      host: "127.0.0.1"
+      port: -1
+      jetstream: true
+      store_dir: ".balda/nats"
+      max_memory: "256mb"
+      max_store: "2gb"
+      sync_always: false
+      expose_monitoring: false
+      streams:
+        commands:
+          max_age: "168h"
+          max_bytes: "1gb"
+          max_msg_size: "1mb"
+          discard: "new"
+        events:
+          max_age: "336h"
+          max_bytes: "512mb"
+          max_msg_size: "1mb"
+          discard: "old"
+
   swarm:
     # Actor runtime rollout controls.
     enabled: true
     # shadow: persist envelopes for comparison and keep existing direct dispatch.
-    # mailbox: route work through durable SQLite mailboxes and embedded NATS wakeups.
+    # mailbox: route work through durable SQLite mailboxes and EventBus wakeups.
     mode: "shadow"
     # Scoped rollout modes for event-driven intake.
     # These can be moved to mailbox before Telegram messages or /goal use mailbox mode.

@@ -17,14 +17,20 @@ type recordingWakeBus struct {
 	publishCalls atomic.Int64
 }
 
-func (b *recordingWakeBus) Publish(context.Context, ActorAddress) error {
+func (b *recordingWakeBus) Publish(context.Context, string, Envelope) error {
 	b.publishCalls.Add(1)
 	return nil
 }
 
-func (*recordingWakeBus) Subscribe(context.Context, MessageHandler) error { return nil }
+func (*recordingWakeBus) Subscribe(context.Context, string, EventHandler) (Subscription, error) {
+	return noopSubscription{}, nil
+}
 
-func (*recordingWakeBus) Close() error { return nil }
+func (*recordingWakeBus) Request(context.Context, string, Envelope, time.Duration) (*Envelope, error) {
+	return nil, nil
+}
+
+func (*recordingWakeBus) Drain(context.Context) error { return nil }
 
 func TestMailboxService_PublishShadowPersistsWithoutWake(t *testing.T) {
 	ctx := context.Background()

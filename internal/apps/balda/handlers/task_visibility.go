@@ -11,6 +11,7 @@ import (
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/normahq/balda/internal/git"
 	"github.com/rs/zerolog/log"
 )
@@ -174,6 +175,24 @@ func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) 
 	out.WriteString(firstNonEmpty(h.swarmConfig.SchedulerMode, "shadow"))
 	out.WriteString("\n- runtime enabled: ")
 	fmt.Fprintf(&out, "%t", h.swarmCoordinator != nil && h.swarmCoordinator.RuntimeEnabled())
+	out.WriteString("\n\nEvent bus")
+	if statusProvider, ok := h.eventBus.(swarm.EventBusStatusProvider); ok {
+		status := statusProvider.Status()
+		out.WriteString("\n- mode: ")
+		out.WriteString(firstNonEmpty(status.Mode, "unknown"))
+		out.WriteString("\n- embedded_nats: ")
+		fmt.Fprintf(&out, "%t", status.Embedded)
+		out.WriteString("\n- running: ")
+		fmt.Fprintf(&out, "%t", status.Running)
+		out.WriteString("\n- jetstream: ")
+		fmt.Fprintf(&out, "%t", status.JetStream)
+		if status.ClientURL != "" {
+			out.WriteString("\n- client_url: ")
+			out.WriteString(status.ClientURL)
+		}
+	} else {
+		out.WriteString("\n- unavailable")
+	}
 
 	if h.swarmCoordinator != nil {
 		metrics := h.swarmCoordinator.ShadowMetricsSnapshot()

@@ -42,7 +42,7 @@ go tool golangci-lint run
 - `/task <id>`: owner/collaborator; inspects task status, latest events, and terminal reviewable outcome.
 - `/task <id> events`: owner/collaborator; prints the task event stream.
 - `/task <id> cancel`: owner/collaborator; cancels queued mailbox work, active task run when present, and marks the task canceled.
-- `/swarm status`: owner/collaborator; shows swarm rollout mode, runtime state, logical agents, task counts, and ready mailboxes.
+- `/swarm status`: owner/collaborator; shows swarm rollout mode, event bus state, runtime state, logical agents, task counts, and ready mailboxes.
 - `/mailbox status`: owner/collaborator; shows non-terminal mailbox message counts.
 - `/close`: owner/collaborator, direct message only; closes a topic session or stops the owner session.
 - `/cancel`: owner/collaborator; cancels in-flight turn processing, drops queued turns, and aborts active `/goal` run for the current session.

@@ -11,6 +11,7 @@ import (
 	"github.com/ipfans/fxlogger"
 	baldaagent "github.com/normahq/balda/internal/apps/balda/agent"
 	"github.com/normahq/balda/internal/apps/balda/auth"
+	natsbus "github.com/normahq/balda/internal/apps/balda/eventbus/nats"
 	"github.com/normahq/balda/internal/apps/balda/handlers"
 	"github.com/normahq/balda/internal/apps/balda/memory"
 	"github.com/normahq/balda/internal/apps/balda/paths"
@@ -128,6 +129,10 @@ func Module(
 	if err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}
+	eventBusConfig, err := cfg.Balda.EventBus.Normalized()
+	if err != nil {
+		return fx.Module("balda", fx.Error(err))
+	}
 
 	// Start with global MCP servers.
 	mcpServers := make(map[string]agentconfig.MCPServerConfig, len(normaCfg.MCPServers))
@@ -145,6 +150,7 @@ func Module(
 			mcpReg,
 			jobSchedulerConfig,
 			inboundWebhookConfig,
+			eventBusConfig,
 			swarmConfig,
 		),
 		fx.Provide(
@@ -319,6 +325,7 @@ func Module(
 			)
 		}),
 		tgbotkit.Module,
+		natsbus.Module,
 		swarm.Module,
 		handlers.Module,
 		fx.Provide(

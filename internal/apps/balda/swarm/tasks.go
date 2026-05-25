@@ -27,19 +27,21 @@ const (
 
 type TaskService struct {
 	store baldastate.SwarmStore
+	bus   EventBus
 }
 
 type taskServiceParams struct {
 	fx.In
 
 	StateProvider baldastate.Provider
+	Bus           EventBus `optional:"true"`
 }
 
 func NewTaskService(params taskServiceParams) (*TaskService, error) {
 	if params.StateProvider == nil {
 		return nil, fmt.Errorf("balda state provider is required")
 	}
-	return &TaskService{store: params.StateProvider.Swarm()}, nil
+	return &TaskService{store: params.StateProvider.Swarm(), bus: params.Bus}, nil
 }
 
 func (s *TaskService) Create(ctx context.Context, record baldastate.SwarmTaskRecord, actor string, payload any) (bool, error) {
@@ -142,14 +144,20 @@ func (s *TaskService) AppendEvent(ctx context.Context, taskID string, eventType 
 	if err != nil {
 		return err
 	}
-	return s.store.AppendTaskEvent(ctx, baldastate.SwarmTaskEventRecord{
-		ID:          uuid.NewString(),
+	eventID := uuid.NewString()
+	event := baldastate.SwarmTaskEventRecord{
+		ID:          eventID,
 		TaskID:      strings.TrimSpace(taskID),
 		EventType:   strings.TrimSpace(eventType),
 		Actor:       strings.TrimSpace(actor),
 		MessageID:   strings.TrimSpace(messageID),
 		PayloadJSON: data,
-	})
+	}
+	if err := s.store.AppendTaskEvent(ctx, event); err != nil {
+		return err
+	}
+	s.publishTaskEvent(ctx, event)
+	return nil
 }
 
 func (s *TaskService) CancelBySession(ctx context.Context, sessionID string, actor string, reason string) ([]string, error) {
@@ -197,6 +205,42 @@ func taskEventForStatus(status string) string {
 		return TaskEventTaskCanceled
 	default:
 		return ""
+	}
+}
+
+func (s *TaskService) publishTaskEvent(ctx context.Context, event baldastate.SwarmTaskEventRecord) {
+	if s == nil || s.bus == nil {
+		return
+	}
+	payload := strings.TrimSpace(event.PayloadJSON)
+	if payload == "" {
+		payload = "{}"
+	}
+	env := Envelope{
+		ID:          event.ID,
+		Namespace:   NamespaceTelemetry,
+		Kind:        "task_event",
+		From:        SystemAddress("task-events"),
+		To:          ActorAddress{Target: ActorTypeTask, Key: event.TaskID},
+		TaskID:      event.TaskID,
+		PayloadJSON: payload,
+		Meta: map[string]string{
+			"event_type": event.EventType,
+			"actor":      event.Actor,
+			"message_id": event.MessageID,
+		},
+	}
+	_ = s.bus.Publish(ctx, subjectForTaskEvent(event.EventType), env)
+}
+
+func subjectForTaskEvent(eventType string) string {
+	switch strings.TrimSpace(eventType) {
+	case TaskEventAgentStarted, TaskEventAgentProgress, TaskEventAgentResult:
+		return SubjectEventAgent
+	case TaskEventDeliverySent:
+		return SubjectEventDelivery
+	default:
+		return SubjectEventTask
 	}
 }
 

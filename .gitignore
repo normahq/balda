@@ -37,6 +37,9 @@ coverage.*
 .norma/**/*.log
 .norma/**/*.tmp
 
+# Balda runtime data
+.balda/
+
 # OS metadata
 .DS_Store
 Thumbs.db

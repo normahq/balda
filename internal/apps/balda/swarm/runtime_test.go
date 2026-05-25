@@ -9,12 +9,6 @@ import (
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 )
 
-type testWakeBus struct{}
-
-func (testWakeBus) Publish(context.Context, ActorAddress) error     { return nil }
-func (testWakeBus) Subscribe(context.Context, MessageHandler) error { return nil }
-func (testWakeBus) Close() error                                    { return nil }
-
 type testActor struct {
 	address string
 	err     error
@@ -123,11 +117,11 @@ func TestRuntime_StartsWhenScopedModeUsesMailbox(t *testing.T) {
 	t.Cleanup(func() { _ = provider.Close() })
 	service := &MailboxService{
 		store: provider.Swarm(),
-		bus:   testWakeBus{},
+		bus:   NewNoopEventBus("test"),
 		cfg:   Config{Enabled: true, Mode: ModeShadow, WebhookMode: ModeMailbox},
 	}
 	runtime := newRuntimeForTest(service, NewRegistry())
-	if err := runtime.Start(ctx, testWakeBus{}); err != nil {
+	if err := runtime.Start(ctx, NewNoopEventBus("test")); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
 	if runtime.cancel == nil {
@@ -145,13 +139,14 @@ func newRuntimeTestMailboxService(t *testing.T, ctx context.Context) (baldastate
 		t.Fatalf("NewSQLiteProvider() error = %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Close() })
-	return provider, &MailboxService{store: provider.Swarm(), bus: testWakeBus{}, cfg: Config{Enabled: true, Mode: ModeMailbox}}
+	return provider, &MailboxService{store: provider.Swarm(), bus: NewNoopEventBus("test"), cfg: Config{Enabled: true, Mode: ModeMailbox}}
 }
 
 func newRuntimeForTest(service *MailboxService, registry ActorRegistry) *Runtime {
 	return &Runtime{
 		mailboxes: service,
 		registry:  registry,
+		scheduler: NewKeyedActorScheduler(),
 		workerID:  "test-worker",
 		draining:  make(map[string]struct{}),
 	}

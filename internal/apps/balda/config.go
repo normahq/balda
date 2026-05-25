@@ -1,5 +1,7 @@
 package balda
 
+import baldaeventbus "github.com/normahq/balda/internal/apps/balda/eventbus"
+
 // Config holds the configuration for the Balda bot.
 type Config struct {
 	Balda BaldaConfig `mapstructure:"balda"`
@@ -7,20 +9,21 @@ type Config struct {
 
 // BaldaConfig holds the balda-specific configuration.
 type BaldaConfig struct {
-	Provider          string          `mapstructure:"provider"`
-	Telegram          TelegramConfig  `mapstructure:"telegram"`
-	Webhooks          WebhooksConfig  `mapstructure:"webhooks"`
-	Logger            LoggerConfig    `mapstructure:"logger"`
-	WorkingDir        string          `mapstructure:"working_dir"`
-	StateDir          string          `mapstructure:"state_dir"`
-	Sessions          SessionsConfig  `mapstructure:"sessions"`
-	Memory            MemoryConfig    `mapstructure:"memory"`
-	Goal              GoalConfig      `mapstructure:"goal"`
-	Swarm             SwarmConfig     `mapstructure:"swarm"`
-	Scheduler         SchedulerConfig `mapstructure:"scheduler"`
-	Workspace         WorkspaceConfig `mapstructure:"workspace"`
-	MCPServers        []string        `mapstructure:"mcp_servers"`
-	GlobalInstruction string          `mapstructure:"global_instruction"`
+	Provider          string               `mapstructure:"provider"`
+	Telegram          TelegramConfig       `mapstructure:"telegram"`
+	Webhooks          WebhooksConfig       `mapstructure:"webhooks"`
+	Logger            LoggerConfig         `mapstructure:"logger"`
+	WorkingDir        string               `mapstructure:"working_dir"`
+	StateDir          string               `mapstructure:"state_dir"`
+	Sessions          SessionsConfig       `mapstructure:"sessions"`
+	Memory            MemoryConfig         `mapstructure:"memory"`
+	Goal              GoalConfig           `mapstructure:"goal"`
+	EventBus          baldaeventbus.Config `mapstructure:"event_bus"`
+	Swarm             SwarmConfig          `mapstructure:"swarm"`
+	Scheduler         SchedulerConfig      `mapstructure:"scheduler"`
+	Workspace         WorkspaceConfig      `mapstructure:"workspace"`
+	MCPServers        []string             `mapstructure:"mcp_servers"`
+	GlobalInstruction string               `mapstructure:"global_instruction"`
 }
 
 // TelegramConfig holds the Telegram bot configuration.

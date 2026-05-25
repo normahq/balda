@@ -59,3 +59,7 @@ func classifyError(err error) ErrorKind {
 	}
 	return ErrorKindTransient
 }
+
+func ClassifyError(err error) ErrorKind {
+	return classifyError(err)
+}

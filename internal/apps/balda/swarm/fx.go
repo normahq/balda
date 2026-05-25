@@ -4,9 +4,9 @@ import "go.uber.org/fx"
 
 var Module = fx.Module("balda_swarm",
 	fx.Provide(
-		fx.Annotate(NewEmbeddedBus, fx.As(new(WakeBus))),
 		NewShadowMetrics,
 		NewMailboxService,
+		fx.Annotate(NewSQLiteDurableMailbox, fx.As(new(DurableMailbox))),
 		NewTaskService,
 		NewAgentRegistry,
 		NewAgentAllocator,

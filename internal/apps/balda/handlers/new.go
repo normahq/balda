@@ -35,6 +35,7 @@ type CommandHandler struct {
 	turnDispatcher    turnQueue
 	swarmCoordinator  *swarm.Coordinator
 	swarmConfig       swarm.Config
+	eventBus          swarm.EventBus
 	agentRegistry     *swarm.AgentRegistry
 	mailboxes         *swarm.MailboxService
 	tasks             *swarm.TaskService
@@ -59,6 +60,7 @@ type commandHandlerParams struct {
 	TurnDispatcher    *TurnDispatcher
 	SwarmCoordinator  *swarm.Coordinator
 	SwarmConfig       swarm.Config
+	EventBus          swarm.EventBus
 	AgentRegistry     *swarm.AgentRegistry
 	MailboxService    *swarm.MailboxService
 	TaskService       *swarm.TaskService
@@ -79,6 +81,7 @@ func NewCommandHandler(params commandHandlerParams) *CommandHandler {
 		turnDispatcher:    params.TurnDispatcher,
 		swarmCoordinator:  params.SwarmCoordinator,
 		swarmConfig:       params.SwarmConfig,
+		eventBus:          params.EventBus,
 		agentRegistry:     params.AgentRegistry,
 		mailboxes:         params.MailboxService,
 		tasks:             params.TaskService,

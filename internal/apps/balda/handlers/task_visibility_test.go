@@ -18,6 +18,7 @@ func TestCommandHandlerTaskVisibilityCommands(t *testing.T) {
 	provider, mailboxes, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
 	handler.swarmConfig = swarm.Config{Enabled: true, Mode: swarm.ModeMailbox}
 	handler.swarmCoordinator = coordinator
+	handler.eventBus = swarm.NewNoopEventBus("sqlite")
 	handler.mailboxes = mailboxes
 	handler.tasks = tasks
 	handler.agentRegistry = registry
@@ -95,6 +96,7 @@ func TestCommandHandlerSwarmAndMailboxStatusCommands(t *testing.T) {
 	_, mailboxes, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
 	handler.swarmConfig = swarm.Config{Enabled: true, Mode: swarm.ModeMailbox, WebhookMode: swarm.ModeShadow, SchedulerMode: swarm.ModeShadow}
 	handler.swarmCoordinator = coordinator
+	handler.eventBus = swarm.NewNoopEventBus("sqlite")
 	handler.mailboxes = mailboxes
 	handler.tasks = tasks
 	handler.agentRegistry = registry
@@ -122,6 +124,8 @@ func TestCommandHandlerSwarmAndMailboxStatusCommands(t *testing.T) {
 		t.Fatalf("/swarm status error = %v", err)
 	}
 	assertLastSentContains(t, tgClient, "Swarm status")
+	assertLastSentContains(t, tgClient, "Event bus")
+	assertLastSentContains(t, tgClient, "mode: sqlite")
 	assertLastSentContains(t, tgClient, "planner")
 	assertLastSentContains(t, tgClient, "created: 1")
 
@@ -159,7 +163,7 @@ func newTaskVisibilitySwarmServices(
 	app := fxtest.New(t,
 		fx.Supply(
 			fx.Annotate(provider, fx.As(new(baldastate.Provider))),
-			fx.Annotate(handlerShadowWakeBus{}, fx.As(new(swarm.WakeBus))),
+			fx.Annotate(handlerShadowWakeBus{}, fx.As(new(swarm.EventBus))),
 			cfg,
 		),
 		fx.Provide(

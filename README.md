@@ -152,7 +152,7 @@ Built-in provider types:
 - `/task <id>`: inspect task status, objective, latest events, and reviewable outcome when the task is terminal.
 - `/task <id> events`: print the task event stream.
 - `/task <id> cancel`: cancel queued mailbox work, the active task run when present, and mark the task canceled.
-- `/swarm status`: show swarm rollout mode, runtime state, shadow counters, configured logical agents, task status counts, and ready mailboxes.
+- `/swarm status`: show swarm rollout mode, event bus state, runtime state, shadow counters, configured logical agents, task status counts, and ready mailboxes.
 - `/mailbox status`: show non-terminal mailbox message counts by mailbox and status.
 - `/reset`: clear conversation history for the current session.
 - `/close`: reset history, then close the current topic or restart the owner session on the next message.
@@ -205,6 +205,18 @@ balda:
     enabled: true
   goal:
     max_iterations: 25
+  event_bus:
+    mode: "nats_core"
+    nats:
+      embedded: true
+      host: "127.0.0.1"
+      port: -1
+      jetstream: true
+      store_dir: ".balda/nats"
+      max_memory: "256mb"
+      max_store: "2gb"
+      sync_always: false
+      expose_monitoring: false
   swarm:
     enabled: true
     mode: "shadow"
@@ -254,8 +266,10 @@ Common settings:
 - `balda.sessions.persistence`: `sqlite` by default; keeps ADK conversation history across restarts until `/reset` or explicit `/close`.
 - `balda.memory.enabled`: `true` by default; controls `${balda.state_dir}/MEMORY.md`, `/memory`, and `balda.memory.*` MCP tools.
 - `balda.goal.max_iterations`: maximum Goalkeeper worker/validator iterations for `/goal`; defaults to `25`.
+- `balda.event_bus.mode`: `nats_core` by default. `sqlite` disables NATS and uses SQLite mailbox polling only; `nats_core` keeps SQLite as the durable mailbox and uses embedded NATS for wakeups/events; `nats_jetstream` also creates JetStream command/event/control/DLQ streams and shadow-publishes commands while SQLite remains product state.
+- `balda.event_bus.nats.*`: embedded NATS defaults bind to `127.0.0.1` on a random local port, keep monitoring disabled, and store JetStream files under `.balda/nats`.
 - `balda.swarm.enabled`: `true` by default; enables swarm rollout plumbing.
-- `balda.swarm.mode`: `shadow` by default; `shadow` dual-writes envelopes to SQLite and keeps the existing direct dispatch path, while `mailbox` routes work through SQLite-backed actor mailboxes with embedded NATS wakeups. `/goal` creates `swarm_tasks` records in all modes; mailbox mode coordinates Goal tasks through TaskActor -> AgentActor planner/executor/reviewer -> DeliveryActor.
+- `balda.swarm.mode`: `shadow` by default; `shadow` dual-writes envelopes to SQLite and keeps the existing direct dispatch path, while `mailbox` routes work through SQLite-backed actor mailboxes with EventBus wakeups. `/goal` creates `swarm_tasks` records in all modes; mailbox mode coordinates Goal tasks through TaskActor -> AgentActor planner/executor/reviewer -> DeliveryActor.
 - `balda.swarm.webhook_mode`: `shadow` by default; controls only generic inbound webhook intake (`legacy|shadow|mailbox`).
 - `balda.swarm.scheduler_mode`: `shadow` by default; controls only config-managed recurring jobs (`legacy|shadow|mailbox`).
 - `balda.swarm.shadow.enabled`: `true` by default; stores Telegram, webhook, schedule, and `/goal` envelopes with `status=shadow` for rollout comparison when a resolved mode is `shadow`.

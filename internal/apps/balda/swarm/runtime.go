@@ -69,6 +69,7 @@ type Runtime struct {
 	mailboxes *MailboxService
 	tasks     *TaskService
 	registry  ActorRegistry
+	scheduler *KeyedActorScheduler
 	logger    zerolog.Logger
 	workerID  string
 
@@ -82,7 +83,7 @@ type runtimeParams struct {
 	fx.In
 
 	LC        fx.Lifecycle
-	Bus       WakeBus
+	Bus       EventBus
 	Mailboxes *MailboxService
 	Tasks     *TaskService
 	Logger    zerolog.Logger
@@ -106,6 +107,7 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 		mailboxes: params.Mailboxes,
 		tasks:     params.Tasks,
 		registry:  registry,
+		scheduler: NewKeyedActorScheduler(),
 		logger:    params.Logger.With().Str("component", "balda.swarm.runtime").Logger(),
 		workerID:  "balda-single-worker",
 		draining:  make(map[string]struct{}),
@@ -117,7 +119,7 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 	return r, nil
 }
 
-func (r *Runtime) Start(ctx context.Context, bus WakeBus) error {
+func (r *Runtime) Start(ctx context.Context, bus EventBus) error {
 	if r.cancel != nil {
 		return nil
 	}
@@ -131,7 +133,11 @@ func (r *Runtime) Start(ctx context.Context, bus WakeBus) error {
 		cancel()
 		return err
 	}
-	if err := bus.Subscribe(runCtx, func(ctx context.Context, mailboxID string) error {
+	if _, err := bus.Subscribe(runCtx, SubjectWakeupMailbox, func(ctx context.Context, _ string, env Envelope) error {
+		mailboxID, err := env.To.MailboxID()
+		if err != nil {
+			return err
+		}
 		r.wake(ctx, mailboxID)
 		return nil
 	}); err != nil {
@@ -213,6 +219,15 @@ func (r *Runtime) runMailbox(ctx context.Context, mailbox string) {
 }
 
 func (r *Runtime) handleEnvelope(ctx context.Context, mailbox string, env Envelope) error {
+	if r.scheduler != nil {
+		return r.scheduler.Dispatch(ctx, env, func(ctx context.Context, env Envelope) error {
+			return r.handleEnvelopeDirect(ctx, mailbox, env)
+		})
+	}
+	return r.handleEnvelopeDirect(ctx, mailbox, env)
+}
+
+func (r *Runtime) handleEnvelopeDirect(ctx context.Context, mailbox string, env Envelope) error {
 	to, err := env.To.String()
 	if err != nil {
 		return r.mailboxes.DeadLetter(context.Background(), mailbox, env.ID, err.Error())

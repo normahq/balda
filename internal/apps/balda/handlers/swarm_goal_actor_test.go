@@ -137,7 +137,7 @@ func newTaskActorSwarmServices(
 	app := fxtest.New(t,
 		fx.Supply(
 			fx.Annotate(provider, fx.As(new(baldastate.Provider))),
-			fx.Annotate(handlerShadowWakeBus{}, fx.As(new(swarm.WakeBus))),
+			fx.Annotate(handlerShadowWakeBus{}, fx.As(new(swarm.EventBus))),
 			cfg,
 		),
 		fx.Provide(

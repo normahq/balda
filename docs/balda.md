@@ -390,10 +390,19 @@ session-start snapshot. New or restored sessions read the latest file.
   - when disabled, Balda does not snapshot `MEMORY.md`, register `balda.memory.*` MCP tools, or expose `/memory` contents.
 - `balda.goal.max_iterations`: maximum Goalkeeper worker/validator iterations for `/goal` (default `25`)
   - invalid values are clamped to `25`.
+- `balda.event_bus.mode`: internal event transport (`sqlite|nats_core|nats_jetstream`, default `nats_core`)
+  - `sqlite`: no NATS; actor runtime relies on SQLite mailbox polling/recovery.
+  - `nats_core`: SQLite remains the durable mailbox; embedded NATS Core carries wakeups and live events. Lost NATS messages do not lose durable commands.
+  - `nats_jetstream`: embedded JetStream creates command/event/control/DLQ streams and shadow-publishes commands with message IDs; SQLite remains source of truth for tasks, memory, sessions, ACL, and reviewable outcomes.
+- `balda.event_bus.nats.embedded`: run Balda-owned NATS inside the process (default `true`)
+- `balda.event_bus.nats.host` / `port`: embedded listener address (default `127.0.0.1:-1`, random local port)
+- `balda.event_bus.nats.jetstream`: enable JetStream on the embedded server (default `true`)
+- `balda.event_bus.nats.store_dir`: JetStream store directory, relative to `balda.working_dir` when not absolute (default `.balda/nats`)
+- `balda.event_bus.nats.max_memory` / `max_store`: embedded JetStream resource caps (defaults `256mb` and `2gb`)
 - `balda.swarm.enabled`: enables swarm rollout plumbing (default `true`)
 - `balda.swarm.mode`: actor runtime mode (default `shadow`)
   - `shadow`: persist Telegram, webhook, schedule, and `/goal` envelopes in SQLite with `status=shadow`, then keep the existing direct dispatch path.
-  - `mailbox`: persist work in SQLite swarm mailboxes and use embedded NATS for wakeups. Goal tasks run through TaskActor, AgentActor planner/executor/reviewer roles, and DeliveryActor.
+  - `mailbox`: persist work in SQLite swarm mailboxes and use EventBus wakeups. Goal tasks run through TaskActor, AgentActor planner/executor/reviewer roles, and DeliveryActor.
 - `balda.swarm.webhook_mode`: generic inbound webhook runtime mode (`legacy|shadow|mailbox`, default `shadow`)
 - `balda.swarm.scheduler_mode`: config-managed recurring job runtime mode (`legacy|shadow|mailbox`, default `shadow`)
 - `balda.swarm.shadow.enabled`: enables shadow dual-write when any resolved swarm mode is `shadow` (default `true`).
@@ -498,7 +507,7 @@ Balda runs with a single provider per process (`balda.provider`).
 - `/task <id>` (owner/collaborator): shows task status, objective, source, timestamps, latest events, and the reviewable outcome when the task is terminal.
 - `/task <id> events` (owner/collaborator): prints the append-only task event stream.
 - `/task <id> cancel` (owner/collaborator): cancels queued mailbox work, cancels the active task run when present, and marks the task `canceled`.
-- `/swarm status` (owner/collaborator): shows swarm rollout mode, runtime state, shadow counters, configured logical agents, task status counts, and ready mailboxes.
+- `/swarm status` (owner/collaborator): shows swarm rollout mode, event bus state, runtime state, shadow counters, configured logical agents, task status counts, and ready mailboxes.
 - `/mailbox status` (owner/collaborator): shows non-terminal mailbox message counts grouped by mailbox and status.
 - `/close` (DM only, owner/collaborator): resets current session history, then in the owner DM `topic_id=0` stops the owner session; in topic contexts, closes that topic.
 - `/reset` (owner/collaborator): cancels queued work and clears the current session's persisted ADK conversation history without deleting Balda metadata or the workspace branch.
@@ -537,6 +546,36 @@ record, regardless of the active swarm rollout mode.
 - Visibility commands are read-only except `/task <id> cancel`. `/tasks` is
   scoped to the current session; `/task <id>` can inspect any visible task ID
   known to the instance.
+
+### Event bus runtime semantics (internal)
+
+Balda has an internal `EventBus` abstraction above the actor mailbox runtime.
+The default `nats_core` mode starts an embedded localhost NATS server, but
+SQLite remains the durable mailbox and product database.
+
+- Event bus modes:
+  - `sqlite`: no NATS; wakeups come only from periodic SQLite scans.
+  - `nats_core`: SQLite stores commands; NATS publishes `balda.v1.wakeup.mailbox`
+    after the SQLite publish commits and carries live event fanout.
+  - `nats_jetstream`: JetStream streams are created for commands, events,
+    control, and DLQ. Commands are shadow-published with message IDs; execution
+    still uses SQLite until JetStream mailbox execution is explicitly enabled.
+- Stable subjects:
+  - Commands: `balda.v1.cmd.session`, `balda.v1.cmd.task`,
+    `balda.v1.cmd.agent`, `balda.v1.cmd.memory`, `balda.v1.cmd.delivery`.
+  - Events: `balda.v1.evt.ingress.telegram`,
+    `balda.v1.evt.ingress.webhook`, `balda.v1.evt.ingress.schedule`,
+    `balda.v1.evt.task`, `balda.v1.evt.agent`, `balda.v1.evt.memory`,
+    `balda.v1.evt.delivery`.
+  - Control/DLQ: `balda.v1.ctrl.cancel`, `balda.v1.ctrl.pause`,
+    `balda.v1.ctrl.resume`, `balda.v1.ctrl.retry`, `balda.v1.dlq`.
+- NATS identity is carried in headers: `Balda-Envelope-ID`,
+  `Balda-Session-ID`, `Balda-Task-ID`, `Balda-Actor`, `Balda-Mailbox`,
+  `Balda-Correlation-ID`, `Balda-Causation-ID`, `Balda-Dedupe-Key`,
+  `Balda-Priority`, and `Balda-Namespace`.
+- Embedded NATS binds to `127.0.0.1` by default and is not exposed externally.
+  JetStream files live under `.balda/nats`, which is runtime state and should
+  not be committed.
 
 ### Scheduled job runtime semantics (internal)
 
