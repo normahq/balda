@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,7 +15,7 @@ import (
 	"go.uber.org/fx/fxtest"
 )
 
-func TestTaskActorStartGoalDispatchesPlannerFirst(t *testing.T) {
+func TestTaskActorStartGoalDispatchesPlannerBeforeProgress(t *testing.T) {
 	ctx := context.Background()
 	_, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
 	exec := &taskActorExecutor{tasks: tasks, coordinator: coordinator, agents: allocator, maxIters: 3}
@@ -26,9 +27,9 @@ func TestTaskActorStartGoalDispatchesPlannerFirst(t *testing.T) {
 	}
 
 	if len(bus.commands) != 3 {
-		t.Fatalf("published commands = %d, want start delivery + planner-start delivery + planner", len(bus.commands))
+		t.Fatalf("published commands = %d, want planner + start delivery + planner-start delivery", len(bus.commands))
 	}
-	planner := bus.commands[2]
+	planner := bus.commands[0]
 	if planner.To.Target != swarm.ActorTypeAgent || planner.To.Key != swarm.AgentNamePlanner {
 		t.Fatalf("planner command target = %+v, want agent:planner", planner.To)
 	}
@@ -38,6 +39,48 @@ func TestTaskActorStartGoalDispatchesPlannerFirst(t *testing.T) {
 	}
 	if command.Role != taskAgentRolePlanner || command.AgentName != swarm.AgentNamePlanner {
 		t.Fatalf("planner command role/name = %q/%q, want planner/planner", command.Role, command.AgentName)
+	}
+}
+
+func TestTaskActorAgentPublishFailureDoesNotAdvanceTask(t *testing.T) {
+	ctx := context.Background()
+	_, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	exec := &taskActorExecutor{tasks: tasks, coordinator: coordinator, agents: allocator, maxIters: 3}
+	locator := taskActorTestLocator()
+	const taskID = "goal-publish-failure"
+	if _, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+		ID:          taskID,
+		SessionID:   locator.SessionID,
+		Title:       "Goal",
+		Objective:   "fix ordering",
+		Status:      baldastate.SwarmTaskStatusRunning,
+		CreatedFrom: "goal",
+	}, "test", nil); err != nil {
+		t.Fatalf("Create task: %v", err)
+	}
+	bus.commandErrs = []error{errors.New("jetstream unavailable")}
+
+	err := exec.dispatchAgent(ctx, taskAgentCommandPayload{
+		TaskID:          taskID,
+		Role:            taskAgentRoleReviewer,
+		Iteration:       1,
+		Locator:         locator,
+		Objective:       "fix ordering",
+		TransportUserID: "tg-101",
+		MaxIterations:   3,
+	})
+	if err == nil {
+		t.Fatal("dispatchAgent() error = nil, want publish failure")
+	}
+	if len(bus.commands) != 0 {
+		t.Fatalf("published commands = %d, want 0 after failed publish", len(bus.commands))
+	}
+	task, ok, err := tasks.Get(ctx, taskID)
+	if err != nil {
+		t.Fatalf("Get(task) error = %v", err)
+	}
+	if !ok || task.Status != baldastate.SwarmTaskStatusRunning {
+		t.Fatalf("task = %+v found=%v, want status to remain running", task, ok)
 	}
 }
 
@@ -59,12 +102,12 @@ func TestTaskActorPlannerResultStoresPlanAndDispatchesExecutor(t *testing.T) {
 		t.Fatalf("handleAgentResult(planner) error = %v", err)
 	}
 
-	last := bus.commands[len(bus.commands)-1]
-	if last.To.Target != swarm.ActorTypeAgent || last.To.Key != swarm.AgentNameExecutor {
-		t.Fatalf("executor command target = %+v, want agent:executor", last.To)
+	executor := lastPublishedCommandTo(t, bus, swarm.ActorTypeAgent, swarm.AgentNameExecutor)
+	if executor.To.Target != swarm.ActorTypeAgent || executor.To.Key != swarm.AgentNameExecutor {
+		t.Fatalf("executor command target = %+v, want agent:executor", executor.To)
 	}
 	var command taskAgentCommandPayload
-	if err := json.Unmarshal([]byte(last.PayloadJSON), &command); err != nil {
+	if err := json.Unmarshal([]byte(executor.PayloadJSON), &command); err != nil {
 		t.Fatalf("decode executor command: %v", err)
 	}
 	if command.Role != taskAgentRoleExecutor || command.Plan != plannerText || command.PlannerOutput != plannerText {
@@ -239,12 +282,14 @@ func TestSessionActorCompletesTaskAfterTurnSuccess(t *testing.T) {
 		t.Fatalf("Create task: %v", err)
 	}
 	exec := &sessionActorExecutor{tasks: tasks}
-	exec.recordSessionTaskResult(ctx, swarm.Envelope{
+	if err := exec.recordSessionTaskResult(ctx, swarm.Envelope{
 		ID:        "session-command-1",
 		Namespace: swarm.NamespaceWebhookInbound,
 		Kind:      swarm.KindWebhookEvent,
 		TaskID:    taskID,
-	}, sessionTurnPayload{}, nil)
+	}, sessionTurnPayload{}, nil); err != nil {
+		t.Fatalf("recordSessionTaskResult() error = %v", err)
+	}
 
 	task, ok, err := tasks.Get(ctx, taskID)
 	if err != nil {
@@ -252,6 +297,60 @@ func TestSessionActorCompletesTaskAfterTurnSuccess(t *testing.T) {
 	}
 	if !ok || task.Status != baldastate.SwarmTaskStatusCompleted {
 		t.Fatalf("task = %+v found=%v, want completed", task, ok)
+	}
+}
+
+func TestSessionActorReturnsTaskPersistenceError(t *testing.T) {
+	ctx := context.Background()
+	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	_ = provider
+	_ = coordinator
+	_ = allocator
+	const taskID = "webhook-release-persist-fails"
+	if _, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+		ID:          taskID,
+		SessionID:   "tg-9001-99",
+		Title:       "Webhook task",
+		Objective:   "release event",
+		Status:      baldastate.SwarmTaskStatusRunning,
+		CreatedFrom: "webhook",
+	}, "test", nil); err != nil {
+		t.Fatalf("Create task: %v", err)
+	}
+	bus.eventErrs = []error{errors.New("event stream unavailable")}
+	exec := &sessionActorExecutor{tasks: tasks}
+
+	err := exec.recordSessionTaskResult(ctx, swarm.Envelope{
+		ID:        "session-command-1",
+		Namespace: swarm.NamespaceWebhookInbound,
+		Kind:      swarm.KindWebhookEvent,
+		TaskID:    taskID,
+	}, sessionTurnPayload{}, nil)
+	if err == nil {
+		t.Fatal("recordSessionTaskResult() error = nil, want event publish error")
+	}
+}
+
+func TestTaskAgentResolveSessionEnsuresMissingSession(t *testing.T) {
+	ctx := context.Background()
+	locator := taskActorTestLocator()
+	locator.AddressJSON = `{"chat_id":9001,"topic_id":99}`
+	store := &fakeBaldaRestoreSessionStore{}
+	manager := newBaldaRestoreSessionManager(t, &fakeBaldaRestoreAgentBuilder{}, &fakeBaldaRestoreRuntimeManager{providerID: "balda-provider"}, store)
+	actor := &taskAgentActor{sessions: manager}
+
+	ts, err := actor.resolveSession(ctx, taskAgentCommandPayload{
+		Locator:         locator,
+		TransportUserID: "tg-101",
+	})
+	if err != nil {
+		t.Fatalf("resolveSession() error = %v", err)
+	}
+	if ts.GetSessionID() != locator.SessionID {
+		t.Fatalf("session id = %q, want %q", ts.GetSessionID(), locator.SessionID)
+	}
+	if store.lastUpsert.SessionID != locator.SessionID || store.lastUpsert.UserID != "tg-101" {
+		t.Fatalf("last upsert = %+v, want ensured session for tg-101", store.lastUpsert)
 	}
 }
 
@@ -299,4 +398,16 @@ func taskActorGoalEnvelope(t *testing.T, locator baldasession.SessionLocator, ob
 		t.Fatal("goal payload is nil")
 	}
 	return env, *payload.Goal
+}
+
+func lastPublishedCommandTo(t *testing.T, bus *recordingHandlerCommandBus, target string, key string) swarm.Envelope {
+	t.Helper()
+	for i := len(bus.commands) - 1; i >= 0; i-- {
+		env := bus.commands[i]
+		if env.To.Target == target && env.To.Key == key {
+			return env
+		}
+	}
+	t.Fatalf("no command to %s:%s in %+v", target, key, bus.commands)
+	return swarm.Envelope{}
 }

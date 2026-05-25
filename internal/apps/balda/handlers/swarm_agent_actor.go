@@ -194,10 +194,18 @@ func (a *taskAgentActor) resolveSession(ctx context.Context, payload taskAgentCo
 	if userID == "" {
 		return nil, fmt.Errorf("transport user id is required")
 	}
-	return a.sessions.RestoreSession(ctx, baldasession.SessionContext{
+	sessionCtx := baldasession.SessionContext{
 		Locator: payload.Locator,
 		UserID:  userID,
-	})
+	}
+	ts, err = a.sessions.RestoreSession(ctx, sessionCtx)
+	if err == nil {
+		return ts, nil
+	}
+	if !errors.Is(err, baldasession.ErrNoPersistedSession) {
+		return nil, err
+	}
+	return a.sessions.EnsureSession(ctx, sessionCtx, ownerSessionLabel)
 }
 
 func (a *taskAgentActor) publishResult(

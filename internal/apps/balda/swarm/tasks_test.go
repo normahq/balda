@@ -69,6 +69,41 @@ func TestTaskServiceAppendEventPublishesJetStreamEvent(t *testing.T) {
 	}
 }
 
+func TestTaskServiceAppendEventUsesDeterministicIDsExceptProgress(t *testing.T) {
+	ctx := context.Background()
+	provider, err := baldastate.NewSQLiteProvider(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteProvider() error = %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+	bus := &recordingTaskCommandBus{}
+	service, err := NewTaskService(taskServiceParams{StateProvider: provider, Bus: bus})
+	if err != nil {
+		t.Fatalf("NewTaskService() error = %v", err)
+	}
+
+	payload := map[string]any{"role": AgentNamePlanner, "iteration": 1}
+	if err := service.AppendEvent(ctx, "task-1", TaskEventAgentStarted, "task.actor", "task-1:agent:planner:planner:1", payload); err != nil {
+		t.Fatalf("AppendEvent(first started) error = %v", err)
+	}
+	if err := service.AppendEvent(ctx, "task-1", TaskEventAgentStarted, "task.actor", "task-1:agent:planner:planner:1", payload); err != nil {
+		t.Fatalf("AppendEvent(second started) error = %v", err)
+	}
+	if got := bus.envs[0].ID; got == "" || got != bus.envs[1].ID {
+		t.Fatalf("started event ids = %q/%q, want deterministic duplicate id", bus.envs[0].ID, bus.envs[1].ID)
+	}
+
+	if err := service.AppendEvent(ctx, "task-1", TaskEventAgentProgress, "agent:planner", "", map[string]any{"text": "working"}); err != nil {
+		t.Fatalf("AppendEvent(first progress) error = %v", err)
+	}
+	if err := service.AppendEvent(ctx, "task-1", TaskEventAgentProgress, "agent:planner", "", map[string]any{"text": "working"}); err != nil {
+		t.Fatalf("AppendEvent(second progress) error = %v", err)
+	}
+	if got := bus.envs[2].ID; got == "" || got == bus.envs[3].ID {
+		t.Fatalf("progress event ids = %q/%q, want append-only unique ids", bus.envs[2].ID, bus.envs[3].ID)
+	}
+}
+
 func TestTaskServiceCreateReemitsCreatedEventForExistingTask(t *testing.T) {
 	ctx := context.Background()
 	provider, err := baldastate.NewSQLiteProvider(ctx, filepath.Join(t.TempDir(), "state.db"))

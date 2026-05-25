@@ -786,15 +786,29 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 }
 
 type recordingHandlerCommandBus struct {
-	commands []swarm.Envelope
+	commands    []swarm.Envelope
+	commandErrs []error
+	eventErrs   []error
 }
 
 func (b *recordingHandlerCommandBus) PublishCommand(_ context.Context, env swarm.Envelope) (*swarm.CommandPublishResult, error) {
+	if len(b.commandErrs) > 0 {
+		err := b.commandErrs[0]
+		b.commandErrs = b.commandErrs[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
 	b.commands = append(b.commands, env)
 	return &swarm.CommandPublishResult{Stream: swarm.DefaultCommandStream, Sequence: uint64(len(b.commands)), Subject: swarm.SubjectForEnvelope(env), MsgID: swarm.DedupeKeyOrID(env)}, nil
 }
 
-func (*recordingHandlerCommandBus) PublishEvent(context.Context, string, swarm.Envelope) error {
+func (b *recordingHandlerCommandBus) PublishEvent(context.Context, string, swarm.Envelope) error {
+	if len(b.eventErrs) > 0 {
+		err := b.eventErrs[0]
+		b.eventErrs = b.eventErrs[1:]
+		return err
+	}
 	return nil
 }
 func (*recordingHandlerCommandBus) PublishDLQ(context.Context, swarm.Envelope, string) error {

@@ -202,7 +202,9 @@ func (e *sessionActorExecutor) enqueueTurn(ctx context.Context, env swarm.Envelo
 
 	select {
 	case err := <-done:
-		e.recordSessionTaskResult(ctx, env, payload, err)
+		if recordErr := e.recordSessionTaskResult(ctx, env, payload, err); recordErr != nil {
+			return swarm.TransientError(recordErr)
+		}
 		return err
 	case <-ctx.Done():
 		return swarm.TransientError(ctx.Err())
@@ -220,31 +222,40 @@ func (e *sessionActorExecutor) sessionTaskAlreadyDone(ctx context.Context, taskI
 	return isTerminalTaskStatus(task.Status)
 }
 
-func (e *sessionActorExecutor) recordSessionTaskResult(ctx context.Context, env swarm.Envelope, payload sessionTurnPayload, runErr error) {
+func (e *sessionActorExecutor) recordSessionTaskResult(ctx context.Context, env swarm.Envelope, payload sessionTurnPayload, runErr error) error {
 	if e == nil {
-		return
+		return nil
 	}
 	if e.jobs != nil && strings.TrimSpace(payload.ScheduledJobID) != "" {
 		if runErr == nil {
-			_ = e.jobs.markSuccess(context.Background(), payload.ScheduledJobID)
+			if err := e.jobs.markSuccess(ctx, payload.ScheduledJobID); err != nil {
+				return fmt.Errorf("mark scheduled job %q success: %w", payload.ScheduledJobID, err)
+			}
 		} else {
-			_ = e.jobs.recordExecutionFailure(context.Background(), payload.ScheduledJobID, runErr)
+			if err := e.jobs.recordExecutionFailure(ctx, payload.ScheduledJobID, runErr); err != nil {
+				return fmt.Errorf("record scheduled job %q failure: %w", payload.ScheduledJobID, err)
+			}
 		}
 	}
 	if e.tasks == nil || strings.TrimSpace(env.TaskID) == "" {
-		return
+		return nil
 	}
 	if runErr == nil {
-		_ = e.tasks.MarkStatus(ctx, env.TaskID, baldastate.SwarmTaskStatusCompleted, "session.actor", env.ID, "", map[string]any{
+		if err := e.tasks.MarkStatus(ctx, env.TaskID, baldastate.SwarmTaskStatusCompleted, "session.actor", env.ID, "", map[string]any{
 			"namespace": env.Namespace,
 			"kind":      env.Kind,
-		})
-		return
+		}); err != nil {
+			return fmt.Errorf("mark session task %q completed: %w", env.TaskID, err)
+		}
+		return nil
 	}
-	_ = e.tasks.MarkStatus(ctx, env.TaskID, baldastate.SwarmTaskStatusFailed, "session.actor", env.ID, runErr.Error(), map[string]any{
+	if err := e.tasks.MarkStatus(ctx, env.TaskID, baldastate.SwarmTaskStatusFailed, "session.actor", env.ID, runErr.Error(), map[string]any{
 		"namespace": env.Namespace,
 		"kind":      env.Kind,
-	})
+	}); err != nil {
+		return fmt.Errorf("mark session task %q failed: %w", env.TaskID, err)
+	}
+	return nil
 }
 
 func sessionTurnNamespace(source string) string {

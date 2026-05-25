@@ -106,7 +106,7 @@ func (b *Bus) PublishEvent(ctx context.Context, subject string, env swarm.Envelo
 	if err != nil {
 		return err
 	}
-	_, err = b.js.PublishMsg(ctx, msg, jetstream.WithExpectStream(b.cfg.Swarm.Events.Stream))
+	_, err = b.js.PublishMsg(ctx, msg, jetstream.WithExpectStream(b.cfg.Swarm.Events.Stream), jetstream.WithMsgID(swarm.DedupeKeyOrID(env)))
 	if err != nil {
 		return fmt.Errorf("publish jetstream event %q: %w", subject, err)
 	}

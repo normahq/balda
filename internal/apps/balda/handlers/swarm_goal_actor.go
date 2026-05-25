@@ -341,9 +341,6 @@ func (e *taskActorExecutor) dispatchSessionTurn(ctx context.Context, env swarm.E
 		if err != nil {
 			return swarm.TransientError(err)
 		}
-		if err := e.tasks.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusRunning, "task.actor", env.ID, "", nil); err != nil {
-			return swarm.TransientError(err)
-		}
 	}
 	sessionEnv, err := sessionTurnEnvelope(payload)
 	if err != nil {
@@ -352,8 +349,16 @@ func (e *taskActorExecutor) dispatchSessionTurn(ctx context.Context, env swarm.E
 	sessionEnv.TaskID = taskID
 	sessionEnv.CorrelationID = firstNonEmpty(env.CorrelationID, taskID)
 	sessionEnv.CausationID = env.ID
+	if strings.TrimSpace(sessionEnv.DedupeKey) != "" {
+		sessionEnv.ID = sessionEnv.DedupeKey
+	}
 	if _, err := e.coordinator.Submit(ctx, sessionEnv); err != nil {
 		return swarm.TransientError(err)
+	}
+	if taskID != "" && e.tasks != nil {
+		if err := e.tasks.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusRunning, "task.actor", env.ID, "", nil); err != nil {
+			return swarm.TransientError(err)
+		}
 	}
 	return nil
 }
@@ -391,9 +396,6 @@ func (e *taskActorExecutor) startScheduledJobTask(ctx context.Context, env swarm
 		if err != nil {
 			return swarm.TransientError(err)
 		}
-		if err := e.tasks.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusRunning, "task.actor", env.ID, "", nil); err != nil {
-			return swarm.TransientError(err)
-		}
 	}
 	sessionPayload := sessionTurnPayload{
 		Text:           prompt,
@@ -412,8 +414,16 @@ func (e *taskActorExecutor) startScheduledJobTask(ctx context.Context, env swarm
 	sessionEnv.TaskID = taskID
 	sessionEnv.CorrelationID = firstNonEmpty(env.CorrelationID, taskID)
 	sessionEnv.CausationID = env.ID
+	if strings.TrimSpace(sessionEnv.DedupeKey) != "" {
+		sessionEnv.ID = sessionEnv.DedupeKey
+	}
 	if _, err := e.coordinator.Submit(ctx, sessionEnv); err != nil {
 		return swarm.TransientError(err)
+	}
+	if e.tasks != nil {
+		if err := e.tasks.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusRunning, "task.actor", env.ID, "", nil); err != nil {
+			return swarm.TransientError(err)
+		}
 	}
 	return nil
 }
@@ -437,11 +447,6 @@ func (e *taskActorExecutor) startGoalTask(ctx context.Context, env swarm.Envelop
 	if err := e.ensureGoalTask(ctx, taskID, payload, objective); err != nil {
 		return err
 	}
-	if err := e.tasks.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusRunning, "task.actor", env.ID, "", map[string]any{
-		"objective": objective,
-	}); err != nil {
-		return swarm.TransientError(err)
-	}
 	plan := goalTaskPlan{
 		Objective:     objective,
 		MaxIterations: maxIterations,
@@ -455,10 +460,7 @@ func (e *taskActorExecutor) startGoalTask(ctx context.Context, env swarm.Envelop
 	if err := e.tasks.SetPlan(ctx, taskID, "task.actor", plan); err != nil {
 		return swarm.TransientError(err)
 	}
-	if err := e.deliver(ctx, taskID, payload.Locator, fmt.Sprintf("Goal run started. Max iterations: %d.\n\nGoal: %s", maxIterations, objective), "started"); err != nil {
-		return err
-	}
-	return e.dispatchAgent(ctx, taskAgentCommandPayload{
+	dispatch, err := e.prepareAgentDispatch(ctx, taskAgentCommandPayload{
 		TaskID:          taskID,
 		Role:            taskAgentRolePlanner,
 		Iteration:       1,
@@ -467,6 +469,21 @@ func (e *taskActorExecutor) startGoalTask(ctx context.Context, env swarm.Envelop
 		TransportUserID: payload.TransportUserID,
 		MaxIterations:   maxIterations,
 	})
+	if err != nil {
+		return err
+	}
+	if err := e.submitAgentDispatch(ctx, dispatch); err != nil {
+		return err
+	}
+	if err := e.tasks.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusRunning, "task.actor", env.ID, "", map[string]any{
+		"objective": objective,
+	}); err != nil {
+		return swarm.TransientError(err)
+	}
+	if err := e.deliver(ctx, taskID, payload.Locator, fmt.Sprintf("Goal run started. Max iterations: %d.\n\nGoal: %s", maxIterations, objective), "started"); err != nil {
+		return err
+	}
+	return e.recordAgentDispatch(ctx, dispatch)
 }
 
 func (e *taskActorExecutor) ensureGoalTask(
@@ -501,13 +518,30 @@ func (e *taskActorExecutor) ensureGoalTask(
 	return e.tasks.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusQueued, "task.actor", "", "", nil)
 }
 
+type taskAgentDispatch struct {
+	Payload   taskAgentCommandPayload
+	Role      string
+	AgentName string
+	Status    string
+	StepName  string
+	Envelope  swarm.Envelope
+}
+
 func (e *taskActorExecutor) dispatchAgent(ctx context.Context, payload taskAgentCommandPayload) error {
-	if e.coordinator == nil || !e.coordinator.RuntimeEnabled() {
-		return swarm.TransientError(fmt.Errorf("swarm coordinator is required"))
+	dispatch, err := e.prepareAgentDispatch(ctx, payload)
+	if err != nil {
+		return err
 	}
+	if err := e.submitAgentDispatch(ctx, dispatch); err != nil {
+		return err
+	}
+	return e.recordAgentDispatch(ctx, dispatch)
+}
+
+func (e *taskActorExecutor) prepareAgentDispatch(ctx context.Context, payload taskAgentCommandPayload) (taskAgentDispatch, error) {
 	role := normalizeTaskAgentRole(payload.Role)
 	if role == "" {
-		return swarm.PolicyError(fmt.Errorf("unsupported task agent role %q", payload.Role))
+		return taskAgentDispatch{}, swarm.PolicyError(fmt.Errorf("unsupported task agent role %q", payload.Role))
 	}
 	payload.Role = role
 	if payload.Iteration <= 0 {
@@ -525,7 +559,7 @@ func (e *taskActorExecutor) dispatchAgent(ctx context.Context, payload taskAgent
 			WorkspaceAffinity: strings.TrimSpace(payload.Locator.SessionID) != "",
 		})
 		if err != nil {
-			return swarm.PolicyError(err)
+			return taskAgentDispatch{}, swarm.PolicyError(err)
 		}
 		agentName = spec.Name
 	}
@@ -539,36 +573,13 @@ func (e *taskActorExecutor) dispatchAgent(ctx context.Context, payload taskAgent
 		status = baldastate.SwarmTaskStatusValidating
 		stepName = "validator"
 	}
-	if err := e.tasks.MarkStatus(ctx, payload.TaskID, status, "task.actor", "", "", map[string]any{
-		"role":       role,
-		"agent_name": agentName,
-		"iteration":  payload.Iteration,
-	}); err != nil {
-		return swarm.TransientError(err)
-	}
-	if err := e.deliver(
-		ctx,
-		payload.TaskID,
-		payload.Locator,
-		fmt.Sprintf("Goal iteration %d/%d: %s started.", payload.Iteration, normalizeGoalMaxIterations(payload.MaxIterations), stepName),
-		"started:"+role+":"+strconv.Itoa(payload.Iteration),
-	); err != nil {
-		return err
-	}
-	if err := e.tasks.AppendEvent(ctx, payload.TaskID, swarm.TaskEventAgentStarted, "task.actor", "", map[string]any{
-		"role":            role,
-		"agent_name":      agentName,
-		"requested_tools": payload.RequestedTools,
-		"iteration":       payload.Iteration,
-	}); err != nil {
-		return swarm.TransientError(err)
-	}
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return swarm.PermanentError(fmt.Errorf("encode task agent command: %w", err))
+		return taskAgentDispatch{}, swarm.PermanentError(fmt.Errorf("encode task agent command: %w", err))
 	}
+	dedupeKey := payload.TaskID + ":agent:" + agentName + ":" + role + ":" + strconv.Itoa(payload.Iteration)
 	env := swarm.Envelope{
-		ID:            uuid.NewString(),
+		ID:            dedupeKey,
 		Namespace:     swarm.NamespaceAgentCommand,
 		Kind:          swarm.KindGoal,
 		From:          swarm.ActorAddress{Target: swarm.ActorTypeTask, Key: payload.TaskID},
@@ -577,10 +588,53 @@ func (e *taskActorExecutor) dispatchAgent(ctx context.Context, payload taskAgent
 		TaskID:        payload.TaskID,
 		CorrelationID: payload.TaskID,
 		Priority:      70,
-		DedupeKey:     payload.TaskID + ":agent:" + agentName + ":" + role + ":" + strconv.Itoa(payload.Iteration),
+		DedupeKey:     dedupeKey,
 		PayloadJSON:   string(data),
 	}
-	if _, err := e.coordinator.Submit(ctx, env); err != nil {
+	return taskAgentDispatch{
+		Payload:   payload,
+		Role:      role,
+		AgentName: agentName,
+		Status:    status,
+		StepName:  stepName,
+		Envelope:  env,
+	}, nil
+}
+
+func (e *taskActorExecutor) submitAgentDispatch(ctx context.Context, dispatch taskAgentDispatch) error {
+	if e.coordinator == nil || !e.coordinator.RuntimeEnabled() {
+		return swarm.TransientError(fmt.Errorf("swarm coordinator is required"))
+	}
+	if _, err := e.coordinator.Submit(ctx, dispatch.Envelope); err != nil {
+		return swarm.TransientError(err)
+	}
+	return nil
+}
+
+func (e *taskActorExecutor) recordAgentDispatch(ctx context.Context, dispatch taskAgentDispatch) error {
+	payload := dispatch.Payload
+	if err := e.tasks.MarkStatus(ctx, payload.TaskID, dispatch.Status, "task.actor", "", "", map[string]any{
+		"role":       dispatch.Role,
+		"agent_name": dispatch.AgentName,
+		"iteration":  payload.Iteration,
+	}); err != nil {
+		return swarm.TransientError(err)
+	}
+	if err := e.deliver(
+		ctx,
+		payload.TaskID,
+		payload.Locator,
+		fmt.Sprintf("Goal iteration %d/%d: %s started.", payload.Iteration, normalizeGoalMaxIterations(payload.MaxIterations), dispatch.StepName),
+		"started:"+dispatch.Role+":"+strconv.Itoa(payload.Iteration),
+	); err != nil {
+		return err
+	}
+	if err := e.tasks.AppendEvent(ctx, payload.TaskID, swarm.TaskEventAgentStarted, "task.actor", dispatch.Envelope.DedupeKey, map[string]any{
+		"role":            dispatch.Role,
+		"agent_name":      dispatch.AgentName,
+		"requested_tools": payload.RequestedTools,
+		"iteration":       payload.Iteration,
+	}); err != nil {
 		return swarm.TransientError(err)
 	}
 	return nil
@@ -800,8 +854,12 @@ func (e *taskActorExecutor) deliver(
 	if dedupeKey != "" && strings.TrimSpace(dedupeSuffix) != "" {
 		dedupeKey += ":delivery:" + strings.TrimSpace(dedupeSuffix)
 	}
+	envelopeID := dedupeKey
+	if strings.TrimSpace(envelopeID) == "" {
+		envelopeID = uuid.NewString()
+	}
 	env := swarm.Envelope{
-		ID:            uuid.NewString(),
+		ID:            envelopeID,
 		Namespace:     swarm.NamespaceAgentResult,
 		Kind:          taskPayloadKindDelivery,
 		From:          swarm.ActorAddress{Target: swarm.ActorTypeTask, Key: taskID},

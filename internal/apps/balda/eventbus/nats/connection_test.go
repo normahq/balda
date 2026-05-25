@@ -153,6 +153,39 @@ func TestBus_PublishCommandReportsDuplicate(t *testing.T) {
 	}
 }
 
+func TestBus_PublishEventDeduplicatesByEnvelopeID(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:         fxtest.NewLifecycle(t),
+		Config:     baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm:      swarm.Config{Enabled: true},
+		WorkingDir: t.TempDir(),
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewCommandBus() error = %v", err)
+	}
+	bus := busRaw.(*Bus)
+	defer func() { _ = bus.Drain(context.Background()) }()
+
+	env := commandTestEnvelope("event-dedupe")
+	env.Namespace = swarm.NamespaceTelemetry
+	env.Kind = "task_event"
+	env.Meta = map[string]string{"event_type": swarm.TaskEventAgentStarted}
+	if err := bus.PublishEvent(context.Background(), swarm.SubjectEventTaskUpdated, env); err != nil {
+		t.Fatalf("PublishEvent(first) error = %v", err)
+	}
+	if err := bus.PublishEvent(context.Background(), swarm.SubjectEventTaskUpdated, env); err != nil {
+		t.Fatalf("PublishEvent(second) error = %v", err)
+	}
+	status, err := bus.streamStatus(context.Background(), swarm.DefaultEventStream)
+	if err != nil {
+		t.Fatalf("event stream status: %v", err)
+	}
+	if status.Messages != 1 {
+		t.Fatalf("event stream messages = %d, want 1 after duplicate event publish", status.Messages)
+	}
+}
+
 func TestBus_RetryExhaustionPublishesDLQ(t *testing.T) {
 	busRaw, err := NewCommandBus(Params{
 		LC:         fxtest.NewLifecycle(t),

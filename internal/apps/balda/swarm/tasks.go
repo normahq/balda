@@ -2,6 +2,8 @@ package swarm
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -155,7 +157,7 @@ func (s *TaskService) AppendEvent(ctx context.Context, taskID string, eventType 
 	if err != nil {
 		return err
 	}
-	eventID := uuid.NewString()
+	eventID := taskEventID(taskID, eventType, actor, messageID, data)
 	event := baldastate.SwarmTaskEventRecord{
 		ID:          eventID,
 		TaskID:      strings.TrimSpace(taskID),
@@ -301,6 +303,47 @@ func (s *TaskService) publishEventRecord(ctx context.Context, event baldastate.S
 
 func taskCreatedEventID(taskID string) string {
 	return "task:" + strings.TrimSpace(taskID) + ":event:created"
+}
+
+func taskEventID(taskID string, eventType string, actor string, messageID string, payloadJSON string) string {
+	if strings.TrimSpace(eventType) == TaskEventAgentProgress {
+		return uuid.NewString()
+	}
+	parts := []string{
+		strings.TrimSpace(taskID),
+		strings.TrimSpace(eventType),
+		strings.TrimSpace(actor),
+		strings.TrimSpace(messageID),
+		strings.TrimSpace(payloadJSON),
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return "task:" + strings.TrimSpace(taskID) + ":event:" + safeEventIDPart(eventType) + ":" + hex.EncodeToString(sum[:])[:16]
+}
+
+func safeEventIDPart(raw string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(raw))
+	var out strings.Builder
+	lastDash := false
+	for _, r := range trimmed {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			out.WriteRune(r)
+			lastDash = false
+		default:
+			if out.Len() > 0 && !lastDash {
+				out.WriteByte('-')
+				lastDash = true
+			}
+		}
+		if out.Len() >= 48 {
+			break
+		}
+	}
+	part := strings.Trim(out.String(), "-")
+	if part == "" {
+		return "event"
+	}
+	return part
 }
 
 func subjectForTaskEvent(eventType string) string {
