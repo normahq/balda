@@ -807,6 +807,64 @@ func TestBus_RetryExhaustionPublishesDLQ(t *testing.T) {
 	}
 }
 
+func TestBus_PublishDLQIncludesOriginalEnvelopeAndReason(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:         fxtest.NewLifecycle(t),
+		Config:     baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm:      swarm.Config{Enabled: true},
+		WorkingDir: t.TempDir(),
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewCommandBus() error = %v", err)
+	}
+	bus := busRaw.(*Bus)
+	defer func() { _ = bus.Drain(context.Background()) }()
+
+	env := commandTestEnvelope("dlq-shape")
+	reason := "permanent failure: policy denied"
+	if err := bus.PublishDLQ(context.Background(), env, reason); err != nil {
+		t.Fatalf("PublishDLQ() error = %v", err)
+	}
+
+	dlqConsumer, err := bus.js.CreateOrUpdateConsumer(context.Background(), swarm.DefaultDLQStream, jetstream.ConsumerConfig{
+		Durable:       "dlq-shape-inspector",
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		DeliverPolicy: jetstream.DeliverAllPolicy,
+		FilterSubject: swarm.SubjectDLQCommand,
+	})
+	if err != nil {
+		t.Fatalf("CreateOrUpdateConsumer(dlq-shape-inspector) error = %v", err)
+	}
+	msgBatch, err := dlqConsumer.Fetch(1, jetstream.FetchMaxWait(2*time.Second))
+	if err != nil {
+		t.Fatalf("Fetch(dlq message) error = %v", err)
+	}
+	msg, ok := <-msgBatch.Messages()
+	if !ok {
+		t.Fatal("dlq message not found")
+	}
+	got, err := swarm.DecodeEnvelope(string(msg.Data()))
+	if err != nil {
+		t.Fatalf("DecodeEnvelope(dlq message) error = %v", err)
+	}
+	if got.ID != env.ID || got.Namespace != env.Namespace || got.Kind != env.Kind {
+		t.Fatalf("dlq envelope identity = %+v, want original id/namespace/kind", got)
+	}
+	if got.From != env.From || got.To != env.To {
+		t.Fatalf("dlq envelope routing = from:%+v to:%+v, want from:%+v to:%+v", got.From, got.To, env.From, env.To)
+	}
+	if got.TaskID != env.TaskID || got.PayloadJSON != env.PayloadJSON {
+		t.Fatalf("dlq envelope payload = task:%q payload:%q, want task:%q payload:%q", got.TaskID, got.PayloadJSON, env.TaskID, env.PayloadJSON)
+	}
+	if gotReason := msg.Headers().Get("Balda-DLQ-Reason"); gotReason != reason {
+		t.Fatalf("dlq header reason = %q, want %q", gotReason, reason)
+	}
+	if err := msg.DoubleAck(context.Background()); err != nil {
+		t.Fatalf("DoubleAck(dlq message) error = %v", err)
+	}
+}
+
 func TestBus_EventProjectionPermanentFailurePublishesDLQ(t *testing.T) {
 	busRaw, err := NewCommandBus(Params{
 		LC:         fxtest.NewLifecycle(t),
