@@ -110,6 +110,22 @@ func TestCommandHandlerSwarmAndMailboxStatusCommands(t *testing.T) {
 	assertLastSentContains(t, tgClient, "BALDA_WORKER_COMMANDS")
 }
 
+func TestCommandHandlerSwarmStatusShowsDisabledModeContract(t *testing.T) {
+	ctx := context.Background()
+	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
+	handler.swarmConfig = swarm.Config{Enabled: false}
+	handler.swarmCoordinator = nil
+	handler.commandBus = swarm.UnsupportedCommandBus{}
+
+	if err := handler.onCommand(ctx, newCommandEvent("swarm", "status", 101, 9001, nil)); err != nil {
+		t.Fatalf("/swarm status error = %v", err)
+	}
+	assertLastSentContains(t, tgClient, "enabled: false")
+	assertLastSentContains(t, tgClient, "runtime enabled: false")
+	assertLastSentContains(t, tgClient, "command_bus: unavailable")
+	assertLastSentContains(t, tgClient, "disabled_mode_contract: runtime_unavailable_no_fallback")
+}
+
 func newTaskVisibilitySwarmServices(t *testing.T, ctx context.Context) (baldastate.Provider, *statusCommandBus, *swarm.Coordinator, *swarm.TaskService, *swarm.AgentRegistry) {
 	t.Helper()
 	provider, err := baldastate.NewSQLiteProvider(ctx, filepath.Join(t.TempDir(), "state.db"))

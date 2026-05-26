@@ -13,6 +13,8 @@ var ErrCommandQueueFull = errors.New("command queue is full")
 const (
 	// CommandLifecycleEventPublishingMode documents that command lifecycle events are visibility telemetry.
 	CommandLifecycleEventPublishingMode = "best_effort_visibility"
+	// SwarmDisabledModeContract documents supported behavior when balda.swarm.enabled=false.
+	SwarmDisabledModeContract = "runtime_unavailable_no_fallback"
 )
 
 // IsCommandQueueFull reports whether an error came from command stream pressure.
@@ -94,6 +96,7 @@ type CommandBusStatus struct {
 	Running       bool
 	JetStream     bool
 	ClientURL     string
+	DisabledMode  string
 	Commands      StreamStatus
 	Events        StreamStatus
 	DLQ           StreamStatus
@@ -145,7 +148,10 @@ func (UnsupportedCommandBus) RunCommandConsumer(ctx context.Context, _ CommandHa
 func (UnsupportedCommandBus) Drain(context.Context) error { return nil }
 
 func (UnsupportedCommandBus) Status(context.Context) (CommandBusStatus, error) {
-	return CommandBusStatus{CommandBus: "unavailable"}, nil
+	return CommandBusStatus{
+		CommandBus:   "unavailable",
+		DisabledMode: SwarmDisabledModeContract,
+	}, nil
 }
 
 // EventHandler is kept for event projector code that consumes decoded events.

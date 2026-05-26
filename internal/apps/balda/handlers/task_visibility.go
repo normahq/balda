@@ -164,6 +164,10 @@ func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) 
 		}
 		out.WriteString("\n- command_bus: ")
 		out.WriteString(firstNonEmpty(status.CommandBus, "unknown"))
+		if contract := strings.TrimSpace(status.DisabledMode); contract != "" {
+			out.WriteString("\n- disabled_mode_contract: ")
+			out.WriteString(contract)
+		}
 		out.WriteString("\n- command_event_publishing_mode: ")
 		out.WriteString(swarm.CommandLifecycleEventPublishingMode)
 		out.WriteString("\n- embedded_nats: ")
