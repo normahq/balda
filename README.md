@@ -269,6 +269,7 @@ Common settings:
 - Actor-lane queue policy is not a public config surface yet; JetStream is the only command queue. SessionActor currently honors only the internal per-envelope `queue_mode=interrupt` control hint.
 - `balda.swarm.agents.*`: logical single-process agent roles used by the swarm allocator. Defaults are `planner`, `executor`, `reviewer`, and `memory`; `tools` are advisory routing hints (`workspace`, `shell`, `mcp`, `memory`), not separate runtimes. Optional `cost_penalty` lowers allocator preference for expensive roles.
 - Task visibility: task events are published to `BALDA_EVENTS` and projected into SQLite for `/tasks`, `/task <id>`, and `/task <id> events`. Actor success does not depend on synchronous SQLite event projection. `/task <id> cancel` writes a durable JetStream control command. `/swarm status` and `/mailbox status` read JetStream transport state plus projection lag.
+- Command lifecycle events (`accepted|running|acked|retrying|deadlettered`) are best-effort visibility telemetry. Command settlement does not depend on lifecycle event publication.
 - `balda.scheduler.tasks`: startup-reconciled recurring tasks. Each task has `id`, `cron`, and `envelope` with `target`, `key`, `content`, and optional `report_to`. Scheduled work publishes first-class task commands; replies are fire-and-forget unless `report_to` is set.
 - `${balda.state_dir}/SOUL.md`: optional operator instructions read at session start/restore when the file exists.
 - `balda.workspace.mode`: `auto` by default; uses git worktrees when Balda runs in a git repository.

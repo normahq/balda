@@ -541,6 +541,19 @@ Balda uses JetStream as the command bus, event bus, retry transport, replay log,
 and DLQ. SQLite remains product/read-model state only; it does not decide what
 runs, retries, or wakes up.
 
+- Ownership boundary:
+  - JetStream owns command intake, command replay, retry/redelivery scheduling,
+    and DLQ transport.
+  - SQLite owns product state/read models (`swarm_tasks`, projected
+    `swarm_task_events`, delivery outbox records, session metadata, memory
+    state, scheduler metadata).
+  - Projections are derived views; projection lag/failure never blocks command
+    settlement.
+- Command lifecycle events (`command.accepted`, `command.running`,
+  `command.acked`, `command.retrying`, `command.deadlettered`) are
+  best-effort visibility telemetry. Command ack/nak/term settlement does not
+  depend on successful lifecycle event publication.
+
 - Required streams:
   - `BALDA_COMMANDS`: work-queue stream for `balda.v1.cmd.>` commands.
   - `BALDA_EVENTS`: limits-retention stream for `balda.v1.evt.>` events.
@@ -573,9 +586,9 @@ runs, retries, or wakes up.
 - Poison command/event messages that cannot decode as Balda envelopes are
   terminated and copied to `BALDA_DLQ` with the raw subject, headers, payload,
   and decode reason.
-- Agent commands are locally serialized per task and agent
-  (`task:<task_id>:agent:<name>`), so different tasks can run logical agents in
-  parallel while a single task lifecycle remains ordered.
+- Task-mutating envelopes are serialized on a single task lane
+  (`task:<task_id>`) across task control, agent command/result, and task-bound
+  human/webhook/schedule ingress. Different task IDs still run concurrently.
 
 ### Scheduled task runtime semantics (internal)
 
