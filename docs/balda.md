@@ -593,7 +593,8 @@ runs, retries, or wakes up.
   - Events: `balda.v1.evt.command.accepted`,
     `balda.v1.evt.command.running`, `balda.v1.evt.command.in_progress`,
     `balda.v1.evt.command.acked`, `balda.v1.evt.command.retrying`,
-    `balda.v1.evt.command.deadlettered`, `balda.v1.evt.task.created`,
+    `balda.v1.evt.command.deadlettered`, `balda.v1.evt.command.noop`,
+    `balda.v1.evt.task.created`,
     `balda.v1.evt.task.updated`, `balda.v1.evt.task.completed`,
     `balda.v1.evt.delivery.sent`.
   - DLQ: `balda.v1.dlq.command`.
