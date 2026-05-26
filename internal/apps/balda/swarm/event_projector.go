@@ -36,7 +36,10 @@ func NewEventProjector(params eventProjectorParams) (*EventProjector, error) {
 	if params.StateProvider == nil {
 		return nil, fmt.Errorf("balda state provider is required")
 	}
-	consumer, _ := params.Bus.(EventConsumer)
+	consumer, ok := params.Bus.(EventConsumer)
+	if params.Config.Enabled && !ok {
+		return nil, fmt.Errorf("event projector requires an event-consumer command bus")
+	}
 	p := &EventProjector{
 		consumer: consumer,
 		store:    params.StateProvider.Swarm(),
