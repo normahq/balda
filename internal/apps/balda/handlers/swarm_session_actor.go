@@ -208,13 +208,24 @@ func (e *sessionActorExecutor) enqueueTurn(ctx context.Context, env swarm.Envelo
 
 	select {
 	case err := <-done:
-		if recordErr := e.recordSessionTaskResult(ctx, env, payload, err); recordErr != nil {
-			return swarm.TransientError(recordErr)
-		}
-		return err
+		return e.settleSessionTurnResult(ctx, env, payload, err)
 	case <-ctx.Done():
 		return swarm.TransientError(ctx.Err())
 	}
+}
+
+func (e *sessionActorExecutor) settleSessionTurnResult(ctx context.Context, env swarm.Envelope, payload sessionTurnPayload, runErr error) error {
+	if recordErr := e.recordSessionTaskResult(ctx, env, payload, runErr); recordErr != nil {
+		return swarm.TransientError(recordErr)
+	}
+	if runErr == nil {
+		return nil
+	}
+	// Contract: once task terminal failure is durably recorded, settle command without retry.
+	if strings.TrimSpace(env.TaskID) != "" {
+		return nil
+	}
+	return runErr
 }
 
 func (e *sessionActorExecutor) sessionTaskAlreadyDone(ctx context.Context, taskID string) bool {

@@ -3,9 +3,11 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
+	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/rs/zerolog"
 )
@@ -60,6 +62,61 @@ func TestSessionActorDefaultQueueModeDoesNotCancelSession(t *testing.T) {
 	}
 	if len(turns.enqueueCalls) != 1 {
 		t.Fatalf("Enqueue calls = %d, want 1", len(turns.enqueueCalls))
+	}
+}
+
+func TestSessionActorSettleSessionTurnResultMarksTaskFailedWithoutRetry(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	_ = provider
+	_ = bus
+	_ = coordinator
+	_ = allocator
+	created, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+		ID:        "task-session-failed",
+		SessionID: "tg-9001-77",
+		Objective: "run session task",
+		Status:    baldastate.SwarmTaskStatusRunning,
+	}, "test", nil)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if !created {
+		t.Fatal("Create() created = false, want true")
+	}
+
+	exec := &sessionActorExecutor{tasks: tasks}
+	runErr := errors.New("runner failed")
+	env := testSessionTurnEnvelope(t, nil)
+	env.TaskID = "task-session-failed"
+
+	if err := exec.settleSessionTurnResult(ctx, env, sessionTurnPayload{}, runErr); err != nil {
+		t.Fatalf("settleSessionTurnResult() error = %v, want nil after recording task failure", err)
+	}
+
+	task, ok, err := tasks.Get(ctx, env.TaskID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("Get() found = false for task %q", env.TaskID)
+	}
+	if task.Status != baldastate.SwarmTaskStatusFailed {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusFailed)
+	}
+}
+
+func TestSessionActorSettleSessionTurnResultKeepsNonTaskErrorsRetryable(t *testing.T) {
+	t.Parallel()
+
+	exec := &sessionActorExecutor{}
+	runErr := errors.New("runner failed")
+
+	err := exec.settleSessionTurnResult(context.Background(), testSessionTurnEnvelope(t, nil), sessionTurnPayload{}, runErr)
+	if !errors.Is(err, runErr) {
+		t.Fatalf("settleSessionTurnResult() error = %v, want original run error", err)
 	}
 }
 
