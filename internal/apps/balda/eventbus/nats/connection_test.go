@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1011,6 +1012,94 @@ func TestBus_StatusReportsJetStreamOnly(t *testing.T) {
 	}
 	if status.CommandBus != "jetstream" || !status.JetStream {
 		t.Fatalf("Status() = %+v, want hard JetStream", status)
+	}
+}
+
+func TestBus_EnsureRuntimeCreatesRequiredStreamsAndConsumers(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:         fxtest.NewLifecycle(t),
+		Config:     baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm:      swarm.Config{Enabled: true},
+		WorkingDir: t.TempDir(),
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewCommandBus() error = %v", err)
+	}
+	bus := busRaw.(*Bus)
+	defer func() { _ = bus.Drain(context.Background()) }()
+
+	commandStream, err := bus.js.Stream(context.Background(), swarm.DefaultCommandStream)
+	if err != nil {
+		t.Fatalf("Stream(%s) error = %v", swarm.DefaultCommandStream, err)
+	}
+	commandInfo, err := commandStream.Info(context.Background())
+	if err != nil {
+		t.Fatalf("Info(%s) error = %v", swarm.DefaultCommandStream, err)
+	}
+	if commandInfo.Config.Retention != jetstream.WorkQueuePolicy {
+		t.Fatalf("%s retention = %v, want %v", swarm.DefaultCommandStream, commandInfo.Config.Retention, jetstream.WorkQueuePolicy)
+	}
+	if !slices.Equal(commandInfo.Config.Subjects, []string{swarm.SubjectCommandAll}) {
+		t.Fatalf("%s subjects = %#v, want %#v", swarm.DefaultCommandStream, commandInfo.Config.Subjects, []string{swarm.SubjectCommandAll})
+	}
+
+	eventStream, err := bus.js.Stream(context.Background(), swarm.DefaultEventStream)
+	if err != nil {
+		t.Fatalf("Stream(%s) error = %v", swarm.DefaultEventStream, err)
+	}
+	eventInfo, err := eventStream.Info(context.Background())
+	if err != nil {
+		t.Fatalf("Info(%s) error = %v", swarm.DefaultEventStream, err)
+	}
+	if eventInfo.Config.Retention != jetstream.LimitsPolicy {
+		t.Fatalf("%s retention = %v, want %v", swarm.DefaultEventStream, eventInfo.Config.Retention, jetstream.LimitsPolicy)
+	}
+	if !slices.Equal(eventInfo.Config.Subjects, []string{swarm.SubjectEventAll}) {
+		t.Fatalf("%s subjects = %#v, want %#v", swarm.DefaultEventStream, eventInfo.Config.Subjects, []string{swarm.SubjectEventAll})
+	}
+
+	dlqStream, err := bus.js.Stream(context.Background(), swarm.DefaultDLQStream)
+	if err != nil {
+		t.Fatalf("Stream(%s) error = %v", swarm.DefaultDLQStream, err)
+	}
+	dlqInfo, err := dlqStream.Info(context.Background())
+	if err != nil {
+		t.Fatalf("Info(%s) error = %v", swarm.DefaultDLQStream, err)
+	}
+	if dlqInfo.Config.Retention != jetstream.LimitsPolicy {
+		t.Fatalf("%s retention = %v, want %v", swarm.DefaultDLQStream, dlqInfo.Config.Retention, jetstream.LimitsPolicy)
+	}
+	if !slices.Equal(dlqInfo.Config.Subjects, []string{swarm.SubjectDLQAll}) {
+		t.Fatalf("%s subjects = %#v, want %#v", swarm.DefaultDLQStream, dlqInfo.Config.Subjects, []string{swarm.SubjectDLQAll})
+	}
+
+	workerInfo, err := bus.consumer.Info(context.Background())
+	if err != nil {
+		t.Fatalf("worker consumer Info() error = %v", err)
+	}
+	if workerInfo.Name != swarm.DefaultCommandConsumer {
+		t.Fatalf("worker consumer name = %q, want %q", workerInfo.Name, swarm.DefaultCommandConsumer)
+	}
+	if workerInfo.Config.FilterSubject != swarm.SubjectCommandAll {
+		t.Fatalf("worker filter subject = %q, want %q", workerInfo.Config.FilterSubject, swarm.SubjectCommandAll)
+	}
+	if workerInfo.Config.AckPolicy != jetstream.AckExplicitPolicy {
+		t.Fatalf("worker ack policy = %v, want %v", workerInfo.Config.AckPolicy, jetstream.AckExplicitPolicy)
+	}
+
+	projectorInfo, err := bus.eventConsumer.Info(context.Background())
+	if err != nil {
+		t.Fatalf("projector consumer Info() error = %v", err)
+	}
+	if projectorInfo.Name != swarm.DefaultEventProjectorConsumer {
+		t.Fatalf("projector consumer name = %q, want %q", projectorInfo.Name, swarm.DefaultEventProjectorConsumer)
+	}
+	if projectorInfo.Config.FilterSubject != swarm.SubjectEventAll {
+		t.Fatalf("projector filter subject = %q, want %q", projectorInfo.Config.FilterSubject, swarm.SubjectEventAll)
+	}
+	if projectorInfo.Config.AckPolicy != jetstream.AckExplicitPolicy {
+		t.Fatalf("projector ack policy = %v, want %v", projectorInfo.Config.AckPolicy, jetstream.AckExplicitPolicy)
 	}
 }
 
