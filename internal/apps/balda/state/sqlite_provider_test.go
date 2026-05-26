@@ -12,7 +12,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const expectedSQLiteSchemaMigrationVersion = 18
+const expectedSQLiteSchemaMigrationVersion = 19
 
 func TestSQLiteProvider_KVRoundTrip(t *testing.T) {
 	provider := newTestProvider(t)
@@ -208,64 +208,73 @@ func TestSQLiteProvider_SessionStoreUpsert_DoesNotDecodeAddressJSON(t *testing.T
 	}
 }
 
-func TestSQLiteProvider_ScheduledJobStoreRoundTrip(t *testing.T) {
+func TestSQLiteProvider_ScheduledTaskStoreRoundTrip(t *testing.T) {
 	provider := newTestProvider(t)
 	defer closeProvider(t, provider)
 
 	ctx := context.Background()
-	store := provider.ScheduledJobs()
+	store := provider.ScheduledTasks()
 	nextRunAt := time.Now().UTC().Add(5 * time.Minute).Truncate(time.Second)
+	const scheduledTaskID = "task-1"
 
-	record := ScheduledJobRecord{
-		JobID:        "job-1",
-		SessionID:    "tg-1-2",
-		ChannelType:  ChannelTypeTelegram,
-		AddressKey:   "1:2",
-		AddressJSON:  `{"chat_id":1,"topic_id":2}`,
-		Prompt:       "check deployment",
-		ScheduleSpec: "*/5 * * * *",
-		Timezone:     "UTC",
-		Status:       ScheduledJobStatusActive,
-		MaxRetries:   4,
-		NextRunAt:    nextRunAt,
+	record := ScheduledTaskRecord{
+		TaskID:              scheduledTaskID,
+		SessionID:           "tg-1-2",
+		ChannelType:         ChannelTypeTelegram,
+		AddressKey:          "1:2",
+		AddressJSON:         `{"chat_id":1,"topic_id":2}`,
+		ReportToEnabled:     true,
+		ReportToSessionID:   "tg-1-0",
+		ReportToChannelType: ChannelTypeTelegram,
+		ReportToAddressKey:  "1:0",
+		ReportToAddressJSON: `{"chat_id":1,"topic_id":0}`,
+		Content:             "check deployment",
+		ScheduleSpec:        "*/5 * * * *",
+		Timezone:            "UTC",
+		Status:              ScheduledTaskStatusActive,
+		MaxRetries:          4,
+		NextRunAt:           nextRunAt,
 	}
 	if err := store.Upsert(ctx, record); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
 
-	got, ok, err := store.GetByID(ctx, "job-1")
+	got, ok, err := store.GetByID(ctx, scheduledTaskID)
 	if err != nil {
 		t.Fatalf("GetByID() error = %v", err)
 	}
 	if !ok {
 		t.Fatal("GetByID() found = false, want true")
 	}
-	if got.Prompt != record.Prompt {
-		t.Fatalf("prompt = %q, want %q", got.Prompt, record.Prompt)
+	if got.Content != record.Content {
+		t.Fatalf("content = %q, want %q", got.Content, record.Content)
 	}
 	if got.ScheduleSpec != record.ScheduleSpec {
 		t.Fatalf("schedule_spec = %q, want %q", got.ScheduleSpec, record.ScheduleSpec)
 	}
-	allJobs, err := store.List(ctx)
+	if !got.ReportToEnabled || got.ReportToAddressKey != record.ReportToAddressKey {
+		t.Fatalf("report_to fields = %+v, want enabled address %q", got, record.ReportToAddressKey)
+	}
+	allTasks, err := store.List(ctx)
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(allJobs) != 1 || allJobs[0].JobID != "job-1" {
-		t.Fatalf("List() = %#v, want single job-1", allJobs)
+	if len(allTasks) != 1 || allTasks[0].TaskID != scheduledTaskID {
+		t.Fatalf("List() = %#v, want single %s", allTasks, scheduledTaskID)
 	}
 
-	dueJobs, err := store.ListDue(ctx, nextRunAt.Add(time.Second), 10)
+	dueTasks, err := store.ListDue(ctx, nextRunAt.Add(time.Second), 10)
 	if err != nil {
 		t.Fatalf("ListDue() error = %v", err)
 	}
-	if len(dueJobs) != 1 || dueJobs[0].JobID != "job-1" {
-		t.Fatalf("ListDue() = %#v, want single job-1", dueJobs)
+	if len(dueTasks) != 1 || dueTasks[0].TaskID != scheduledTaskID {
+		t.Fatalf("ListDue() = %#v, want single %s", dueTasks, scheduledTaskID)
 	}
 
-	if err := store.Delete(ctx, "job-1"); err != nil {
+	if err := store.Delete(ctx, scheduledTaskID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
-	_, ok, err = store.GetByID(ctx, "job-1")
+	_, ok, err = store.GetByID(ctx, scheduledTaskID)
 	if err != nil {
 		t.Fatalf("GetByID(after delete) error = %v", err)
 	}
@@ -524,6 +533,19 @@ func TestSQLiteProvider_RebrandsRelaySchemaAtVersion8(t *testing.T) {
 	if appName != "norma-balda" {
 		t.Fatalf("app_name after migration = %q, want norma-balda", appName)
 	}
+
+	var taskID, content string
+	if err := db.QueryRowContext(ctx, `
+		SELECT task_id, content
+		FROM balda_scheduled_tasks
+		WHERE task_id = 'legacy-daily-review'`,
+	).Scan(&taskID, &content); err != nil {
+		t.Fatalf("query migrated scheduled task: %v", err)
+	}
+	if taskID != "legacy-daily-review" || content != "Review legacy queue" {
+		t.Fatalf("migrated scheduled task = %q/%q, want legacy-daily-review/Review legacy queue", taskID, content)
+	}
+	assertTableMissing(t, ctx, db, "balda_scheduled_jobs")
 
 	var version int
 	if err := db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&version); err != nil {
@@ -785,6 +807,15 @@ func seedRelayDBAtVersion8(t *testing.T, dbPath string) {
 		 ON relay_scheduled_jobs(status, next_run_at);`,
 		`CREATE INDEX idx_relay_scheduled_jobs_locator
 		 ON relay_scheduled_jobs(channel_type, address_key);`,
+		`INSERT INTO relay_scheduled_jobs (
+			job_id, session_id, channel_type, address_key, address_json, prompt, schedule_spec, timezone, status,
+			max_retries, retry_count, last_dispatch_key, next_run_at, last_run_at, last_error, created_at, updated_at
+		)
+		 VALUES (
+			'legacy-daily-review', 'tg-1-2', 'telegram', '1:2', '{"chat_id":1,"topic_id":2}',
+			'Review legacy queue', '0 9 * * *', 'UTC', 'active',
+			3, 0, '', '2026-01-02T09:00:00Z', '', '', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+		);`,
 	}
 
 	for _, stmt := range stmts {
@@ -847,7 +878,25 @@ func seedBaldaDBAtVersion10WithBuggyZeroLegacySession(t *testing.T, db *sql.DB) 
 		`CREATE TABLE balda_adk_user_state (id INTEGER);`,
 		`CREATE TABLE balda_adk_sessions (id INTEGER);`,
 		`CREATE TABLE balda_adk_events (id INTEGER);`,
-		`CREATE TABLE balda_scheduled_jobs (id INTEGER);`,
+		`CREATE TABLE balda_scheduled_jobs (
+			job_id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			address_key TEXT NOT NULL,
+			address_json TEXT NOT NULL,
+			prompt TEXT NOT NULL,
+			schedule_spec TEXT NOT NULL,
+			timezone TEXT NOT NULL DEFAULT 'UTC',
+			status TEXT NOT NULL DEFAULT 'active',
+			max_retries INTEGER NOT NULL DEFAULT 3,
+			retry_count INTEGER NOT NULL DEFAULT 0,
+			last_dispatch_key TEXT NOT NULL DEFAULT '',
+			next_run_at TEXT NOT NULL,
+			last_run_at TEXT NOT NULL DEFAULT '',
+			last_error TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
 	}
 
 	for _, stmt := range stmts {

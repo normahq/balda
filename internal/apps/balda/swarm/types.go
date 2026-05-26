@@ -25,11 +25,11 @@ const (
 	NamespaceMemorySync      = "memory.sync"
 	NamespaceTelemetry       = "telemetry"
 
-	KindMessage      = "message"
-	KindWebhookEvent = "webhook_event"
-	KindScheduledJob = "scheduled_job"
-	KindGoal         = "goal"
-	KindCancel       = "cancel"
+	KindMessage       = "message"
+	KindWebhookEvent  = "webhook_event"
+	KindScheduledTask = "scheduled_task"
+	KindGoal          = "goal"
+	KindCancel        = "cancel"
 )
 
 type ActorAddress struct {

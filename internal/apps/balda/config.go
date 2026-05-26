@@ -115,14 +115,30 @@ type SwarmAgentConfig struct {
 	CostPenalty int      `mapstructure:"cost_penalty"`
 }
 
-// SchedulerConfig controls startup-managed recurring jobs.
+// SchedulerConfig controls startup-managed recurring tasks.
 type SchedulerConfig struct {
-	Jobs []ScheduledJobConfig `mapstructure:"jobs"`
+	Tasks []ScheduledTaskConfig `mapstructure:"tasks"`
+	// RemovedJobs detects stale balda.scheduler.jobs config so it fails loudly instead of being ignored.
+	RemovedJobs any `mapstructure:"jobs"`
 }
 
-// ScheduledJobConfig defines a config-managed recurring job.
-type ScheduledJobConfig struct {
-	ID     string `mapstructure:"id"`
-	Cron   string `mapstructure:"cron"`
-	Prompt string `mapstructure:"prompt"`
+// ScheduledTaskConfig defines a config-managed recurring task.
+type ScheduledTaskConfig struct {
+	ID       string                      `mapstructure:"id"`
+	Cron     string                      `mapstructure:"cron"`
+	Envelope ScheduledTaskEnvelopeConfig `mapstructure:"envelope"`
+}
+
+// ScheduledTaskEnvelopeConfig defines the task envelope produced by a schedule.
+type ScheduledTaskEnvelopeConfig struct {
+	Target   string                             `mapstructure:"target"`
+	Key      string                             `mapstructure:"key"`
+	Content  string                             `mapstructure:"content"`
+	ReportTo *ScheduledTaskEnvelopeTargetConfig `mapstructure:"report_to"`
+}
+
+// ScheduledTaskEnvelopeTargetConfig defines a scheduler envelope address.
+type ScheduledTaskEnvelopeTargetConfig struct {
+	Target string `mapstructure:"target"`
+	Key    string `mapstructure:"key"`
 }

@@ -142,6 +142,44 @@ balda:
 	}
 }
 
+func TestLoadConfigDocument_CapturesLegacySchedulerJobs(t *testing.T) {
+	workingDir := t.TempDir()
+
+	if err := writeFile(filepath.Join(workingDir, ".config", "balda", "config.yaml"), `runtime:
+  providers:
+    balda_agent:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
+balda:
+  provider: balda_agent
+  scheduler:
+    jobs:
+      - id: legacy
+        cron: "0 9 * * *"
+        prompt: old shape
+`); err != nil {
+		t.Fatalf("write balda config: %v", err)
+	}
+
+	var doc baldaTestConfigDocument
+	_, err := appconfig.LoadConfigDocument(
+		appconfig.RuntimeLoadOptions{WorkingDir: workingDir},
+		appconfig.AppLoadOptions{
+			AppName:            "balda",
+			DefaultsYAML:       defaultBaldaConfig,
+			UseDotConfigAppDir: true,
+		},
+		&doc,
+	)
+	if err != nil {
+		t.Fatalf("LoadConfigDocument: %v", err)
+	}
+	if doc.Balda.Scheduler.RemovedJobs == nil {
+		t.Fatal("legacy balda.scheduler.jobs was ignored; want captured for validation")
+	}
+}
+
 func TestLoadConfigDocument_ExplicitMissingProfileFails(t *testing.T) {
 	workingDir := t.TempDir()
 

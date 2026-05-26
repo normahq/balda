@@ -21,10 +21,10 @@ const (
 	// ChannelTypeTelegram is the current balda channel type backed by Telegram.
 	ChannelTypeTelegram = "telegram"
 
-	// ScheduledJobStatusActive means the job is eligible for scheduler dispatch.
-	ScheduledJobStatusActive = "active"
-	// ScheduledJobStatusPaused means the job is persisted but not dispatched.
-	ScheduledJobStatusPaused = "paused"
+	// ScheduledTaskStatusActive means the task is eligible for scheduler dispatch.
+	ScheduledTaskStatusActive = "active"
+	// ScheduledTaskStatusPaused means the task is persisted but not dispatched.
+	ScheduledTaskStatusPaused = "paused"
 
 	// SwarmTaskStatusCreated means a task record exists but has not been queued.
 	SwarmTaskStatusCreated = "created"
@@ -72,7 +72,7 @@ type Provider interface {
 	ADKSessions() adksession.Service
 	SessionMCPKV() KVStore
 	Sessions() SessionStore
-	ScheduledJobs() ScheduledJobStore
+	ScheduledTasks() ScheduledTaskStore
 	Swarm() SwarmStore
 	PollingOffsetStore() updatepoller.OffsetStore
 	Collaborators() CollaboratorStore
@@ -122,35 +122,40 @@ type SessionStore interface {
 	List(ctx context.Context) ([]SessionRecord, error)
 }
 
-// ScheduledJobRecord persists locator-targeted recurring job metadata.
-type ScheduledJobRecord struct {
-	JobID           string
-	SessionID       string
-	ChannelType     string
-	AddressKey      string
-	AddressJSON     string
-	Prompt          string
-	ScheduleSpec    string
-	Timezone        string
-	Status          string
-	MaxRetries      int
-	RetryCount      int
-	LastDispatchKey string
-	NextRunAt       time.Time
-	LastRunAt       time.Time
-	LastError       string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+// ScheduledTaskRecord persists locator-targeted recurring task metadata.
+type ScheduledTaskRecord struct {
+	TaskID              string
+	SessionID           string
+	ChannelType         string
+	AddressKey          string
+	AddressJSON         string
+	ReportToEnabled     bool
+	ReportToSessionID   string
+	ReportToChannelType string
+	ReportToAddressKey  string
+	ReportToAddressJSON string
+	Content             string
+	ScheduleSpec        string
+	Timezone            string
+	Status              string
+	MaxRetries          int
+	RetryCount          int
+	LastDispatchKey     string
+	NextRunAt           time.Time
+	LastRunAt           time.Time
+	LastError           string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
-// ScheduledJobStore persists scheduler jobs bound to canonical locators.
-type ScheduledJobStore interface {
-	Upsert(ctx context.Context, record ScheduledJobRecord) error
-	GetByID(ctx context.Context, jobID string) (ScheduledJobRecord, bool, error)
-	List(ctx context.Context) ([]ScheduledJobRecord, error)
-	ListByAddress(ctx context.Context, channelType, addressKey string) ([]ScheduledJobRecord, error)
-	ListDue(ctx context.Context, now time.Time, limit int) ([]ScheduledJobRecord, error)
-	Delete(ctx context.Context, jobID string) error
+// ScheduledTaskStore persists scheduler tasks bound to canonical locators.
+type ScheduledTaskStore interface {
+	Upsert(ctx context.Context, record ScheduledTaskRecord) error
+	GetByID(ctx context.Context, taskID string) (ScheduledTaskRecord, bool, error)
+	List(ctx context.Context) ([]ScheduledTaskRecord, error)
+	ListByAddress(ctx context.Context, channelType, addressKey string) ([]ScheduledTaskRecord, error)
+	ListDue(ctx context.Context, now time.Time, limit int) ([]ScheduledTaskRecord, error)
+	Delete(ctx context.Context, taskID string) error
 }
 
 // SwarmStatusCount describes an aggregate count by status.

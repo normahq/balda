@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -226,37 +227,65 @@ func TestValidateSessionPersistence(t *testing.T) {
 	}
 }
 
-func TestBuildJobSchedulerConfig(t *testing.T) {
+func TestBuildScheduledTaskSchedulerConfig(t *testing.T) {
 	t.Parallel()
 
 	cfg := BaldaConfig{
 		Scheduler: SchedulerConfig{
-			Jobs: []ScheduledJobConfig{
+			Tasks: []ScheduledTaskConfig{
 				{
-					ID:     " nightly ",
-					Cron:   " */15 * * * * ",
-					Prompt: " summarize ",
+					ID:   " nightly ",
+					Cron: " */15 * * * * ",
+					Envelope: ScheduledTaskEnvelopeConfig{
+						Target:  " alias ",
+						Key:     " owner ",
+						Content: " summarize ",
+						ReportTo: &ScheduledTaskEnvelopeTargetConfig{
+							Target: " alias ",
+							Key:    " owner ",
+						},
+					},
 				},
 			},
 		},
 	}
 
-	got := buildJobSchedulerConfig(cfg)
-	want := handlers.JobSchedulerConfig{
-		Jobs: []handlers.ConfiguredScheduledJob{
+	got := buildScheduledTaskSchedulerConfig(cfg)
+	want := handlers.ScheduledTaskSchedulerConfig{
+		Tasks: []handlers.ConfiguredScheduledTask{
 			{
-				ID:     "nightly",
-				Cron:   "*/15 * * * *",
-				Prompt: "summarize",
+				ID:      "nightly",
+				Cron:    "*/15 * * * *",
+				Target:  "alias",
+				Key:     "owner",
+				Content: "summarize",
+				ReportTo: &handlers.ConfiguredScheduledTaskTarget{
+					Target: "alias",
+					Key:    "owner",
+				},
 			},
 		},
 	}
 
-	if len(got.Jobs) != len(want.Jobs) {
-		t.Fatalf("len(jobs) = %d, want %d", len(got.Jobs), len(want.Jobs))
+	if len(got.Tasks) != len(want.Tasks) {
+		t.Fatalf("len(tasks) = %d, want %d", len(got.Tasks), len(want.Tasks))
 	}
-	if got.Jobs[0] != want.Jobs[0] {
-		t.Fatalf("job mismatch: got %+v want %+v", got.Jobs[0], want.Jobs[0])
+	if !reflect.DeepEqual(got.Tasks[0], want.Tasks[0]) {
+		t.Fatalf("task mismatch: got %+v want %+v", got.Tasks[0], want.Tasks[0])
+	}
+}
+
+func TestValidateSchedulerConfigRejectsLegacyJobs(t *testing.T) {
+	t.Parallel()
+
+	err := validateSchedulerConfig(SchedulerConfig{
+		RemovedJobs: []any{map[string]any{"id": "legacy"}},
+	})
+	if err == nil {
+		t.Fatal("validateSchedulerConfig() error = nil, want legacy jobs error")
+	}
+	if !strings.Contains(err.Error(), "balda.scheduler.jobs is no longer supported") {
+		t.Fatalf("validateSchedulerConfig() error = %v, want legacy jobs guidance", err)
 	}
 }
 

@@ -22,17 +22,18 @@ const (
 )
 
 type sessionTurnPayload struct {
-	Text           string                      `json:"text"`
-	Locator        baldasession.SessionLocator `json:"locator"`
-	UserID         string                      `json:"user_id,omitempty"`
-	AgentSessionID string                      `json:"agent_session_id,omitempty"`
-	ScheduledJobID string                      `json:"scheduled_job_id,omitempty"`
-	MessageID      int                         `json:"message_id,omitempty"`
-	TopicID        int                         `json:"topic_id,omitempty"`
-	ProgressPolicy baldachannel.ProgressPolicy `json:"progress_policy,omitempty"`
-	Deliver        bool                        `json:"deliver"`
-	Source         string                      `json:"source,omitempty"`
-	DedupeKey      string                      `json:"dedupe_key,omitempty"`
+	Text            string                       `json:"text"`
+	Locator         baldasession.SessionLocator  `json:"locator"`
+	ReportTo        *baldasession.SessionLocator `json:"report_to,omitempty"`
+	UserID          string                       `json:"user_id,omitempty"`
+	AgentSessionID  string                       `json:"agent_session_id,omitempty"`
+	ScheduledTaskID string                       `json:"scheduled_task_id,omitempty"`
+	MessageID       int                          `json:"message_id,omitempty"`
+	TopicID         int                          `json:"topic_id,omitempty"`
+	ProgressPolicy  baldachannel.ProgressPolicy  `json:"progress_policy,omitempty"`
+	Deliver         bool                         `json:"deliver"`
+	Source          string                       `json:"source,omitempty"`
+	DedupeKey       string                       `json:"dedupe_key,omitempty"`
 }
 
 func (h *BaldaHandler) submitSessionTurn(ctx context.Context, payload sessionTurnPayload) (*swarm.CommandPublishResult, error) {
@@ -117,6 +118,10 @@ func (h *BaldaHandler) runSessionTurnPayload(ctx context.Context, payload sessio
 	if agentSessionID == "" {
 		agentSessionID = ts.GetAgentSessionID()
 	}
+	deliveryLocator := payload.Locator
+	if payload.ReportTo != nil {
+		deliveryLocator = *payload.ReportTo
+	}
 	return h.runTurnTaskWithDelivery(
 		ctx,
 		payload.Text,
@@ -124,7 +129,7 @@ func (h *BaldaHandler) runSessionTurnPayload(ctx context.Context, payload sessio
 		userID,
 		ts.GetSessionID(),
 		agentSessionID,
-		payload.Locator,
+		deliveryLocator,
 		payload.MessageID,
 		payload.TopicID,
 		payload.ProgressPolicy,
@@ -133,21 +138,21 @@ func (h *BaldaHandler) runSessionTurnPayload(ctx context.Context, payload sessio
 }
 
 type sessionActorExecutor struct {
-	handler *BaldaHandler
-	tasks   *swarm.TaskService
-	jobs    *JobScheduler
+	handler   *BaldaHandler
+	tasks     *swarm.TaskService
+	scheduler *ScheduledTaskScheduler
 }
 
 type sessionActorExecutorParams struct {
 	fx.In
 
-	Handler *BaldaHandler
-	Tasks   *swarm.TaskService `optional:"true"`
-	Jobs    *JobScheduler      `optional:"true"`
+	Handler   *BaldaHandler
+	Tasks     *swarm.TaskService      `optional:"true"`
+	Scheduler *ScheduledTaskScheduler `optional:"true"`
 }
 
 func newSessionActorExecutor(params sessionActorExecutorParams) swarm.Actor {
-	return &sessionActorExecutor{handler: params.Handler, tasks: params.Tasks, jobs: params.Jobs}
+	return &sessionActorExecutor{handler: params.Handler, tasks: params.Tasks, scheduler: params.Scheduler}
 }
 
 func (e *sessionActorExecutor) Address() string {
@@ -226,14 +231,14 @@ func (e *sessionActorExecutor) recordSessionTaskResult(ctx context.Context, env 
 	if e == nil {
 		return nil
 	}
-	if e.jobs != nil && strings.TrimSpace(payload.ScheduledJobID) != "" {
+	if e.scheduler != nil && strings.TrimSpace(payload.ScheduledTaskID) != "" {
 		if runErr == nil {
-			if err := e.jobs.markSuccess(ctx, payload.ScheduledJobID); err != nil {
-				return fmt.Errorf("mark scheduled job %q success: %w", payload.ScheduledJobID, err)
+			if err := e.scheduler.markSuccess(ctx, payload.ScheduledTaskID); err != nil {
+				return fmt.Errorf("mark scheduled task %q success: %w", payload.ScheduledTaskID, err)
 			}
 		} else {
-			if err := e.jobs.recordExecutionFailure(ctx, payload.ScheduledJobID, runErr); err != nil {
-				return fmt.Errorf("record scheduled job %q failure: %w", payload.ScheduledJobID, err)
+			if err := e.scheduler.recordExecutionFailure(ctx, payload.ScheduledTaskID, runErr); err != nil {
+				return fmt.Errorf("record scheduled task %q failure: %w", payload.ScheduledTaskID, err)
 			}
 		}
 	}

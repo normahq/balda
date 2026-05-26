@@ -61,7 +61,7 @@ A passing validation is detected from the copied Goalkeeper workflow escalation 
 Goalkeeper does not use:
 
 - Taskmaster queues
-- scheduled jobs
+- scheduled tasks
 - PDCA phase agents
 - structured PDCA JSON contracts
 - the removed single-root prompt loop that asked for `STATUS: done|continue`

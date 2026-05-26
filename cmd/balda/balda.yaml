@@ -131,15 +131,22 @@ balda:
         tools: ["memory"]
 
   scheduler:
-    # Startup-reconciled recurring jobs.
-    # Jobs are upserted by id on boot; missing ids are removed from state.db.
-    # Jobs always target the owner DM session and use cron syntax (5 fields) or cron descriptors like @every 10m.
+    # Startup-reconciled recurring tasks.
+    # Tasks are upserted by id on boot; missing ids are removed from state.db.
+    # Tasks use cron syntax (5 fields) or cron descriptors like @every 10m.
+    # By default, scheduled turns are fire-and-forget. Set envelope.report_to to send progress/final replies.
     # Example:
-    # jobs:
+    # tasks:
     #   - id: "owner-daily-summary"
     #     cron: "0 9 * * *"
-    #     prompt: "Summarize repository status."
-    jobs: []
+    #     envelope:
+    #       target: "alias"
+    #       key: "owner"
+    #       content: "Summarize repository status."
+    #       report_to:
+    #         target: "alias"
+    #         key: "owner"
+    tasks: []
 
   workspace:
     # Workspace mode:

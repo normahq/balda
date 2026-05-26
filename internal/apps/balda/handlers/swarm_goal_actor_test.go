@@ -282,7 +282,7 @@ func TestTaskActorDispatchSessionTurnKeepsTaskRunningUntilSessionCompletes(t *te
 	}
 }
 
-func TestTaskActorStartScheduledJobDispatchesSessionTurn(t *testing.T) {
+func TestTaskActorStartScheduledTaskDispatchesSessionTurn(t *testing.T) {
 	ctx := context.Background()
 	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
 	_ = provider
@@ -290,20 +290,20 @@ func TestTaskActorStartScheduledJobDispatchesSessionTurn(t *testing.T) {
 	exec := &taskActorExecutor{tasks: tasks, coordinator: coordinator}
 	locator := taskActorTestLocator()
 	taskID := "scheduled-daily-review-slot-1"
-	payload := scheduledJobTaskPayload{
-		JobID:   "daily-review",
-		Prompt:  "review open work",
+	payload := scheduledTaskPayload{
+		TaskID:  "daily-review",
+		Content: "review open work",
 		Locator: locator,
 		UserID:  "tg-101",
 	}
-	data, err := json.Marshal(taskEnvelopePayload{Kind: taskPayloadKindScheduledJob, ScheduledJob: &payload})
+	data, err := json.Marshal(taskEnvelopePayload{Kind: taskPayloadKindScheduledTask, ScheduledTask: &payload})
 	if err != nil {
 		t.Fatalf("encode scheduled payload: %v", err)
 	}
 	env := swarm.Envelope{
 		ID:          "scheduled-command-1",
 		Namespace:   swarm.NamespaceScheduleInbound,
-		Kind:        swarm.KindScheduledJob,
+		Kind:        swarm.KindScheduledTask,
 		From:        swarm.ActorAddress{Target: "schedule", Key: "daily-review"},
 		To:          swarm.ActorAddress{Target: swarm.ActorTypeTask, Key: taskID},
 		SessionID:   locator.SessionID,
@@ -312,8 +312,8 @@ func TestTaskActorStartScheduledJobDispatchesSessionTurn(t *testing.T) {
 		PayloadJSON: string(data),
 	}
 
-	if err := exec.startScheduledJobTask(ctx, env, payload); err != nil {
-		t.Fatalf("startScheduledJobTask() error = %v", err)
+	if err := exec.startScheduledTaskTask(ctx, env, payload); err != nil {
+		t.Fatalf("startScheduledTaskTask() error = %v", err)
 	}
 	task, ok, err := tasks.Get(ctx, taskID)
 	if err != nil {
@@ -330,7 +330,7 @@ func TestTaskActorStartScheduledJobDispatchesSessionTurn(t *testing.T) {
 	if err := json.Unmarshal([]byte(last.PayloadJSON), &child); err != nil {
 		t.Fatalf("decode child session payload: %v", err)
 	}
-	if child.ScheduledJobID != "daily-review" || child.Deliver || child.Source != "schedule" {
+	if child.ScheduledTaskID != "daily-review" || child.Deliver || child.Source != "schedule" {
 		t.Fatalf("child payload = %+v, want scheduled no-delivery turn", child)
 	}
 }

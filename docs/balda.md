@@ -577,18 +577,21 @@ runs, retries, or wakes up.
   (`task:<task_id>:agent:<name>`), so different tasks can run logical agents in
   parallel while a single task lifecycle remains ordered.
 
-### Scheduled job runtime semantics (internal)
+### Scheduled task runtime semantics (internal)
 
-Balda includes an internal owner-targeted scheduler backed by `balda_scheduled_jobs`.
-Jobs are managed from config on startup using `balda.scheduler.jobs`.
+Balda includes an internal scheduler backed by `balda_scheduled_tasks`.
+Tasks are managed from config on startup using `balda.scheduler.tasks`.
+Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
+`content`, and optional `report_to`.
 
-- Eligibility: only `status=active` jobs with `next_run_at <= now` are polled.
-- Dispatch path: due jobs resolve a session by canonical locator (`channel_type`, `address_key`, `address_json`, `session_id`) and publish a durable JetStream task command. TaskActor/SessionActor perform session restore and execution after command delivery.
-- Idempotency key: each due slot uses deterministic `last_dispatch_key = <job_id>@<due_next_run_at_rfc3339nano>`.
-- Startup reconciliation: configured job IDs are upserted, and persisted jobs not present in config are removed.
+- Eligibility: only `status=active` tasks with `next_run_at <= now` are polled.
+- Dispatch path: due tasks resolve the envelope target by `target`/`key`, persist its canonical locator (`channel_type`, `address_key`, `address_json`, `session_id`), and publish a durable JetStream task command. TaskActor/SessionActor perform session restore and execution after command delivery.
+- Delivery: scheduled tasks are fire-and-forget by default. If `envelope.report_to` is set, the session turn delivers progress/final replies to that locator.
+- Idempotency key: each due slot uses deterministic `last_dispatch_key = <task_id>@<due_next_run_at_rfc3339nano>`.
+- Startup reconciliation: configured task IDs are upserted, and persisted tasks not present in config are removed.
 - Publish-before-mark: scheduler publishes the JetStream command first, then writes `last_dispatch_key` and advances `next_run_at`, so a failed publish does not mark work dispatched.
-- Success after actor execution: `last_run_at` is updated, `last_error` is cleared, `retry_count` is reset to `0`, and job remains `active`.
-- Pre-publish failure: target resolution, invalid schedule, or JetStream publish failure increments `retry_count`, records `last_error`, and may pause the job after `max_retries`.
+- Success after actor execution: `last_run_at` is updated, `last_error` is cleared, `retry_count` is reset to `0`, and the task remains `active`.
+- Pre-publish failure: target resolution, invalid schedule, or JetStream publish failure increments `retry_count`, records `last_error`, and may pause the task after `max_retries`.
 - Execution failure after JetStream delivery: `last_run_at` and `last_error` are recorded for visibility, but scheduler retry fields and `next_run_at` are not changed. JetStream owns command retry, redelivery, and DLQ after publish.
 - Pre-publish retry delay policy: linear backoff in seconds (`1s`, `2s`, `3s`, ...) capped at `60s`.
 

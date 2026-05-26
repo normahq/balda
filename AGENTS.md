@@ -47,7 +47,7 @@ go tool golangci-lint run
 - `/close`: owner/collaborator, direct message only; closes a topic session or stops the owner session.
 - `/cancel`: owner/collaborator; publishes durable session-control work; ControlActor cancels in-flight turn processing, drops queued turns, cancels active tasks, and aborts active `/goal` work when processed.
 - `/user add|list|remove <user_id>`: owner only; collaborator invite and management commands.
-- Recurring jobs are config-managed via `balda.locators` + `balda.scheduler.jobs` and reconciled on startup.
+- Recurring tasks are config-managed via `balda.scheduler.tasks` envelope targets and reconciled on startup.
 - Keep command behavior and access expectations backward compatible; when changing commands, update `README.md` and `docs/balda.md` as part of the same change.
 
 ## Documentation

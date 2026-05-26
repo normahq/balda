@@ -17,24 +17,24 @@ import (
 	"google.golang.org/adk/runner"
 )
 
-func TestJobSchedulerDispatchJob_PublishesCommandAndReschedules(t *testing.T) {
+func TestScheduledTaskSchedulerDispatchTask_PublishesCommandAndReschedules(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := newSchedulerJobStore(t)
+	store := newSchedulerTaskStore(t)
 	locator := baldatelegram.NewLocator(9001, 77)
 	now := time.Date(2026, time.May, 14, 12, 0, 0, 0, time.UTC)
 	dueAt := now.Add(-time.Second)
 
-	record := baldastate.ScheduledJobRecord{
-		JobID:        "job-1",
+	record := baldastate.ScheduledTaskRecord{
+		TaskID:       "task-1",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
 		AddressJSON:  locator.AddressJSON,
-		Prompt:       "summarize repo health",
+		Content:      "summarize repo health",
 		ScheduleSpec: "@every 2s",
-		Status:       baldastate.ScheduledJobStatusActive,
+		Status:       baldastate.ScheduledTaskStatusActive,
 		MaxRetries:   3,
 		NextRunAt:    dueAt,
 	}
@@ -46,8 +46,8 @@ func TestJobSchedulerDispatchJob_PublishesCommandAndReschedules(t *testing.T) {
 	bus := &recordingHandlerCommandBus{}
 	scheduler := newSchedulerForTest(t, store, bus, channel, now)
 
-	if err := scheduler.dispatchJob(ctx, record, now); err != nil {
-		t.Fatalf("dispatchJob() error = %v", err)
+	if err := scheduler.dispatchTask(ctx, record, now); err != nil {
+		t.Fatalf("dispatchTask() error = %v", err)
 	}
 	if got := len(bus.commands); got != 1 {
 		t.Fatalf("published commands = %d, want 1", got)
@@ -56,7 +56,7 @@ func TestJobSchedulerDispatchJob_PublishesCommandAndReschedules(t *testing.T) {
 	if got, want := command.Namespace, swarm.NamespaceScheduleInbound; got != want {
 		t.Fatalf("namespace = %q, want %q", got, want)
 	}
-	if got, want := command.Kind, swarm.KindScheduledJob; got != want {
+	if got, want := command.Kind, swarm.KindScheduledTask; got != want {
 		t.Fatalf("kind = %q, want %q", got, want)
 	}
 	if command.ID == "" {
@@ -65,11 +65,11 @@ func TestJobSchedulerDispatchJob_PublishesCommandAndReschedules(t *testing.T) {
 	if got, want := command.SessionID, locator.SessionID; got != want {
 		t.Fatalf("session_id = %q, want %q", got, want)
 	}
-	if got, want := command.DedupeKey, dispatchAttemptKey(record.JobID, dueAt); got != want {
+	if got, want := command.DedupeKey, dispatchAttemptKey(record.TaskID, dueAt); got != want {
 		t.Fatalf("dedupe_key = %q, want %q", got, want)
 	}
 
-	updated, ok, err := store.GetByID(ctx, record.JobID)
+	updated, ok, err := store.GetByID(ctx, record.TaskID)
 	if err != nil {
 		t.Fatalf("GetByID() error = %v", err)
 	}
@@ -79,7 +79,7 @@ func TestJobSchedulerDispatchJob_PublishesCommandAndReschedules(t *testing.T) {
 	if got, want := updated.NextRunAt, now.Add(2*time.Second); !got.Equal(want) {
 		t.Fatalf("NextRunAt = %s, want %s", got, want)
 	}
-	wantKey := dispatchAttemptKey(record.JobID, dueAt)
+	wantKey := dispatchAttemptKey(record.TaskID, dueAt)
 	if got := updated.LastDispatchKey; got != wantKey {
 		t.Fatalf("LastDispatchKey = %q, want %q", got, wantKey)
 	}
@@ -88,23 +88,23 @@ func TestJobSchedulerDispatchJob_PublishesCommandAndReschedules(t *testing.T) {
 	}
 }
 
-func TestJobSchedulerDispatchJob_PublishesWithoutRestoringSession(t *testing.T) {
+func TestScheduledTaskSchedulerDispatchTask_PublishesWithoutRestoringSession(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := newSchedulerJobStore(t)
+	store := newSchedulerTaskStore(t)
 	locator := baldatelegram.NewLocator(9001, 88)
 	now := time.Date(2026, time.May, 14, 12, 30, 0, 0, time.UTC)
 
-	record := baldastate.ScheduledJobRecord{
-		JobID:        "job-restore",
+	record := baldastate.ScheduledTaskRecord{
+		TaskID:       "task-restore",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
 		AddressJSON:  locator.AddressJSON,
-		Prompt:       "restore and run",
+		Content:      "restore and run",
 		ScheduleSpec: "@every 10s",
-		Status:       baldastate.ScheduledJobStatusActive,
+		Status:       baldastate.ScheduledTaskStatusActive,
 		NextRunAt:    now.Add(-2 * time.Second),
 	}
 	if err := store.Upsert(ctx, record); err != nil {
@@ -114,32 +114,32 @@ func TestJobSchedulerDispatchJob_PublishesWithoutRestoringSession(t *testing.T) 
 	bus := &recordingHandlerCommandBus{}
 	scheduler := newSchedulerForTest(t, store, bus, &fakeSchedulerChannel{}, now)
 
-	if err := scheduler.dispatchJob(ctx, record, now); err != nil {
-		t.Fatalf("dispatchJob() error = %v", err)
+	if err := scheduler.dispatchTask(ctx, record, now); err != nil {
+		t.Fatalf("dispatchTask() error = %v", err)
 	}
 	if got := len(bus.commands); got != 1 {
 		t.Fatalf("published commands = %d, want 1", got)
 	}
 }
 
-func TestJobSchedulerDispatchJob_IdempotentForSameDueSlot(t *testing.T) {
+func TestScheduledTaskSchedulerDispatchTask_IdempotentForSameDueSlot(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := newSchedulerJobStore(t)
+	store := newSchedulerTaskStore(t)
 	locator := baldatelegram.NewLocator(9001, 99)
 	now := time.Date(2026, time.May, 14, 13, 0, 0, 0, time.UTC)
 	dueAt := now.Add(-time.Second)
 
-	record := baldastate.ScheduledJobRecord{
-		JobID:        "job-idempotent",
+	record := baldastate.ScheduledTaskRecord{
+		TaskID:       "task-idempotent",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
 		AddressJSON:  locator.AddressJSON,
-		Prompt:       "same slot should dispatch once",
+		Content:      "same slot should dispatch once",
 		ScheduleSpec: "@every 5s",
-		Status:       baldastate.ScheduledJobStatusActive,
+		Status:       baldastate.ScheduledTaskStatusActive,
 		NextRunAt:    dueAt,
 	}
 	if err := store.Upsert(ctx, record); err != nil {
@@ -149,45 +149,45 @@ func TestJobSchedulerDispatchJob_IdempotentForSameDueSlot(t *testing.T) {
 	bus := &recordingHandlerCommandBus{}
 	scheduler := newSchedulerForTest(t, store, bus, &fakeSchedulerChannel{}, now)
 
-	if err := scheduler.dispatchJob(ctx, record, now); err != nil {
-		t.Fatalf("dispatchJob() first call error = %v", err)
+	if err := scheduler.dispatchTask(ctx, record, now); err != nil {
+		t.Fatalf("dispatchTask() first call error = %v", err)
 	}
-	if err := scheduler.dispatchJob(ctx, record, now); err != nil {
-		t.Fatalf("dispatchJob() second call error = %v", err)
+	if err := scheduler.dispatchTask(ctx, record, now); err != nil {
+		t.Fatalf("dispatchTask() second call error = %v", err)
 	}
 	if got := len(bus.commands); got != 1 {
 		t.Fatalf("published commands after duplicate dispatch = %d, want 1", got)
 	}
 
-	updated, ok, err := store.GetByID(ctx, record.JobID)
+	updated, ok, err := store.GetByID(ctx, record.TaskID)
 	if err != nil {
 		t.Fatalf("GetByID() error = %v", err)
 	}
 	if !ok {
 		t.Fatal("GetByID() = not found, want found")
 	}
-	if got, want := updated.LastDispatchKey, dispatchAttemptKey(record.JobID, dueAt); got != want {
+	if got, want := updated.LastDispatchKey, dispatchAttemptKey(record.TaskID, dueAt); got != want {
 		t.Fatalf("LastDispatchKey = %q, want %q", got, want)
 	}
 }
 
-func TestJobSchedulerMarkFailure_RetryThenPause(t *testing.T) {
+func TestScheduledTaskSchedulerMarkFailure_RetryThenPause(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := newSchedulerJobStore(t)
+	store := newSchedulerTaskStore(t)
 	locator := baldatelegram.NewLocator(9001, 101)
 	start := time.Date(2026, time.May, 14, 14, 0, 0, 0, time.UTC)
 
-	record := baldastate.ScheduledJobRecord{
-		JobID:        "job-fail",
+	record := baldastate.ScheduledTaskRecord{
+		TaskID:       "task-fail",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
 		AddressJSON:  locator.AddressJSON,
-		Prompt:       "will fail",
+		Content:      "will fail",
 		ScheduleSpec: "@every 1m",
-		Status:       baldastate.ScheduledJobStatusActive,
+		Status:       baldastate.ScheduledTaskStatusActive,
 		MaxRetries:   1,
 		NextRunAt:    start,
 	}
@@ -196,17 +196,17 @@ func TestJobSchedulerMarkFailure_RetryThenPause(t *testing.T) {
 	}
 
 	clock := &schedulerClock{now: start}
-	scheduler := &JobScheduler{
-		jobStore: store,
-		logger:   zerolog.Nop(),
-		now:      clock.Now,
+	scheduler := &ScheduledTaskScheduler{
+		taskStore: store,
+		logger:    zerolog.Nop(),
+		now:       clock.Now,
 	}
 
 	firstCause := errors.New("boom one")
-	if err := scheduler.markFailure(ctx, record.JobID, firstCause); !errors.Is(err, firstCause) {
+	if err := scheduler.markFailure(ctx, record.TaskID, firstCause); !errors.Is(err, firstCause) {
 		t.Fatalf("markFailure() error = %v, want %v", err, firstCause)
 	}
-	afterFirst, ok, err := store.GetByID(ctx, record.JobID)
+	afterFirst, ok, err := store.GetByID(ctx, record.TaskID)
 	if err != nil {
 		t.Fatalf("GetByID() after first failure error = %v", err)
 	}
@@ -216,7 +216,7 @@ func TestJobSchedulerMarkFailure_RetryThenPause(t *testing.T) {
 	if got := afterFirst.RetryCount; got != 1 {
 		t.Fatalf("RetryCount after first failure = %d, want 1", got)
 	}
-	if got := afterFirst.Status; got != baldastate.ScheduledJobStatusActive {
+	if got := afterFirst.Status; got != baldastate.ScheduledTaskStatusActive {
 		t.Fatalf("Status after first failure = %q, want active", got)
 	}
 	if got, want := afterFirst.NextRunAt, start.Add(time.Second); !got.Equal(want) {
@@ -228,10 +228,10 @@ func TestJobSchedulerMarkFailure_RetryThenPause(t *testing.T) {
 
 	clock.now = start.Add(10 * time.Second)
 	secondCause := errors.New("boom two")
-	if err := scheduler.markFailure(ctx, record.JobID, secondCause); !errors.Is(err, secondCause) {
+	if err := scheduler.markFailure(ctx, record.TaskID, secondCause); !errors.Is(err, secondCause) {
 		t.Fatalf("markFailure() second error = %v, want %v", err, secondCause)
 	}
-	afterSecond, ok, err := store.GetByID(ctx, record.JobID)
+	afterSecond, ok, err := store.GetByID(ctx, record.TaskID)
 	if err != nil {
 		t.Fatalf("GetByID() after second failure error = %v", err)
 	}
@@ -241,29 +241,29 @@ func TestJobSchedulerMarkFailure_RetryThenPause(t *testing.T) {
 	if got := afterSecond.RetryCount; got != 2 {
 		t.Fatalf("RetryCount after second failure = %d, want 2", got)
 	}
-	if got := afterSecond.Status; got != baldastate.ScheduledJobStatusPaused {
+	if got := afterSecond.Status; got != baldastate.ScheduledTaskStatusPaused {
 		t.Fatalf("Status after second failure = %q, want paused", got)
 	}
 }
 
-func TestJobSchedulerRecordExecutionFailureDoesNotScheduleRetry(t *testing.T) {
+func TestScheduledTaskSchedulerRecordExecutionFailureDoesNotScheduleRetry(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := newSchedulerJobStore(t)
+	store := newSchedulerTaskStore(t)
 	locator := baldatelegram.NewLocator(9001, 102)
 	start := time.Date(2026, time.May, 14, 14, 30, 0, 0, time.UTC)
 	nextRun := start.Add(30 * time.Minute)
 
-	record := baldastate.ScheduledJobRecord{
-		JobID:        "job-exec-fail",
+	record := baldastate.ScheduledTaskRecord{
+		TaskID:       "task-exec-fail",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
 		AddressJSON:  locator.AddressJSON,
-		Prompt:       "will fail in actor",
+		Content:      "will fail in actor",
 		ScheduleSpec: "@every 1h",
-		Status:       baldastate.ScheduledJobStatusActive,
+		Status:       baldastate.ScheduledTaskStatusActive,
 		MaxRetries:   1,
 		RetryCount:   1,
 		NextRunAt:    nextRun,
@@ -273,17 +273,17 @@ func TestJobSchedulerRecordExecutionFailureDoesNotScheduleRetry(t *testing.T) {
 	}
 
 	clock := &schedulerClock{now: start}
-	scheduler := &JobScheduler{
-		jobStore: store,
-		logger:   zerolog.Nop(),
-		now:      clock.Now,
+	scheduler := &ScheduledTaskScheduler{
+		taskStore: store,
+		logger:    zerolog.Nop(),
+		now:       clock.Now,
 	}
 
 	cause := errors.New("actor execution failed")
-	if err := scheduler.recordExecutionFailure(ctx, record.JobID, cause); !errors.Is(err, cause) {
+	if err := scheduler.recordExecutionFailure(ctx, record.TaskID, cause); !errors.Is(err, cause) {
 		t.Fatalf("recordExecutionFailure() error = %v, want %v", err, cause)
 	}
-	got, ok, err := store.GetByID(ctx, record.JobID)
+	got, ok, err := store.GetByID(ctx, record.TaskID)
 	if err != nil {
 		t.Fatalf("GetByID() error = %v", err)
 	}
@@ -296,28 +296,28 @@ func TestJobSchedulerRecordExecutionFailureDoesNotScheduleRetry(t *testing.T) {
 	if !got.NextRunAt.Equal(nextRun) {
 		t.Fatalf("NextRunAt = %s, want unchanged %s", got.NextRunAt, nextRun)
 	}
-	if got.Status != baldastate.ScheduledJobStatusActive || !strings.Contains(got.LastError, "actor execution failed") {
-		t.Fatalf("job after execution failure = %+v, want active with last error", got)
+	if got.Status != baldastate.ScheduledTaskStatusActive || !strings.Contains(got.LastError, "actor execution failed") {
+		t.Fatalf("task after execution failure = %+v, want active with last error", got)
 	}
 }
 
-func TestJobSchedulerReconcileConfiguredJobs_UpsertsAndDeletes(t *testing.T) {
+func TestScheduledTaskSchedulerReconcileConfiguredTasks_UpsertsAndDeletes(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := newSchedulerJobStore(t)
+	store := newSchedulerTaskStore(t)
 	now := time.Date(2026, time.May, 14, 16, 0, 0, 0, time.UTC)
 	locator := baldatelegram.NewLocator(9001, 222)
 
-	stale := baldastate.ScheduledJobRecord{
-		JobID:        "stale-job",
+	stale := baldastate.ScheduledTaskRecord{
+		TaskID:       "stale-task",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
 		AddressJSON:  locator.AddressJSON,
-		Prompt:       "remove me",
+		Content:      "remove me",
 		ScheduleSpec: "@every 10s",
-		Status:       baldastate.ScheduledJobStatusActive,
+		Status:       baldastate.ScheduledTaskStatusActive,
 		MaxRetries:   3,
 		NextRunAt:    now.Add(10 * time.Second),
 	}
@@ -325,27 +325,33 @@ func TestJobSchedulerReconcileConfiguredJobs_UpsertsAndDeletes(t *testing.T) {
 		t.Fatalf("Upsert(stale) error = %v", err)
 	}
 
-	scheduler := &JobScheduler{
-		jobStore: store,
-		owner:    newOwnerStoreForTest(t, 101, 9001),
-		logger:   zerolog.Nop(),
-		now:      func() time.Time { return now },
-		config: JobSchedulerConfig{
-			Jobs: []ConfiguredScheduledJob{
+	scheduler := &ScheduledTaskScheduler{
+		taskStore: store,
+		owner:     newOwnerStoreForTest(t, 101, 9001),
+		logger:    zerolog.Nop(),
+		now:       func() time.Time { return now },
+		config: ScheduledTaskSchedulerConfig{
+			Tasks: []ConfiguredScheduledTask{
 				{
-					ID:     "managed-job",
-					Cron:   "@every 2s",
-					Prompt: "review queue",
+					ID:      "managed-task",
+					Cron:    "@every 2s",
+					Target:  "alias",
+					Key:     "owner",
+					Content: "review queue",
+					ReportTo: &ConfiguredScheduledTaskTarget{
+						Target: "alias",
+						Key:    "owner",
+					},
 				},
 			},
 		},
 	}
 
-	if err := scheduler.reconcileConfiguredJobs(ctx); err != nil {
-		t.Fatalf("reconcileConfiguredJobs() error = %v", err)
+	if err := scheduler.reconcileConfiguredTasks(ctx); err != nil {
+		t.Fatalf("reconcileConfiguredTasks() error = %v", err)
 	}
 
-	managed, ok, err := store.GetByID(ctx, "managed-job")
+	managed, ok, err := store.GetByID(ctx, "managed-task")
 	if err != nil {
 		t.Fatalf("GetByID(managed) error = %v", err)
 	}
@@ -355,10 +361,16 @@ func TestJobSchedulerReconcileConfiguredJobs_UpsertsAndDeletes(t *testing.T) {
 	if got, want := managed.ScheduleSpec, "@every 2s"; got != want {
 		t.Fatalf("ScheduleSpec = %q, want %q", got, want)
 	}
-	if got, want := managed.Prompt, "review queue"; got != want {
-		t.Fatalf("Prompt = %q, want %q", got, want)
+	if got, want := managed.Content, "review queue"; got != want {
+		t.Fatalf("Content = %q, want %q", got, want)
 	}
-	if got, want := managed.Status, baldastate.ScheduledJobStatusActive; got != want {
+	if !managed.ReportToEnabled {
+		t.Fatal("ReportToEnabled = false, want true")
+	}
+	if got, want := managed.ReportToAddressKey, "9001:0"; got != want {
+		t.Fatalf("ReportToAddressKey = %q, want %q", got, want)
+	}
+	if got, want := managed.Status, baldastate.ScheduledTaskStatusActive; got != want {
 		t.Fatalf("Status = %q, want %q", got, want)
 	}
 	if got, want := managed.MaxRetries, defaultSchedulerMaxRetries; got != want {
@@ -368,12 +380,12 @@ func TestJobSchedulerReconcileConfiguredJobs_UpsertsAndDeletes(t *testing.T) {
 		t.Fatalf("NextRunAt = %s, want %s", got, want)
 	}
 
-	_, staleExists, err := store.GetByID(ctx, stale.JobID)
+	_, staleExists, err := store.GetByID(ctx, stale.TaskID)
 	if err != nil {
 		t.Fatalf("GetByID(stale) error = %v", err)
 	}
 	if staleExists {
-		t.Fatal("stale job still exists after reconcile")
+		t.Fatal("stale task still exists after reconcile")
 	}
 }
 
@@ -391,43 +403,76 @@ func TestNextRunAtFromSpec_ParsesCronExpression(t *testing.T) {
 	}
 }
 
-func TestNormalizeJobSchedulerConfig_AllowsJobWithoutAlias(t *testing.T) {
+func TestNormalizeScheduledTaskSchedulerConfig_RequiresEnvelopeTarget(t *testing.T) {
 	t.Parallel()
 
-	got, err := normalizeJobSchedulerConfig(JobSchedulerConfig{
-		Jobs: []ConfiguredScheduledJob{
+	_, err := normalizeScheduledTaskSchedulerConfig(ScheduledTaskSchedulerConfig{
+		Tasks: []ConfiguredScheduledTask{
 			{
-				ID:     "job-1",
-				Cron:   "@every 1m",
-				Prompt: "check",
+				ID:      "task-1",
+				Cron:    "@every 1m",
+				Content: "check",
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("normalizeScheduledTaskSchedulerConfig() error = nil, want missing target")
+	}
+	if !strings.Contains(err.Error(), "envelope.target") {
+		t.Fatalf("normalizeScheduledTaskSchedulerConfig() error = %v, want envelope.target", err)
+	}
+}
+
+func TestNormalizeScheduledTaskSchedulerConfig_TrimsEnvelope(t *testing.T) {
+	t.Parallel()
+
+	got, err := normalizeScheduledTaskSchedulerConfig(ScheduledTaskSchedulerConfig{
+		Tasks: []ConfiguredScheduledTask{
+			{
+				ID:      " task-1 ",
+				Cron:    " @every 1m ",
+				Target:  " alias ",
+				Key:     " owner ",
+				Content: " check ",
+				ReportTo: &ConfiguredScheduledTaskTarget{
+					Target: " alias ",
+					Key:    " owner ",
+				},
 			},
 		},
 	})
 	if err != nil {
-		t.Fatalf("normalizeJobSchedulerConfig() error = %v", err)
+		t.Fatalf("normalizeScheduledTaskSchedulerConfig() error = %v", err)
 	}
-	if len(got.Jobs) != 1 {
-		t.Fatalf("jobs = %d, want 1", len(got.Jobs))
+	if len(got.Tasks) != 1 {
+		t.Fatalf("tasks = %d, want 1", len(got.Tasks))
+	}
+	task := got.Tasks[0]
+	if task.ID != "task-1" || task.Target != "alias" || task.Key != "owner" || task.Content != "check" {
+		t.Fatalf("task = %+v, want trimmed envelope", task)
+	}
+	if task.ReportTo == nil || task.ReportTo.Target != "alias" || task.ReportTo.Key != "owner" {
+		t.Fatalf("report_to = %+v, want trimmed alias/owner", task.ReportTo)
 	}
 }
 
-func TestJobSchedulerExecuteJobTurn_SuccessResetsRetryWithoutReply(t *testing.T) {
+func TestScheduledTaskSchedulerExecuteTaskTurn_SuccessResetsRetryWithoutReply(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store := newSchedulerJobStore(t)
+	store := newSchedulerTaskStore(t)
 	locator := baldatelegram.NewLocator(9001, 111)
 	now := time.Date(2026, time.May, 14, 15, 0, 0, 0, time.UTC)
 
-	record := baldastate.ScheduledJobRecord{
-		JobID:        "job-success",
+	record := baldastate.ScheduledTaskRecord{
+		TaskID:       "task-success",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
 		AddressJSON:  locator.AddressJSON,
-		Prompt:       "run once",
+		Content:      "run once",
 		ScheduleSpec: "@every 30s",
-		Status:       baldastate.ScheduledJobStatusActive,
+		Status:       baldastate.ScheduledTaskStatusActive,
 		RetryCount:   2,
 		NextRunAt:    now.Add(30 * time.Second),
 	}
@@ -438,17 +483,17 @@ func TestJobSchedulerExecuteJobTurn_SuccessResetsRetryWithoutReply(t *testing.T)
 	adkRunner, adkSessionID := newBaldaRunTurnTestRunner(t)
 	ts := newSchedulerTopicSession(t, locator, "tg-101", adkSessionID, adkRunner)
 	channel := &fakeSchedulerChannel{}
-	scheduler := &JobScheduler{
-		jobStore: store,
-		channel:  channel,
-		logger:   zerolog.Nop(),
+	scheduler := &ScheduledTaskScheduler{
+		taskStore: store,
+		channel:   channel,
+		logger:    zerolog.Nop(),
 		now: func() time.Time {
 			return now
 		},
 	}
 
-	if err := scheduler.executeJobTurn(ctx, locator, record.JobID, "ship it", ts); err != nil {
-		t.Fatalf("executeJobTurn() error = %v", err)
+	if err := scheduler.executeTaskTurn(ctx, locator, record.TaskID, "ship it", ts); err != nil {
+		t.Fatalf("executeTaskTurn() error = %v", err)
 	}
 	if got := len(channel.agentReplies); got != 0 {
 		t.Fatalf("agent reply sends = %d, want 0", got)
@@ -457,7 +502,7 @@ func TestJobSchedulerExecuteJobTurn_SuccessResetsRetryWithoutReply(t *testing.T)
 		t.Fatalf("plain sends = %d, want 0", got)
 	}
 
-	updated, ok, err := store.GetByID(ctx, record.JobID)
+	updated, ok, err := store.GetByID(ctx, record.TaskID)
 	if err != nil {
 		t.Fatalf("GetByID() error = %v", err)
 	}
@@ -467,7 +512,7 @@ func TestJobSchedulerExecuteJobTurn_SuccessResetsRetryWithoutReply(t *testing.T)
 	if got := updated.RetryCount; got != 0 {
 		t.Fatalf("RetryCount after success = %d, want 0", got)
 	}
-	if got := updated.Status; got != baldastate.ScheduledJobStatusActive {
+	if got := updated.Status; got != baldastate.ScheduledTaskStatusActive {
 		t.Fatalf("Status after success = %q, want active", got)
 	}
 	if got := updated.LastRunAt; !got.Equal(now) {
@@ -475,25 +520,25 @@ func TestJobSchedulerExecuteJobTurn_SuccessResetsRetryWithoutReply(t *testing.T)
 	}
 }
 
-func TestJobSchedulerExecuteJobTurn_CanceledContextDoesNotMarkFailure(t *testing.T) {
+func TestScheduledTaskSchedulerExecuteTaskTurn_CanceledContextDoesNotMarkFailure(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	store := newSchedulerJobStore(t)
+	store := newSchedulerTaskStore(t)
 	locator := baldatelegram.NewLocator(9001, 112)
 	now := time.Date(2026, time.May, 14, 15, 30, 0, 0, time.UTC)
 
-	record := baldastate.ScheduledJobRecord{
-		JobID:        "job-canceled",
+	record := baldastate.ScheduledTaskRecord{
+		TaskID:       "task-canceled",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
 		AddressJSON:  locator.AddressJSON,
-		Prompt:       "run once",
+		Content:      "run once",
 		ScheduleSpec: "@every 30s",
-		Status:       baldastate.ScheduledJobStatusActive,
+		Status:       baldastate.ScheduledTaskStatusActive,
 		MaxRetries:   3,
 		NextRunAt:    now.Add(30 * time.Second),
 	}
@@ -503,17 +548,17 @@ func TestJobSchedulerExecuteJobTurn_CanceledContextDoesNotMarkFailure(t *testing
 
 	ts := newSchedulerTopicSession(t, locator, "tg-101", "adk-canceled", nil)
 	channel := &fakeSchedulerChannel{}
-	scheduler := &JobScheduler{
-		jobStore: store,
-		channel:  channel,
-		logger:   zerolog.Nop(),
+	scheduler := &ScheduledTaskScheduler{
+		taskStore: store,
+		channel:   channel,
+		logger:    zerolog.Nop(),
 		now: func() time.Time {
 			return now
 		},
 	}
 
-	if err := scheduler.executeJobTurn(ctx, locator, record.JobID, "ship it", ts); err != nil {
-		t.Fatalf("executeJobTurn() error = %v, want nil for cancellation", err)
+	if err := scheduler.executeTaskTurn(ctx, locator, record.TaskID, "ship it", ts); err != nil {
+		t.Fatalf("executeTaskTurn() error = %v, want nil for cancellation", err)
 	}
 	if got := len(channel.plainTexts); got != 0 {
 		t.Fatalf("plain failure messages = %d, want 0", got)
@@ -522,7 +567,7 @@ func TestJobSchedulerExecuteJobTurn_CanceledContextDoesNotMarkFailure(t *testing
 		t.Fatalf("agent replies = %d, want 0", got)
 	}
 
-	updated, ok, err := store.GetByID(context.Background(), record.JobID)
+	updated, ok, err := store.GetByID(context.Background(), record.TaskID)
 	if err != nil {
 		t.Fatalf("GetByID() error = %v", err)
 	}
@@ -538,7 +583,7 @@ func TestJobSchedulerExecuteJobTurn_CanceledContextDoesNotMarkFailure(t *testing
 	if !updated.LastRunAt.IsZero() {
 		t.Fatalf("LastRunAt after cancellation = %s, want zero", updated.LastRunAt)
 	}
-	if got := updated.Status; got != baldastate.ScheduledJobStatusActive {
+	if got := updated.Status; got != baldastate.ScheduledTaskStatusActive {
 		t.Fatalf("Status after cancellation = %q, want active", got)
 	}
 }
@@ -568,17 +613,17 @@ func (c *schedulerClock) Now() time.Time {
 
 func newSchedulerForTest(
 	t *testing.T,
-	store baldastate.ScheduledJobStore,
+	store baldastate.ScheduledTaskStore,
 	bus *recordingHandlerCommandBus,
 	channel schedulerChannel,
 	now time.Time,
-) *JobScheduler {
+) *ScheduledTaskScheduler {
 	t.Helper()
 	if bus == nil {
 		bus = &recordingHandlerCommandBus{}
 	}
-	return &JobScheduler{
-		jobStore:     store,
+	return &ScheduledTaskScheduler{
+		taskStore:    store,
 		coordinator:  swarm.NewCoordinator(bus, swarm.Config{Enabled: true}),
 		channel:      channel,
 		owner:        newOwnerStoreForTest(t, 101, 9001),
@@ -602,7 +647,7 @@ func newOwnerStoreForTest(t *testing.T, userID int64, chatID int64) *auth.OwnerS
 	return store
 }
 
-func newSchedulerJobStore(t *testing.T) baldastate.ScheduledJobStore {
+func newSchedulerTaskStore(t *testing.T) baldastate.ScheduledTaskStore {
 	t.Helper()
 
 	dbPath := filepath.Join(t.TempDir(), "state.db")
@@ -613,7 +658,7 @@ func newSchedulerJobStore(t *testing.T) baldastate.ScheduledJobStore {
 	t.Cleanup(func() {
 		_ = provider.Close()
 	})
-	return provider.ScheduledJobs()
+	return provider.ScheduledTasks()
 }
 
 func newSchedulerTopicSession(

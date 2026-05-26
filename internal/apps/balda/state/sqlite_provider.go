@@ -19,7 +19,7 @@ type sqliteProvider struct {
 	mcpKV      *sqliteKVStore
 	adkSession *sqliteADKSessionService
 	session    *sqliteSessionStore
-	jobs       *sqliteScheduledJobStore
+	tasks      *sqliteScheduledTaskStore
 	swarm      *sqliteSwarmStore
 	offset     *sqliteOffsetStore
 	collab     *auth.CollaboratorStore
@@ -148,7 +148,7 @@ func NewSQLiteProvider(ctx context.Context, path string) (Provider, error) {
 		mcpKV:      &sqliteKVStore{db: db, namespace: NamespaceSessionMCP},
 		adkSession: &sqliteADKSessionService{db: db},
 		session:    &sqliteSessionStore{db: db},
-		jobs:       &sqliteScheduledJobStore{db: db},
+		tasks:      &sqliteScheduledTaskStore{db: db},
 		swarm:      &sqliteSwarmStore{db: db},
 		offset:     &sqliteOffsetStore{db: db},
 	}
@@ -172,8 +172,8 @@ func (p *sqliteProvider) Sessions() SessionStore {
 	return p.session
 }
 
-func (p *sqliteProvider) ScheduledJobs() ScheduledJobStore {
-	return p.jobs
+func (p *sqliteProvider) ScheduledTasks() ScheduledTaskStore {
+	return p.tasks
 }
 
 func (p *sqliteProvider) Swarm() SwarmStore {

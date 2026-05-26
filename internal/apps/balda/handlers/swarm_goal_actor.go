@@ -17,11 +17,11 @@ import (
 )
 
 const (
-	taskPayloadKindGoal         = "goal"
-	taskPayloadKindScheduledJob = "scheduled_job"
-	taskPayloadKindSessionTurn  = "session_turn"
-	taskPayloadKindAgentResult  = "agent_result"
-	taskPayloadKindDelivery     = "delivery"
+	taskPayloadKindGoal          = "goal"
+	taskPayloadKindScheduledTask = "scheduled_task"
+	taskPayloadKindSessionTurn   = "session_turn"
+	taskPayloadKindAgentResult   = "agent_result"
+	taskPayloadKindDelivery      = "delivery"
 
 	taskAgentRolePlanner  = swarm.AgentNamePlanner
 	taskAgentRoleExecutor = swarm.AgentNameExecutor
@@ -30,11 +30,11 @@ const (
 )
 
 type taskEnvelopePayload struct {
-	Kind         string                   `json:"kind"`
-	Goal         *goalTaskPayload         `json:"goal,omitempty"`
-	ScheduledJob *scheduledJobTaskPayload `json:"scheduled_job,omitempty"`
-	SessionTurn  *sessionTurnPayload      `json:"session_turn,omitempty"`
-	AgentResult  *taskAgentResultPayload  `json:"agent_result,omitempty"`
+	Kind          string                  `json:"kind"`
+	Goal          *goalTaskPayload        `json:"goal,omitempty"`
+	ScheduledTask *scheduledTaskPayload   `json:"scheduled_task,omitempty"`
+	SessionTurn   *sessionTurnPayload     `json:"session_turn,omitempty"`
+	AgentResult   *taskAgentResultPayload `json:"agent_result,omitempty"`
 }
 
 type goalTaskPayload struct {
@@ -45,12 +45,13 @@ type goalTaskPayload struct {
 	MaxIterations   int                         `json:"max_iterations,omitempty"`
 }
 
-type scheduledJobTaskPayload struct {
-	JobID   string                      `json:"job_id"`
-	Prompt  string                      `json:"prompt"`
-	Locator baldasession.SessionLocator `json:"locator"`
-	UserID  string                      `json:"user_id"`
-	TopicID int                         `json:"topic_id,omitempty"`
+type scheduledTaskPayload struct {
+	TaskID   string                       `json:"task_id"`
+	Content  string                       `json:"content"`
+	Locator  baldasession.SessionLocator  `json:"locator"`
+	ReportTo *baldasession.SessionLocator `json:"report_to,omitempty"`
+	UserID   string                       `json:"user_id"`
+	TopicID  int                          `json:"topic_id,omitempty"`
 }
 
 type taskAgentCommandPayload struct {
@@ -167,7 +168,7 @@ type taskActorExecutor struct {
 	coordinator *swarm.Coordinator
 	agents      *swarm.AgentAllocator
 	sessions    *baldasession.Manager
-	scheduler   *JobScheduler
+	scheduler   *ScheduledTaskScheduler
 	maxIters    int
 }
 
@@ -176,10 +177,10 @@ type taskActorExecutorParams struct {
 
 	TaskService *swarm.TaskService
 	Coordinator *swarm.Coordinator
-	Agents      *swarm.AgentAllocator `optional:"true"`
-	Sessions    *baldasession.Manager `optional:"true"`
-	Scheduler   *JobScheduler         `optional:"true"`
-	MaxIters    int                   `name:"balda_goal_max_iterations"`
+	Agents      *swarm.AgentAllocator   `optional:"true"`
+	Sessions    *baldasession.Manager   `optional:"true"`
+	Scheduler   *ScheduledTaskScheduler `optional:"true"`
+	MaxIters    int                     `name:"balda_goal_max_iterations"`
 }
 
 func newTaskActorExecutor(params taskActorExecutorParams) swarm.Actor {
@@ -300,11 +301,11 @@ func (e *taskActorExecutor) Handle(ctx context.Context, env swarm.Envelope) erro
 			return swarm.PolicyError(fmt.Errorf("goal task payload is required"))
 		}
 		return e.startGoalTask(ctx, env, *payload.Goal)
-	case taskPayloadKindScheduledJob:
-		if payload.ScheduledJob == nil {
-			return swarm.PolicyError(fmt.Errorf("scheduled job task payload is required"))
+	case taskPayloadKindScheduledTask:
+		if payload.ScheduledTask == nil {
+			return swarm.PolicyError(fmt.Errorf("scheduled task payload is required"))
 		}
-		return e.startScheduledJobTask(ctx, env, *payload.ScheduledJob)
+		return e.startScheduledTaskTask(ctx, env, *payload.ScheduledTask)
 	case taskPayloadKindSessionTurn:
 		if payload.SessionTurn == nil {
 			return swarm.PolicyError(fmt.Errorf("session turn task payload is required"))
@@ -360,17 +361,17 @@ func (e *taskActorExecutor) dispatchSessionTurn(ctx context.Context, env swarm.E
 	return nil
 }
 
-func (e *taskActorExecutor) startScheduledJobTask(ctx context.Context, env swarm.Envelope, payload scheduledJobTaskPayload) error {
+func (e *taskActorExecutor) startScheduledTaskTask(ctx context.Context, env swarm.Envelope, payload scheduledTaskPayload) error {
 	taskID := firstNonEmpty(env.TaskID, env.To.Key)
-	prompt := strings.TrimSpace(payload.Prompt)
+	content := strings.TrimSpace(payload.Content)
 	if taskID == "" {
 		return swarm.PolicyError(fmt.Errorf("task id is required"))
 	}
-	if strings.TrimSpace(payload.JobID) == "" {
-		return swarm.PolicyError(fmt.Errorf("scheduled job id is required"))
+	if strings.TrimSpace(payload.TaskID) == "" {
+		return swarm.PolicyError(fmt.Errorf("scheduled task id is required"))
 	}
-	if prompt == "" {
-		return swarm.PolicyError(fmt.Errorf("scheduled job prompt is required"))
+	if content == "" {
+		return swarm.PolicyError(fmt.Errorf("scheduled task content is required"))
 	}
 	if e.tasks != nil {
 		if task, ok, err := e.tasks.Get(ctx, taskID); err != nil {
@@ -381,8 +382,8 @@ func (e *taskActorExecutor) startScheduledJobTask(ctx context.Context, env swarm
 		_, err := e.tasks.Create(ctx, baldastate.SwarmTaskRecord{
 			ID:            taskID,
 			SessionID:     strings.TrimSpace(payload.Locator.SessionID),
-			Title:         "Scheduled job: " + strings.TrimSpace(payload.JobID),
-			Objective:     prompt,
+			Title:         "Scheduled task: " + strings.TrimSpace(payload.TaskID),
+			Objective:     content,
 			Status:        baldastate.SwarmTaskStatusCreated,
 			OwnerActor:    swarm.ActorTypeTask + ":" + taskID,
 			AssignedActor: swarm.ActorTypeSession + ":" + payload.Locator.SessionID,
@@ -395,14 +396,15 @@ func (e *taskActorExecutor) startScheduledJobTask(ctx context.Context, env swarm
 		}
 	}
 	sessionPayload := sessionTurnPayload{
-		Text:           prompt,
-		Locator:        payload.Locator,
-		UserID:         payload.UserID,
-		ScheduledJobID: payload.JobID,
-		TopicID:        payload.TopicID,
-		Deliver:        false,
-		Source:         sessionTurnSourceSchedule,
-		DedupeKey:      firstNonEmpty(env.DedupeKey, taskID) + ":session",
+		Text:            content,
+		Locator:         payload.Locator,
+		ReportTo:        payload.ReportTo,
+		UserID:          payload.UserID,
+		ScheduledTaskID: payload.TaskID,
+		TopicID:         payload.TopicID,
+		Deliver:         payload.ReportTo != nil,
+		Source:          sessionTurnSourceSchedule,
+		DedupeKey:       firstNonEmpty(env.DedupeKey, taskID) + ":session",
 	}
 	sessionEnv, err := sessionTurnEnvelope(sessionPayload)
 	if err != nil {

@@ -66,7 +66,7 @@ func TestJetStreamArchitectureContract_Static(t *testing.T) {
 	})
 
 	t.Run("ingress publishes commands before local state is advanced", func(t *testing.T) {
-		schedulerSource := readSource(t, filepath.Join(root, "handlers/job_scheduler.go"))
+		schedulerSource := readSource(t, filepath.Join(root, "handlers/scheduled_task_scheduler.go"))
 		if !strings.Contains(schedulerSource, "s.coordinator.Submit(ctx, env)") {
 			t.Fatal("scheduler ingress must publish the durable JetStream command through SwarmCoordinator")
 		}

@@ -106,7 +106,10 @@ func Module(
 	if err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}
-	jobSchedulerConfig := buildJobSchedulerConfig(cfg.Balda)
+	if err := validateSchedulerConfig(cfg.Balda.Scheduler); err != nil {
+		return fx.Module("balda", fx.Error(err))
+	}
+	scheduledTaskSchedulerConfig := buildScheduledTaskSchedulerConfig(cfg.Balda)
 	inboundWebhookConfig := buildInboundWebhookConfig(cfg.Balda)
 	swarmConfig := swarm.Config{
 		Enabled: cfg.Balda.Swarm.Enabled,
@@ -146,7 +149,7 @@ func Module(
 			normaCfg,
 			workingDir,
 			mcpReg,
-			jobSchedulerConfig,
+			scheduledTaskSchedulerConfig,
 			inboundWebhookConfig,
 			eventBusConfig,
 			swarmConfig,
@@ -544,18 +547,35 @@ func validateSessionPersistence(raw string) (string, error) {
 	}
 }
 
-func buildJobSchedulerConfig(cfg BaldaConfig) handlers.JobSchedulerConfig {
-	jobs := make([]handlers.ConfiguredScheduledJob, 0, len(cfg.Scheduler.Jobs))
-	for _, job := range cfg.Scheduler.Jobs {
-		jobs = append(jobs, handlers.ConfiguredScheduledJob{
-			ID:     strings.TrimSpace(job.ID),
-			Cron:   strings.TrimSpace(job.Cron),
-			Prompt: strings.TrimSpace(job.Prompt),
+func validateSchedulerConfig(cfg SchedulerConfig) error {
+	if cfg.RemovedJobs != nil {
+		return fmt.Errorf("balda.scheduler.jobs is no longer supported; use balda.scheduler.tasks with envelope.target, envelope.key, and envelope.content")
+	}
+	return nil
+}
+
+func buildScheduledTaskSchedulerConfig(cfg BaldaConfig) handlers.ScheduledTaskSchedulerConfig {
+	tasks := make([]handlers.ConfiguredScheduledTask, 0, len(cfg.Scheduler.Tasks))
+	for _, task := range cfg.Scheduler.Tasks {
+		var reportTo *handlers.ConfiguredScheduledTaskTarget
+		if task.Envelope.ReportTo != nil {
+			reportTo = &handlers.ConfiguredScheduledTaskTarget{
+				Target: strings.TrimSpace(task.Envelope.ReportTo.Target),
+				Key:    strings.TrimSpace(task.Envelope.ReportTo.Key),
+			}
+		}
+		tasks = append(tasks, handlers.ConfiguredScheduledTask{
+			ID:       strings.TrimSpace(task.ID),
+			Cron:     strings.TrimSpace(task.Cron),
+			Target:   strings.TrimSpace(task.Envelope.Target),
+			Key:      strings.TrimSpace(task.Envelope.Key),
+			Content:  strings.TrimSpace(task.Envelope.Content),
+			ReportTo: reportTo,
 		})
 	}
 
-	return handlers.JobSchedulerConfig{
-		Jobs: jobs,
+	return handlers.ScheduledTaskSchedulerConfig{
+		Tasks: tasks,
 	}
 }
 
