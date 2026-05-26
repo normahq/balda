@@ -118,6 +118,8 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 		return h.onTaskCommand(ctx, commandCtx)
 	case "swarm":
 		return h.onSwarmCommand(ctx, commandCtx)
+	case "queue":
+		return h.onQueueCommand(ctx, commandCtx)
 	case "mailbox":
 		return h.onMailboxCommand(ctx, commandCtx)
 	case "memory":

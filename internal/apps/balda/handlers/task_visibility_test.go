@@ -111,7 +111,7 @@ func TestCommandHandlerTaskVisibilityShowsTaskStatusWithoutProjectedEvents(t *te
 	assertLastSentContains(t, tgClient, "No events for task task-no-events.")
 }
 
-func TestCommandHandlerSwarmAndMailboxStatusCommands(t *testing.T) {
+func TestCommandHandlerSwarmQueueAndMailboxStatusCommands(t *testing.T) {
 	ctx := context.Background()
 	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
 	_, bus, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
@@ -140,6 +140,11 @@ func TestCommandHandlerSwarmAndMailboxStatusCommands(t *testing.T) {
 
 	if err := handler.onCommand(ctx, newCommandEvent("mailbox", "status", 101, 9001, nil)); err != nil {
 		t.Fatalf("/mailbox status error = %v", err)
+	}
+	assertLastSentContains(t, tgClient, "BALDA_WORKER_COMMANDS")
+
+	if err := handler.onCommand(ctx, newCommandEvent("queue", "status", 101, 9001, nil)); err != nil {
+		t.Fatalf("/queue status error = %v", err)
 	}
 	assertLastSentContains(t, tgClient, "BALDA_WORKER_COMMANDS")
 }

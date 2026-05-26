@@ -153,7 +153,8 @@ Built-in provider types:
 - `/task <id> events`: print the task event stream.
 - `/task <id> cancel`: publish a durable task-control command; ControlActor cancels active local task work when present and marks the task canceled when the command is processed.
 - `/swarm status`: show JetStream command/event/DLQ streams, worker and projector consumer state, logical agents, and task status counts.
-- `/mailbox status`: compatibility alias for JetStream swarm status.
+- `/queue status`: show JetStream queue/runtime status (preferred command).
+- `/mailbox status`: compatibility alias for `/queue status`.
 - `/reset`: clear conversation history for the current session.
 - `/close`: reset history, then close the current topic or restart the owner session on the next message.
 - `/cancel`: publish a durable session-control command; ControlActor cancels in-flight work, drops queued session work, cancels active task records, and aborts active `/goal` work when processed.

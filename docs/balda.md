@@ -519,7 +519,8 @@ Balda runs with a single provider per process (`balda.provider`).
 - `/task <id> events` (owner/collaborator): prints the append-only task event stream.
 - `/task <id> cancel` (owner/collaborator): publishes a durable task-control command; ControlActor cancels active local task work when present and marks the task `canceled` when the command is processed.
 - `/swarm status` (owner/collaborator): shows JetStream command/event/DLQ streams, worker and projector consumer state, configured logical agents, and task status counts.
-- `/mailbox status` (owner/collaborator): compatibility alias for JetStream swarm status.
+- `/queue status` (owner/collaborator): preferred JetStream queue/runtime status command.
+- `/mailbox status` (owner/collaborator): compatibility alias for `/queue status`.
 - `/close` (DM only, owner/collaborator): resets current session history, then in the owner DM `topic_id=0` stops the owner session; in topic contexts, closes that topic.
 - `/reset` (owner/collaborator): cancels queued work and clears the current session's persisted ADK conversation history without deleting Balda metadata or the workspace branch.
 - `/cancel` (owner/collaborator): publishes a durable session-control command; ControlActor cancels active session work, drops queued session work, marks active session tasks canceled, and aborts active `/goal` work when the command is processed.

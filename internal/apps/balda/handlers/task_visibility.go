@@ -136,10 +136,21 @@ func (h *CommandHandler) onSwarmCommand(ctx context.Context, commandCtx baldatel
 }
 
 func (h *CommandHandler) onMailboxCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
+	return h.onQueueStatusCommand(ctx, commandCtx, "mailbox")
+}
+
+func (h *CommandHandler) onQueueCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
+	return h.onQueueStatusCommand(ctx, commandCtx, "queue")
+}
+
+func (h *CommandHandler) onQueueStatusCommand(ctx context.Context, commandCtx baldatelegram.CommandContext, alias string) error {
 	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
 		return h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner or collaborators can use this command.")
 	}
 	if strings.TrimSpace(commandCtx.Args) != "status" {
+		if alias == "queue" {
+			return h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /queue status")
+		}
 		return h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /mailbox status")
 	}
 	status, err := h.formatSwarmStatus(ctx)
