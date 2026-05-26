@@ -160,6 +160,39 @@ func (h *CommandHandler) onQueueStatusCommand(ctx context.Context, commandCtx ba
 	return h.channel.SendAgentReply(ctx, commandCtx.Locator, status)
 }
 
+func (h *CommandHandler) onDLQCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
+	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
+		return h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner or collaborators can use this command.")
+	}
+	if strings.TrimSpace(commandCtx.Args) != "" {
+		return h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /dlq")
+	}
+	if h.commandBus == nil {
+		return h.channel.SendPlain(ctx, commandCtx.Locator, "DLQ visibility is unavailable right now.")
+	}
+	status, err := h.commandBus.Status(ctx)
+	if err != nil {
+		return h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to read DLQ status: %v", err))
+	}
+	var out strings.Builder
+	out.WriteString("DLQ status")
+	name := strings.TrimSpace(status.DLQ.Name)
+	if name == "" {
+		name = swarm.DefaultDLQStream
+	}
+	out.WriteString("\n- stream: ")
+	out.WriteString(name)
+	out.WriteString("\n- messages: ")
+	fmt.Fprintf(&out, "%d", status.DLQ.Messages)
+	out.WriteString("\n- bytes: ")
+	fmt.Fprintf(&out, "%d", status.DLQ.Bytes)
+	out.WriteString("\n- first_seq: ")
+	fmt.Fprintf(&out, "%d", status.DLQ.FirstSeq)
+	out.WriteString("\n- last_seq: ")
+	fmt.Fprintf(&out, "%d", status.DLQ.LastSeq)
+	return h.channel.SendAgentReply(ctx, commandCtx.Locator, out.String())
+}
+
 func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) {
 	var out strings.Builder
 	out.WriteString("Swarm status\n")

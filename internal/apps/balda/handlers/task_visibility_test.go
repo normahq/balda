@@ -147,6 +147,12 @@ func TestCommandHandlerSwarmQueueAndMailboxStatusCommands(t *testing.T) {
 		t.Fatalf("/queue status error = %v", err)
 	}
 	assertLastSentContains(t, tgClient, "BALDA_WORKER_COMMANDS")
+
+	if err := handler.onCommand(ctx, newCommandEvent("dlq", "", 101, 9001, nil)); err != nil {
+		t.Fatalf("/dlq error = %v", err)
+	}
+	assertLastSentContains(t, tgClient, "DLQ status")
+	assertLastSentContains(t, tgClient, "stream: BALDA_DLQ")
 }
 
 func TestCommandHandlerSwarmStatusShowsDisabledModeContract(t *testing.T) {

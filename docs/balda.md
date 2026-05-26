@@ -521,6 +521,7 @@ Balda runs with a single provider per process (`balda.provider`).
 - `/swarm status` (owner/collaborator): shows JetStream command/event/DLQ streams, worker and projector consumer state, configured logical agents, and task status counts.
 - `/queue status` (owner/collaborator): preferred JetStream queue/runtime status command.
 - `/mailbox status` (owner/collaborator): compatibility alias for `/queue status`.
+- `/dlq` (owner/collaborator): shows JetStream DLQ stream backlog summary.
 - `/close` (DM only, owner/collaborator): resets current session history, then in the owner DM `topic_id=0` stops the owner session; in topic contexts, closes that topic.
 - `/reset` (owner/collaborator): cancels queued work and clears the current session's persisted ADK conversation history without deleting Balda metadata or the workspace branch.
 - `/cancel` (owner/collaborator): publishes a durable session-control command; ControlActor cancels active session work, drops queued session work, marks active session tasks canceled, and aborts active `/goal` work when the command is processed.
