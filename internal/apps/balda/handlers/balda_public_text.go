@@ -17,7 +17,7 @@ func (h *BaldaHandler) normalizePublicText(messageCtx baldatelegram.MessageConte
 		if len(mentionRanges) > 0 {
 			userMessage := strings.TrimSpace(removeTextByUTF16Ranges(messageCtx.Text, mentionRanges))
 			replyContent := strings.TrimSpace(messageCtx.ReplyContent)
-			return composeMentionTriggeredInput(userMessage, replyContent)
+			return composeReplyAwareInput(userMessage, replyContent)
 		}
 	}
 
@@ -29,10 +29,20 @@ func (h *BaldaHandler) normalizePublicText(messageCtx baldatelegram.MessageConte
 		return "", false
 	}
 
-	return messageCtx.Text, true
+	return composeReplyAwareInput(strings.TrimSpace(messageCtx.Text), strings.TrimSpace(messageCtx.ReplyContent))
 }
 
-func composeMentionTriggeredInput(userMessage, replyContent string) (string, bool) {
+func (h *BaldaHandler) normalizeDMText(messageCtx baldatelegram.MessageContext) string {
+	if !messageCtx.IsReply {
+		return messageCtx.Text
+	}
+	if normalized, ok := composeReplyAwareInput(strings.TrimSpace(messageCtx.Text), strings.TrimSpace(messageCtx.ReplyContent)); ok {
+		return normalized
+	}
+	return messageCtx.Text
+}
+
+func composeReplyAwareInput(userMessage, replyContent string) (string, bool) {
 	switch {
 	case replyContent != "" && userMessage != "":
 		return fmt.Sprintf("Reply context:\n%s\n\nUser message:\n%s", replyContent, userMessage), true

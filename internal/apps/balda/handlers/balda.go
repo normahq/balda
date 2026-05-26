@@ -162,8 +162,10 @@ func (h *BaldaHandler) onMessage(ctx context.Context, event *events.MessageEvent
 	}
 
 	topicID := messageCtx.TopicID
-	text := messageCtx.Text
-	if !messageCtx.IsDM {
+	var text string
+	if messageCtx.IsDM {
+		text = h.normalizeDMText(messageCtx)
+	} else {
 		normalized, ok := h.normalizePublicText(messageCtx)
 		if !ok {
 			return nil

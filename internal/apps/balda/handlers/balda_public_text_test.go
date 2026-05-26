@@ -72,7 +72,7 @@ func TestNormalizePublicText_MentionOnlyWithoutReplyContentIsIgnored(t *testing.
 	}
 }
 
-func TestNormalizePublicText_DirectReplyToBotPathUnchanged(t *testing.T) {
+func TestNormalizePublicText_DirectReplyToBotIncludesReplyContext(t *testing.T) {
 	h := &BaldaHandler{}
 	setUnexportedField(t, h, "botUserID", int64(4242))
 	setUnexportedField(t, h, "botUsername", "testbot")
@@ -88,8 +88,9 @@ func TestNormalizePublicText_DirectReplyToBotPathUnchanged(t *testing.T) {
 	if !ok {
 		t.Fatal("normalizePublicText() ok = false, want true")
 	}
-	if normalized != "follow up message" {
-		t.Fatalf("normalized text = %q, want direct reply passthrough", normalized)
+	want := "Reply context:\nbot previous response\n\nUser message:\nfollow up message"
+	if normalized != want {
+		t.Fatalf("normalized text = %q, want %q", normalized, want)
 	}
 }
 

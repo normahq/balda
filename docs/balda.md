@@ -479,8 +479,8 @@ By default, Balda also persists ADK session events and state in `state.db` until
 
 1. User sends Telegram message.
    - In non-DM chats (groups/supergroups/topics), Balda processes a message when it contains a mention entity for `@<bot_username>` or is a reply to this bot's message.
-   - For mention-triggered messages that are replies, balda forwards replied message `text` (fallback `caption`) as model context.
-   - In DM chats, Balda processes non-command text messages normally.
+   - For processed replies, balda forwards replied message `text` (fallback `caption`) as model context, plus the new user message when present.
+   - In DM chats, Balda processes non-command text messages normally and preserves reply context for reply messages.
 2. Balda resolves session by `(chat_id, topic_id)`.
 3. If the session is missing in memory, balda attempts lazy restore from persisted metadata.
 4. Balda calls ADK runner for that session.

@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -416,6 +418,54 @@ func TestBaldaHandlerOnMessage_ChannelReplyToBotBypassesMentionGate(t *testing.T
 	}
 }
 
+func TestBaldaHandlerOnMessage_ReplyAddsReplyContextToPublishedCommand(t *testing.T) {
+	tests := []struct {
+		name          string
+		chatType      string
+		replyToUserID int64
+		replyToIsBot  bool
+	}{
+		{
+			name:          "channel reply to bot",
+			chatType:      "supergroup",
+			replyToUserID: 4242,
+			replyToIsBot:  true,
+		},
+		{
+			name:          "dm reply to non-bot",
+			chatType:      "private",
+			replyToUserID: 777,
+			replyToIsBot:  false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, turns, _ := newBaldaMessageHandlerHarness(t, 0)
+
+			text := "сделай пр"
+			replyText := "проверь этот коммит"
+			event := &events.MessageEvent{
+				Type: messagetype.Text,
+				Message: &client.Message{
+					Chat: client.Chat{
+						Id:   9001,
+						Type: tc.chatType,
+					},
+					Text:           &text,
+					From:           &client.User{Id: 101},
+					ReplyToMessage: replyToMessageWithTextFrom(tc.replyToUserID, tc.replyToIsBot, replyText),
+				},
+			}
+
+			if err := handler.onMessage(context.Background(), event); err != nil {
+				t.Fatalf("onMessage() error = %v", err)
+			}
+			assertPublishedTurnIncludesReplyContext(t, turns.commands, text, replyText)
+		})
+	}
+}
+
 func TestBaldaHandlerOnMessage_TopicReplyToBotBypassesMentionGate(t *testing.T) {
 	handler, turns, locator := newBaldaMessageHandlerHarness(t, 77)
 
@@ -522,6 +572,29 @@ func replyToMessageFrom(userID int64, isBot bool) *client.Message {
 			Id:    userID,
 			IsBot: isBot,
 		},
+	}
+}
+
+func replyToMessageWithTextFrom(userID int64, isBot bool, text string) *client.Message {
+	msg := replyToMessageFrom(userID, isBot)
+	msg.Text = &text
+	return msg
+}
+
+func assertPublishedTurnIncludesReplyContext(t *testing.T, commands []swarm.Envelope, text, replyText string) {
+	t.Helper()
+	if len(commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(commands))
+	}
+	var payload sessionTurnPayload
+	if err := json.Unmarshal([]byte(commands[0].PayloadJSON), &payload); err != nil {
+		t.Fatalf("decode session turn payload: %v", err)
+	}
+	if !strings.Contains(payload.Text, "Reply context:\n"+replyText) {
+		t.Fatalf("payload text = %q, want reply context block", payload.Text)
+	}
+	if !strings.Contains(payload.Text, "User message:\n"+text) {
+		t.Fatalf("payload text = %q, want user message block", payload.Text)
 	}
 }
 
