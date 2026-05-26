@@ -14,6 +14,8 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 )
 
+const commandSettlementTimeout = 5 * time.Second
+
 type commandMessage struct {
 	subject       string
 	env           swarm.Envelope
@@ -86,7 +88,9 @@ func (b *Bus) commandWorkerLimit() int {
 func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler swarm.CommandHandler) error {
 	env, err := swarm.DecodeEnvelope(string(msg.Data()))
 	if err != nil {
-		_ = b.publishRawDLQ(ctx, msg, "decode failed: "+err.Error())
+		settleCtx, settleCancel := settlementContext(ctx)
+		defer settleCancel()
+		_ = b.publishRawDLQ(settleCtx, msg, "decode failed: "+err.Error())
 		_ = msg.TermWithReason("decode failed: " + err.Error())
 		return err
 	}
@@ -95,11 +99,13 @@ func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler swar
 	cmd := commandMessage{subject: msg.Subject(), env: env, msg: msg, numDelivered: numDelivered, maxDeliveries: b.cfg.Swarm.Commands.MaxDeliver}
 	b.publishCommandEventBestEffort(ctx, swarm.SubjectEventCommandRunning, env, "running", "")
 	err = handler(ctx, cmd)
+	settleCtx, settleCancel := settlementContext(ctx)
+	defer settleCancel()
 	if err == nil {
-		if err := msg.DoubleAck(ctx); err != nil {
+		if err := msg.DoubleAck(settleCtx); err != nil {
 			return err
 		}
-		if err := b.PublishEvent(ctx, swarm.SubjectEventCommandAcked, commandEventEnvelope(env, nil, "acked", "")); err != nil {
+		if err := b.PublishEvent(settleCtx, swarm.SubjectEventCommandAcked, commandEventEnvelope(env, nil, "acked", "")); err != nil {
 			b.logger.Warn().
 				Err(err).
 				Str("envelope_id", env.ID).
@@ -110,20 +116,20 @@ func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler swar
 	if isRetryable(err) {
 		if retryExhausted(numDelivered, b.cfg.Swarm.Commands.MaxDeliver) {
 			reason := "retry exhausted: " + err.Error()
-			if err := b.publishDLQ(ctx, env, reason, false); err != nil {
+			if err := b.publishDLQ(settleCtx, env, reason, false); err != nil {
 				return err
 			}
 			if err := msg.TermWithReason(reason); err != nil {
 				return err
 			}
-			b.publishCommandEventBestEffort(ctx, swarm.SubjectEventCommandDeadLettered, env, "deadlettered", reason)
+			b.publishCommandEventBestEffort(settleCtx, swarm.SubjectEventCommandDeadLettered, env, "deadlettered", reason)
 			return nil
 		}
 		delay := computeBackoff(env.Attempt)
 		if settleErr := msg.NakWithDelay(delay); settleErr != nil {
 			return settleErr
 		}
-		if eventErr := b.PublishEvent(ctx, swarm.SubjectEventCommandRetrying, commandEventEnvelope(env, nil, "retrying", err.Error())); eventErr != nil {
+		if eventErr := b.PublishEvent(settleCtx, swarm.SubjectEventCommandRetrying, commandEventEnvelope(env, nil, "retrying", err.Error())); eventErr != nil {
 			b.logger.Warn().
 				Err(eventErr).
 				Str("envelope_id", env.ID).
@@ -131,14 +137,18 @@ func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler swar
 		}
 		return nil
 	}
-	if dlqErr := b.publishDLQ(ctx, env, err.Error(), false); dlqErr != nil {
+	if dlqErr := b.publishDLQ(settleCtx, env, err.Error(), false); dlqErr != nil {
 		return dlqErr
 	}
 	if err := msg.TermWithReason(err.Error()); err != nil {
 		return err
 	}
-	b.publishCommandEventBestEffort(ctx, swarm.SubjectEventCommandDeadLettered, env, "deadlettered", err.Error())
+	b.publishCommandEventBestEffort(settleCtx, swarm.SubjectEventCommandDeadLettered, env, "deadlettered", err.Error())
 	return nil
+}
+
+func settlementContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), commandSettlementTimeout)
 }
 
 func (b *Bus) publishCommandEventBestEffort(ctx context.Context, subject string, env swarm.Envelope, status string, reason string) {

@@ -288,6 +288,91 @@ func TestBus_CommandAckedEventFailureDoesNotRedeliverCompletedCommand(t *testing
 	}
 }
 
+func TestBus_CommandSuccessSettlesWithCanceledParent(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:     fxtest.NewLifecycle(t),
+		Config: baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm: swarm.Config{Enabled: true, Commands: swarm.CommandConfig{
+			AckWait:    "100ms",
+			FetchWait:  "50ms",
+			MaxDeliver: 2,
+		}},
+		WorkingDir: t.TempDir(),
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewCommandBus() error = %v", err)
+	}
+	bus := busRaw.(*Bus)
+	defer func() { _ = bus.Drain(context.Background()) }()
+
+	if _, err := bus.PublishCommand(context.Background(), commandTestEnvelope("settle-success-canceled")); err != nil {
+		t.Fatalf("PublishCommand() error = %v", err)
+	}
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+	handled := make(chan struct{}, 1)
+	done := make(chan error, 1)
+	var calls atomic.Int32
+	go func() {
+		done <- bus.RunCommandConsumer(runCtx, func(ctx context.Context, _ swarm.CommandMessage) error {
+			calls.Add(1)
+			cancelRun()
+			<-ctx.Done()
+			handled <- struct{}{}
+			return nil
+		})
+	}()
+
+	waitSignal(t, context.Background(), handled, "command handler")
+	assertCommandStreamDrained(t, bus)
+	waitConsumerCanceled(t, done)
+	time.Sleep(2 * bus.cfg.AckWait)
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("handler calls = %d, want 1", got)
+	}
+}
+
+func TestBus_CommandDLQSettlesWithCanceledParent(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:     fxtest.NewLifecycle(t),
+		Config: baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm: swarm.Config{Enabled: true, Commands: swarm.CommandConfig{
+			AckWait:    "100ms",
+			FetchWait:  "50ms",
+			MaxDeliver: 2,
+		}},
+		WorkingDir: t.TempDir(),
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewCommandBus() error = %v", err)
+	}
+	bus := busRaw.(*Bus)
+	defer func() { _ = bus.Drain(context.Background()) }()
+
+	if _, err := bus.PublishCommand(context.Background(), commandTestEnvelope("settle-dlq-canceled")); err != nil {
+		t.Fatalf("PublishCommand() error = %v", err)
+	}
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+	handled := make(chan struct{}, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- bus.RunCommandConsumer(runCtx, func(ctx context.Context, _ swarm.CommandMessage) error {
+			cancelRun()
+			<-ctx.Done()
+			handled <- struct{}{}
+			return swarm.PermanentError(errors.New("permanent failure"))
+		})
+	}()
+
+	waitSignal(t, context.Background(), handled, "command handler")
+	waitStreamMessages(t, bus, swarm.DefaultDLQStream, 1)
+	assertCommandStreamDrained(t, bus)
+	waitConsumerCanceled(t, done)
+}
+
 func TestBus_RunCommandConsumerHandlesCommandsConcurrently(t *testing.T) {
 	busRaw, err := NewCommandBus(Params{
 		LC:     fxtest.NewLifecycle(t),
@@ -632,5 +717,74 @@ func waitCommandStarted(t *testing.T, ctx context.Context, ch <-chan string) str
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for command handler start")
 		return ""
+	}
+}
+
+func waitSignal(t *testing.T, parent context.Context, ch <-chan struct{}, label string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	defer cancel()
+	select {
+	case <-ch:
+	case <-ctx.Done():
+		t.Fatalf("timed out waiting for %s", label)
+	}
+}
+
+func waitConsumerCanceled(t *testing.T, done <-chan error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("RunCommandConsumer() error = %v, want context canceled", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for command consumer shutdown")
+	}
+}
+
+func assertCommandStreamDrained(t *testing.T, bus *Bus) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for {
+		status, err := bus.streamStatus(context.Background(), swarm.DefaultCommandStream)
+		if err != nil {
+			t.Fatalf("command stream status: %v", err)
+		}
+		info, err := bus.consumer.Info(context.Background())
+		if err != nil {
+			t.Fatalf("command consumer info: %v", err)
+		}
+		if status.Messages == 0 && info.NumAckPending == 0 && info.NumPending == 0 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("command state = messages:%d ack_pending:%d pending:%d, want settled", status.Messages, info.NumAckPending, info.NumPending)
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+func waitStreamMessages(t *testing.T, bus *Bus, stream string, want uint64) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for {
+		status, err := bus.streamStatus(context.Background(), stream)
+		if err != nil {
+			t.Fatalf("%s stream status: %v", stream, err)
+		}
+		if status.Messages == want {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("%s stream messages = %d, want %d", stream, status.Messages, want)
+		case <-time.After(25 * time.Millisecond):
+		}
 	}
 }
