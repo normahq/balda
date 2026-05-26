@@ -48,17 +48,3 @@ func TestConfigNormalized_RejectsInvalidAgentConfig(t *testing.T) {
 		t.Fatal("Normalized() error = nil, want non-nil")
 	}
 }
-
-func TestConfigNormalized_RejectsInvalidQueuePolicy(t *testing.T) {
-	t.Parallel()
-
-	for _, cfg := range []Config{
-		{Queue: QueueConfig{DefaultMode: "invalid"}},
-		{Queue: QueueConfig{Drop: "invalid"}},
-		{Queue: QueueConfig{ByNamespace: map[string]string{NamespaceTaskControl: "invalid"}}},
-	} {
-		if _, err := cfg.Normalized(); err == nil {
-			t.Fatalf("Normalized(%+v) error = nil, want non-nil", cfg)
-		}
-	}
-}

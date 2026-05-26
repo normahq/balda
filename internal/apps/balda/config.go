@@ -87,7 +87,6 @@ type SwarmConfig struct {
 	Commands SwarmCommandConfig          `mapstructure:"commands"`
 	Events   SwarmEventConfig            `mapstructure:"events"`
 	DLQ      SwarmDLQConfig              `mapstructure:"dlq"`
-	Queue    SwarmQueueConfig            `mapstructure:"queue"`
 	Agents   map[string]SwarmAgentConfig `mapstructure:"agents"`
 }
 
@@ -107,15 +106,6 @@ type SwarmEventConfig struct {
 
 type SwarmDLQConfig struct {
 	Stream string `mapstructure:"stream"`
-}
-
-// SwarmQueueConfig is reserved for actor-lane policy; JetStream remains the command queue.
-type SwarmQueueConfig struct {
-	DefaultMode string         `mapstructure:"default_mode"`
-	DebounceMS  int            `mapstructure:"debounce_ms"`
-	Cap         int            `mapstructure:"cap"`
-	Drop        string         `mapstructure:"drop"`
-	ByNamespace map[string]any `mapstructure:"by_namespace"`
 }
 
 // SwarmAgentConfig configures a logical single-process swarm agent.

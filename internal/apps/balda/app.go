@@ -121,13 +121,6 @@ func Module(
 		},
 		Events: swarm.EventStreamConfig{Stream: strings.TrimSpace(cfg.Balda.Swarm.Events.Stream)},
 		DLQ:    swarm.DLQConfig{Stream: strings.TrimSpace(cfg.Balda.Swarm.DLQ.Stream)},
-		Queue: swarm.QueueConfig{
-			DefaultMode: strings.TrimSpace(cfg.Balda.Swarm.Queue.DefaultMode),
-			DebounceMS:  cfg.Balda.Swarm.Queue.DebounceMS,
-			Cap:         cfg.Balda.Swarm.Queue.Cap,
-			Drop:        strings.TrimSpace(cfg.Balda.Swarm.Queue.Drop),
-			ByNamespace: flattenStringMap(cfg.Balda.Swarm.Queue.ByNamespace),
-		},
 		Agents: buildSwarmAgentSpecs(cfg.Balda.Swarm.Agents),
 	}
 	swarmConfig, err = swarmConfig.Normalized()
@@ -600,40 +593,4 @@ func buildSwarmAgentSpecs(raw map[string]SwarmAgentConfig) map[string]swarm.Agen
 		}
 	}
 	return out
-}
-
-func flattenStringMap(raw map[string]any) map[string]string {
-	if len(raw) == 0 {
-		return nil
-	}
-	out := make(map[string]string)
-	flattenStringMapInto(out, "", raw)
-	return out
-}
-
-func flattenStringMapInto(out map[string]string, prefix string, raw map[string]any) {
-	for key, value := range raw {
-		trimmedKey := strings.Trim(strings.TrimSpace(key), ".")
-		if trimmedKey == "" {
-			continue
-		}
-		fullKey := trimmedKey
-		if prefix != "" {
-			fullKey = prefix + "." + trimmedKey
-		}
-		switch typed := value.(type) {
-		case string:
-			out[fullKey] = strings.TrimSpace(typed)
-		case map[string]any:
-			flattenStringMapInto(out, fullKey, typed)
-		case map[any]any:
-			converted := make(map[string]any, len(typed))
-			for nestedKey, nestedValue := range typed {
-				converted[fmt.Sprint(nestedKey)] = nestedValue
-			}
-			flattenStringMapInto(out, fullKey, converted)
-		default:
-			out[fullKey] = strings.TrimSpace(fmt.Sprint(typed))
-		}
-	}
 }

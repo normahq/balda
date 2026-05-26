@@ -401,7 +401,7 @@ session-start snapshot. New or restored sessions read the latest file.
 - `balda.swarm.commands.ack_wait`, `max_deliver`, `max_ack_pending`, `fetch_batch`, `fetch_wait`: pull-consumer and redelivery settings.
 - `balda.swarm.events.stream`: event stream name (default `BALDA_EVENTS`)
 - `balda.swarm.dlq.stream`: dead-letter stream name (default `BALDA_DLQ`)
-- `balda.swarm.queue.*`: reserved for future actor-lane policy; JetStream is the only command queue.
+- Actor-lane queue policy is not a public config surface yet; JetStream is the only command queue. SessionActor currently honors only the internal per-envelope `queue_mode=interrupt` control hint.
 - `balda.swarm.agents`: logical single-process swarm agents used by the allocator. Defaults are:
   - `planner`: plans work and splits it into subtasks.
   - `executor`: uses project tools and makes changes; advisory tools `workspace`, `shell`, `mcp`.
