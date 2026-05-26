@@ -26,6 +26,20 @@ func TestConfigNormalized_DefaultsToJetStreamRuntime(t *testing.T) {
 	}
 }
 
+func TestCommandConfigNormalized_ClampsFetchBatchToMaxAckPending(t *testing.T) {
+	t.Parallel()
+
+	got := (CommandConfig{MaxAckPending: 4, FetchBatch: 16}).Normalized()
+	if got.MaxAckPending != 4 || got.FetchBatch != 4 {
+		t.Fatalf("CommandConfig.Normalized() = %+v, want fetch_batch clamped to max_ack_pending", got)
+	}
+
+	got = (CommandConfig{FetchBatch: 128}).Normalized()
+	if got.MaxAckPending != 64 || got.FetchBatch != 64 {
+		t.Fatalf("CommandConfig.Normalized() = %+v, want fetch_batch clamped to default max_ack_pending", got)
+	}
+}
+
 func TestConfigNormalized_RejectsInvalidAgentConfig(t *testing.T) {
 	t.Parallel()
 

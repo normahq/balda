@@ -104,6 +104,9 @@ func (c CommandConfig) Normalized() CommandConfig {
 	if out.FetchBatch <= 0 {
 		out.FetchBatch = 16
 	}
+	if out.FetchBatch > out.MaxAckPending {
+		out.FetchBatch = out.MaxAckPending
+	}
 	if strings.TrimSpace(out.FetchWait) == "" {
 		out.FetchWait = "1s"
 	}
