@@ -3,6 +3,7 @@ package natsbus
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -558,6 +559,22 @@ func TestBus_EventProjectionPermanentFailurePublishesDLQ(t *testing.T) {
 			t.Fatalf("DLQ messages = %d, want 1", status.Messages)
 		case <-time.After(25 * time.Millisecond):
 		}
+	}
+}
+
+func TestBus_EnsureRuntimeRequiresJetStream(t *testing.T) {
+	cfg, err := resolveConfig(
+		baldaeventbus.Config{Embedded: true, JetStream: true},
+		swarm.Config{Enabled: true},
+		t.TempDir(),
+	)
+	if err != nil {
+		t.Fatalf("resolveConfig() error = %v", err)
+	}
+	bus := &Bus{cfg: cfg}
+	err = bus.ensureRuntime(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "jetstream is required") {
+		t.Fatalf("ensureRuntime() error = %v, want jetstream required", err)
 	}
 }
 
