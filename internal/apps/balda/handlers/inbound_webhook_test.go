@@ -10,12 +10,9 @@ import (
 	"testing"
 	"text/template"
 
-	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
-	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/rs/zerolog"
-	"google.golang.org/adk/runner"
 )
 
 func TestNormalizeInboundWebhookConfig_RequiresRoutesWhenEnabled(t *testing.T) {
@@ -470,25 +467,6 @@ func (f *fakeInboundTurnExecutor) submitSessionTurn(_ context.Context, payload s
 		Subject:  swarm.SubjectCommandSession,
 		MsgID:    payload.DedupeKey,
 	}, nil
-}
-
-func (f *fakeInboundTurnExecutor) runTurnTaskWithDelivery(
-	_ context.Context,
-	text string,
-	_ *runner.Runner,
-	_ string,
-	_ string,
-	_ string,
-	_ baldasession.SessionLocator,
-	_ int,
-	_ int,
-	_ baldachannel.ProgressPolicy,
-	deliver bool,
-) error {
-	f.calls++
-	f.prompt = text
-	f.deliver = deliver
-	return nil
 }
 
 func newInboundWebhookReceiverForTest(t *testing.T) *InboundWebhookReceiver {

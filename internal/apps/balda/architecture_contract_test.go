@@ -113,6 +113,9 @@ func TestJetStreamArchitectureContract_Static(t *testing.T) {
 		if !strings.Contains(webhookSource, "submitWebhookTask(") {
 			t.Fatal("webhook ingress must publish a task command instead of executing directly")
 		}
+		if strings.Contains(webhookSource, "runTurnTaskWithDelivery(") {
+			t.Fatal("webhook ingress must not expose direct turn execution hooks")
+		}
 
 		telegramSource := readSource(t, filepath.Join(root, "handlers/balda.go"))
 		if !strings.Contains(telegramSource, "h.enqueueTurn(") {

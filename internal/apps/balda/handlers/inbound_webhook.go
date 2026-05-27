@@ -24,7 +24,6 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
-	"google.golang.org/adk/runner"
 )
 
 const (
@@ -130,19 +129,6 @@ type inboundWebhookDedupePolicy struct {
 type inboundTurnExecutor interface {
 	submitWebhookTask(ctx context.Context, payload sessionTurnPayload, routeName string, requestID string) (*swarm.CommandPublishResult, string, error)
 	submitSessionTurn(ctx context.Context, payload sessionTurnPayload) (*swarm.CommandPublishResult, error)
-	runTurnTaskWithDelivery(
-		ctx context.Context,
-		text string,
-		r *runner.Runner,
-		userID string,
-		sessionID string,
-		agentSessionID string,
-		locator baldasession.SessionLocator,
-		messageID int,
-		topicID int,
-		progressPolicy baldachannel.ProgressPolicy,
-		deliver bool,
-	) error
 }
 
 type inboundWebhookParams struct {
