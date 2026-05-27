@@ -642,6 +642,27 @@ All commands use the common envelope schema:
 Deduplication policy for all command subjects: JetStream message ID uses
 `dedupe_key` when present, otherwise `id`.
 
+#### Event schema table
+
+All events are published as the same envelope shape. For event envelopes,
+`namespace=telemetry` is standard, `kind` is typically `command_event` or
+`task_event`, and `meta.event_type` carries the semantic type.
+
+| Subject | Semantic event type | Required envelope fields | Required payload fields | Producer |
+|---|---|---|---|---|
+| `balda.v1.evt.command.accepted` | `command.accepted` | `id`, `task_id` (when task-scoped), `namespace`, `kind=command_event` | `envelope_id`, `status=accepted`, `namespace` | command publish path |
+| `balda.v1.evt.command.running` | `command.running` | same as above | `envelope_id`, `status=running` | command consumer before actor dispatch |
+| `balda.v1.evt.command.in_progress` | `command.in_progress` | same as above | `envelope_id`, `status=in_progress` | runtime heartbeat during long work |
+| `balda.v1.evt.command.acked` | `command.acked` | same as above | `envelope_id`, `status=acked` | command consumer after successful ack |
+| `balda.v1.evt.command.retrying` | `command.retrying` | same as above | `envelope_id`, `status=retrying`, `reason` | command consumer on retryable failure |
+| `balda.v1.evt.command.deadlettered` | `command.deadlettered` | same as above | `envelope_id`, `status=deadlettered`, `reason` | command consumer/DLQ publisher |
+| `balda.v1.evt.command.noop` | `command.noop` | same as above | `envelope_id`, `status=noop`, `reason` | command publish dedupe path |
+| `balda.v1.evt.command.decode_failed` | `command.decode_failed` | `id`, `namespace`, `kind=decode_failed` | `subject`, `reason`, `payload` | command consumer poison-message path |
+| `balda.v1.evt.task.created` | `task.created` | `id`, `task_id`, `namespace`, `kind=task_event` | task lifecycle details | TaskActor/TaskService |
+| `balda.v1.evt.task.updated` | `task.updated` | `id`, `task_id`, `namespace`, `kind=task_event` | task lifecycle details | TaskActor/TaskService |
+| `balda.v1.evt.task.completed` | `task.completed` | `id`, `task_id`, `namespace`, `kind=task_event` | terminal task outcome details | TaskActor/TaskService |
+| `balda.v1.evt.delivery.sent` | `delivery.sent` | `id`, `task_id` (when task-scoped), `namespace`, `kind=task_event` | delivery metadata (`delivery_key`, channel/provider ids when available) | DeliveryActor |
+
 - NATS identity is carried in headers: `Balda-Envelope-ID`,
   `Balda-Session-ID`, `Balda-Task-ID`, `Balda-Correlation-ID`,
   `Balda-Causation-ID`, `Balda-Dedupe-Key`, `Balda-Actor-Key`,
