@@ -150,6 +150,16 @@ func TestJetStreamArchitectureContract_Static(t *testing.T) {
 			t.Fatal("command bus readiness checks must run before transport lifecycle can continue")
 		}
 	})
+
+	t.Run("swarm actor packages do not import ingress handlers", func(t *testing.T) {
+		swarmDir := filepath.Join(root, "swarm")
+		swarmFiles := productionGoFiles(t, swarmDir)
+		handlerImportPattern := regexp.MustCompile(`github\.com/normahq/balda/internal/apps/balda/handlers`)
+		matches := findSourceMatches(t, swarmDir, swarmFiles, handlerImportPattern)
+		if len(matches) > 0 {
+			t.Fatalf("swarm actor/runtime packages must not import ingress handlers:\n%s", formatSourceMatches(matches))
+		}
+	})
 }
 
 type sourceMatch struct {
