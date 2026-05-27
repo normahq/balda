@@ -133,6 +133,7 @@ func TestCommandHandlerSwarmQueueAndMailboxStatusCommands(t *testing.T) {
 	assertLastSentNotContains(t, tgClient, "shadow_mode")
 	assertLastSentNotContains(t, tgClient, "legacy_direct_path")
 	assertLastSentContains(t, tgClient, "planner")
+	assertLastSentContains(t, tgClient, "shell_policy=workspace_write")
 	assertLastSentContains(t, tgClient, "state_source_of_truth: sqlite")
 	assertLastSentContains(t, tgClient, "event_publishing_mode: best_effort_visibility")
 	assertLastSentContains(t, tgClient, "created: 1")
@@ -170,6 +171,7 @@ func TestCommandHandlerSwarmQueueAndMailboxStatusCommands(t *testing.T) {
 	}
 	assertLastSentContains(t, tgClient, "Actors status")
 	assertLastSentContains(t, tgClient, "planner")
+	assertLastSentContains(t, tgClient, "shell_policy=read_only")
 }
 
 func TestCommandHandlerSwarmStatusShowsDisabledModeContract(t *testing.T) {

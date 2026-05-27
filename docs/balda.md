@@ -430,6 +430,13 @@ session-start snapshot. New or restored sessions read the latest file.
   - `reviewer`: validates results and inspects risks; advisory tools `workspace`, `shell`.
   - `memory`: extracts durable facts and summaries; advisory tool `memory`.
   Tools are routing/prompt hints only; optional `cost_penalty` lowers allocator preference for expensive roles. All logical agents still use the configured Balda provider runtime in the first release.
+  Shell/tool execution policy contract:
+  - `planner`: `shell_policy=none`
+  - `executor`: `shell_policy=workspace_write`
+  - `reviewer`: `shell_policy=read_only`
+  - `memory`: `shell_policy=none`
+  - custom agents derive shell policy from tools: `shell+workspace -> workspace_write`, `shell only -> read_only`, no shell -> `none`.
+  - `/actors status` and `/swarm status` expose each configured actor role with `shell_policy=...`.
 - internal durable memory uses `${balda.state_dir}/MEMORY.md` when `balda.memory.enabled=true`
   - `/memory` reads the current file in owner/collaborator direct messages.
   - `balda.memory.read` reads the file from MCP.

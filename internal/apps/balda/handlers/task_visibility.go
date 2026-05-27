@@ -251,6 +251,9 @@ func (h *CommandHandler) onActorsCommand(ctx context.Context, commandCtx baldate
 			out.WriteString(strings.Join(agent.Tools, ", "))
 			out.WriteString("]")
 		}
+		out.WriteString(" {shell_policy=")
+		out.WriteString(agent.ShellExecutionPolicy())
+		out.WriteString("}")
 	}
 	return h.channel.SendAgentReply(ctx, commandCtx.Locator, out.String())
 }
@@ -331,6 +334,9 @@ func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) 
 				out.WriteString(strings.Join(agent.Tools, ", "))
 				out.WriteString("]")
 			}
+			out.WriteString(" {shell_policy=")
+			out.WriteString(agent.ShellExecutionPolicy())
+			out.WriteString("}")
 		}
 	}
 

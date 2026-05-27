@@ -63,6 +63,65 @@ func TestAgentAllocator_SelectsRoleAndTieBreaksByName(t *testing.T) {
 	}
 }
 
+func TestAgentSpecShellExecutionPolicy_DefaultRoles(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		spec AgentSpec
+		want string
+	}{
+		{name: "planner", spec: AgentSpec{Name: AgentNamePlanner}, want: AgentShellPolicyNone},
+		{name: "executor", spec: AgentSpec{Name: AgentNameExecutor}, want: AgentShellPolicyWorkspaceWrite},
+		{name: "reviewer", spec: AgentSpec{Name: AgentNameReviewer}, want: AgentShellPolicyReadOnly},
+		{name: "memory", spec: AgentSpec{Name: AgentNameMemory}, want: AgentShellPolicyNone},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.spec.ShellExecutionPolicy(); got != tc.want {
+				t.Fatalf("ShellExecutionPolicy() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAgentSpecShellExecutionPolicy_CustomByTools(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		spec AgentSpec
+		want string
+	}{
+		{
+			name: "workspace and shell",
+			spec: AgentSpec{Name: "custom", Tools: []string{AgentToolWorkspace, AgentToolShell}},
+			want: AgentShellPolicyWorkspaceWrite,
+		},
+		{
+			name: "shell only",
+			spec: AgentSpec{Name: "custom", Tools: []string{AgentToolShell}},
+			want: AgentShellPolicyReadOnly,
+		},
+		{
+			name: "no shell",
+			spec: AgentSpec{Name: "custom", Tools: []string{AgentToolWorkspace}},
+			want: AgentShellPolicyNone,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.spec.ShellExecutionPolicy(); got != tc.want {
+				t.Fatalf("ShellExecutionPolicy() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func specsByName(specs []AgentSpec) map[string]AgentSpec {
 	out := make(map[string]AgentSpec, len(specs))
 	for _, spec := range specs {

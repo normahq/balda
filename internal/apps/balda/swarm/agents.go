@@ -17,6 +17,10 @@ const (
 	AgentToolShell     = "shell"
 	AgentToolMCP       = "mcp"
 	AgentToolMemory    = "memory"
+
+	AgentShellPolicyNone           = "none"
+	AgentShellPolicyReadOnly       = "read_only"
+	AgentShellPolicyWorkspaceWrite = "workspace_write"
 )
 
 var supportedAgentTools = map[string]struct{}{
@@ -33,6 +37,36 @@ type AgentSpec struct {
 	Role        string
 	Tools       []string
 	CostPenalty int
+}
+
+// ShellExecutionPolicy returns the actor shell policy derived from role defaults
+// and, for custom agents, from requested tool capabilities.
+func (s AgentSpec) ShellExecutionPolicy() string {
+	switch NormalizeAgentName(s.Name) {
+	case AgentNamePlanner, AgentNameMemory:
+		return AgentShellPolicyNone
+	case AgentNameReviewer:
+		return AgentShellPolicyReadOnly
+	case AgentNameExecutor:
+		return AgentShellPolicyWorkspaceWrite
+	}
+	hasShell := false
+	hasWorkspace := false
+	for _, tool := range s.Tools {
+		switch NormalizeAgentName(tool) {
+		case AgentToolShell:
+			hasShell = true
+		case AgentToolWorkspace:
+			hasWorkspace = true
+		}
+	}
+	if !hasShell {
+		return AgentShellPolicyNone
+	}
+	if hasWorkspace {
+		return AgentShellPolicyWorkspaceWrite
+	}
+	return AgentShellPolicyReadOnly
 }
 
 type AgentRegistry struct {
