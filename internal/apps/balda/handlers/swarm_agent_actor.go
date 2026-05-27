@@ -100,6 +100,12 @@ func (a *taskAgentActor) Handle(ctx context.Context, env swarm.Envelope) error {
 	if err != nil {
 		return swarm.TransientError(err)
 	}
+	if strings.TrimSpace(payload.BranchName) == "" {
+		payload.BranchName = strings.TrimSpace(ts.GetBranchName())
+	}
+	if strings.TrimSpace(payload.WorkspaceDir) == "" {
+		payload.WorkspaceDir = strings.TrimSpace(ts.GetWorkspaceDir())
+	}
 	payload.ADKSessionID = taskAgentADKSessionID(ts.GetAgentSessionID(), payload)
 	if a.runtimeBuilder == nil {
 		return swarm.TransientError(fmt.Errorf("task agent runtime builder is required"))
@@ -273,6 +279,8 @@ func marshalTaskAgentResult(command taskAgentCommandPayload, text string, runErr
 		AgentName:        command.AgentName,
 		Role:             command.Role,
 		ADKSessionID:     command.ADKSessionID,
+		BranchName:       command.BranchName,
+		WorkspaceDir:     command.WorkspaceDir,
 		RequestedTools:   append([]string(nil), command.RequestedTools...),
 		Iteration:        command.Iteration,
 		Locator:          command.Locator,

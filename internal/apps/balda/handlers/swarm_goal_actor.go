@@ -59,6 +59,8 @@ type taskAgentCommandPayload struct {
 	AgentName        string                      `json:"agent_name,omitempty"`
 	Role             string                      `json:"role"`
 	ADKSessionID     string                      `json:"adk_session_id,omitempty"`
+	BranchName       string                      `json:"branch_name,omitempty"`
+	WorkspaceDir     string                      `json:"workspace_dir,omitempty"`
 	RequestedTools   []string                    `json:"requested_tools,omitempty"`
 	Iteration        int                         `json:"iteration"`
 	Locator          baldasession.SessionLocator `json:"locator"`
@@ -76,6 +78,8 @@ type taskAgentResultPayload struct {
 	AgentName        string                      `json:"agent_name,omitempty"`
 	Role             string                      `json:"role"`
 	ADKSessionID     string                      `json:"adk_session_id,omitempty"`
+	BranchName       string                      `json:"branch_name,omitempty"`
+	WorkspaceDir     string                      `json:"workspace_dir,omitempty"`
 	RequestedTools   []string                    `json:"requested_tools,omitempty"`
 	Iteration        int                         `json:"iteration"`
 	Locator          baldasession.SessionLocator `json:"locator"`

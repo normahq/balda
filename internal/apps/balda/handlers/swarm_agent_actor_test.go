@@ -339,6 +339,12 @@ func TestTaskAgentActorHandleUsesDerivedADKSessionID(t *testing.T) {
 	if strings.TrimSpace(resultPayload.AgentResult.ADKSessionID) != runtimeBuilder.cfgs[0].SessionID {
 		t.Fatalf("result adk_session_id = %q, want %q", resultPayload.AgentResult.ADKSessionID, runtimeBuilder.cfgs[0].SessionID)
 	}
+	if strings.TrimSpace(resultPayload.AgentResult.BranchName) != strings.TrimSpace(runtimeBuilder.cfgs[0].BranchName) {
+		t.Fatalf("result branch_name = %q, want %q", resultPayload.AgentResult.BranchName, runtimeBuilder.cfgs[0].BranchName)
+	}
+	if strings.TrimSpace(resultPayload.AgentResult.WorkspaceDir) != strings.TrimSpace(runtimeBuilder.cfgs[0].WorkspaceDir) {
+		t.Fatalf("result workspace_dir = %q, want %q", resultPayload.AgentResult.WorkspaceDir, runtimeBuilder.cfgs[0].WorkspaceDir)
+	}
 }
 
 func TestTaskAgentActorHandleRuntimeBootstrapFailureDoesNotReserveRunningStep(t *testing.T) {
