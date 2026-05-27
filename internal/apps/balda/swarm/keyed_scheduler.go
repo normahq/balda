@@ -92,10 +92,16 @@ func actorKey(env Envelope) string {
 		switch namespace {
 		case NamespaceTaskControl,
 			NamespaceAgentCommand,
-			NamespaceAgentResult,
 			NamespaceHumanInbound,
 			NamespaceWebhookInbound,
 			NamespaceScheduleInbound:
+			return "task:" + taskID
+		case NamespaceAgentResult:
+			if strings.EqualFold(strings.TrimSpace(env.To.Target), ActorTypeDelivery) {
+				if address := strings.TrimSpace(env.To.Key); address != "" {
+					return "delivery:" + address
+				}
+			}
 			return "task:" + taskID
 		}
 	}
