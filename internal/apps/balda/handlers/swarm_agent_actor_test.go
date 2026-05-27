@@ -390,6 +390,49 @@ func TestTaskAgentActorHandleRejectsRoleToolPolicyBeforeRuntime(t *testing.T) {
 	}
 }
 
+func TestTaskAgentActorHandlePrefersCommandWorkspaceMetadata(t *testing.T) {
+	ctx := context.Background()
+	provider, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	_ = provider
+	_ = bus
+	_ = allocator
+	manager := newBaldaRestoreSessionManager(
+		t,
+		&fakeBaldaRestoreAgentBuilder{},
+		&fakeBaldaRestoreRuntimeManager{providerID: "balda-provider"},
+		&fakeBaldaRestoreSessionStore{},
+	)
+	payload, env := taskAgentCommandForTest(t, "task-workspace-metadata", taskAgentRoleExecutor, 1)
+	payload.BranchName = "norma/balda/custom-branch"
+	payload.WorkspaceDir = "/tmp/custom-workspace"
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("json.Marshal(payload) error = %v", err)
+	}
+	env.PayloadJSON = string(data)
+
+	runtimeBuilder := &recordingTaskAgentRuntimeBuilder{t: t}
+	actor := &taskAgentActor{
+		sessions:       manager,
+		runtimeBuilder: runtimeBuilder,
+		coordinator:    coordinator,
+		tasks:          tasks,
+	}
+
+	if err := actor.Handle(ctx, env); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if len(runtimeBuilder.cfgs) != 1 {
+		t.Fatalf("BuildTaskAgentRuntime() calls = %d, want 1", len(runtimeBuilder.cfgs))
+	}
+	if runtimeBuilder.cfgs[0].BranchName != payload.BranchName {
+		t.Fatalf("runtime branch_name = %q, want %q", runtimeBuilder.cfgs[0].BranchName, payload.BranchName)
+	}
+	if runtimeBuilder.cfgs[0].WorkspaceDir != payload.WorkspaceDir {
+		t.Fatalf("runtime workspace_dir = %q, want %q", runtimeBuilder.cfgs[0].WorkspaceDir, payload.WorkspaceDir)
+	}
+}
+
 func TestTaskAgentActorHandleRuntimeBootstrapFailureDoesNotReserveRunningStep(t *testing.T) {
 	ctx := context.Background()
 	_, bus, coordinator, tasks, _ := newTaskActorSwarmServices(t, ctx)

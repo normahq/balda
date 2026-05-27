@@ -87,8 +87,14 @@ func TestTaskActorAgentPublishFailureKeepsTaskAwaitingAgentRetry(t *testing.T) {
 func TestTaskActorPlannerResultStoresPlanAndDispatchesExecutor(t *testing.T) {
 	ctx := context.Background()
 	_, bus, coordinator, tasks, allocator := newTaskActorSwarmServices(t, ctx)
-	exec := &taskActorExecutor{tasks: tasks, coordinator: coordinator, agents: allocator, maxIters: 3}
 	locator := taskActorTestLocator()
+	ts := newBaldaTopicSession(t, locator.SessionID)
+	wantBranch := "norma/balda/" + locator.SessionID
+	wantWorkspace := "/tmp/balda-workspaces/" + locator.SessionID
+	setUnexportedField(t, ts, "branchName", wantBranch)
+	setUnexportedField(t, ts, "workspaceDir", wantWorkspace)
+	manager := newBaldaSessionManagerWithSession(t, locator, ts)
+	exec := &taskActorExecutor{tasks: tasks, coordinator: coordinator, agents: allocator, sessions: manager, maxIters: 3}
 	env, goal := taskActorGoalEnvelope(t, locator, "fix failing tests", 3)
 	if err := exec.startGoalTask(ctx, env, goal); err != nil {
 		t.Fatalf("startGoalTask() error = %v", err)
@@ -122,6 +128,12 @@ func TestTaskActorPlannerResultStoresPlanAndDispatchesExecutor(t *testing.T) {
 	}
 	if command.Role != taskAgentRoleExecutor || command.Plan != plannerText || command.PlannerOutput != plannerText {
 		t.Fatalf("executor command = %+v, want executor with planner text", command)
+	}
+	if command.BranchName != wantBranch {
+		t.Fatalf("executor branch_name = %q, want %q", command.BranchName, wantBranch)
+	}
+	if command.WorkspaceDir != wantWorkspace {
+		t.Fatalf("executor workspace_dir = %q, want %q", command.WorkspaceDir, wantWorkspace)
 	}
 
 	task, ok, err := tasks.Get(ctx, goal.TaskID)

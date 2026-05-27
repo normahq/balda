@@ -114,6 +114,8 @@ func (a *taskAgentActor) Handle(ctx context.Context, env swarm.Envelope) error {
 	if strings.TrimSpace(payload.WorkspaceDir) == "" {
 		payload.WorkspaceDir = strings.TrimSpace(ts.GetWorkspaceDir())
 	}
+	branchName := firstNonEmpty(payload.BranchName, ts.GetBranchName())
+	workspaceDir := firstNonEmpty(payload.WorkspaceDir, ts.GetWorkspaceDir())
 	payload.ADKSessionID = taskAgentADKSessionID(ts.GetAgentSessionID(), payload)
 	if a.runtimeBuilder == nil {
 		return swarm.TransientError(fmt.Errorf("task agent runtime builder is required"))
@@ -121,8 +123,8 @@ func (a *taskAgentActor) Handle(ctx context.Context, env swarm.Envelope) error {
 	runtime, err := a.runtimeBuilder.BuildTaskAgentRuntime(ctx, baldaagent.TaskAgentRuntimeConfig{
 		SessionID:    payload.ADKSessionID,
 		UserID:       ts.GetUserID(),
-		BranchName:   ts.GetBranchName(),
-		WorkspaceDir: ts.GetWorkspaceDir(),
+		BranchName:   branchName,
+		WorkspaceDir: workspaceDir,
 		Role:         payload.Role,
 	})
 	if err != nil {
