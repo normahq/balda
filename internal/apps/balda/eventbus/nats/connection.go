@@ -99,7 +99,7 @@ func (b *Bus) PublishCommand(ctx context.Context, env swarm.Envelope) (*swarm.Co
 		return nil, fmt.Errorf("publish jetstream command %q: %w", subject, err)
 	}
 	result := &swarm.CommandPublishResult{Stream: ack.Stream, Sequence: ack.Sequence, Subject: subject, MsgID: msgID, Duplicate: ack.Duplicate}
-	b.logger.Debug().
+	logEvt := b.logger.Debug().
 		Str("subject", subject).
 		Str("envelope_id", strings.TrimSpace(env.ID)).
 		Str("task_id", strings.TrimSpace(env.TaskID)).
@@ -110,31 +110,31 @@ func (b *Bus) PublishCommand(ctx context.Context, env swarm.Envelope) (*swarm.Co
 		Str("stream", ack.Stream).
 		Uint64("sequence", ack.Sequence).
 		Str("msg_id", msgID).
-		Bool("duplicate", ack.Duplicate).
-		Msg("published command to jetstream")
+		Bool("duplicate", ack.Duplicate)
+	withDeliveryKey(logEvt, env).Msg("published command to jetstream")
 	if err := b.PublishEvent(ctx, swarm.SubjectEventCommandAccepted, commandEventEnvelope(env, result, "accepted", "")); err != nil {
-		b.logger.Warn().
+		logEvt := b.logger.Warn().
 			Err(err).
 			Str("envelope_id", env.ID).
 			Str("task_id", strings.TrimSpace(env.TaskID)).
 			Str("session_id", strings.TrimSpace(env.SessionID)).
 			Str("correlation_id", strings.TrimSpace(env.CorrelationID)).
 			Str("causation_id", strings.TrimSpace(env.CausationID)).
-			Str("subject", subject).
-			Msg("failed to publish command accepted event")
+			Str("subject", subject)
+		withDeliveryKey(logEvt, env).Msg("failed to publish command accepted event")
 	}
 	if ack.Duplicate {
 		const noopReason = "duplicate publish suppressed"
 		if err := b.PublishEvent(ctx, swarm.SubjectEventCommandNoop, commandEventEnvelope(env, result, "noop", noopReason)); err != nil {
-			b.logger.Warn().
+			logEvt := b.logger.Warn().
 				Err(err).
 				Str("envelope_id", env.ID).
 				Str("task_id", strings.TrimSpace(env.TaskID)).
 				Str("session_id", strings.TrimSpace(env.SessionID)).
 				Str("correlation_id", strings.TrimSpace(env.CorrelationID)).
 				Str("causation_id", strings.TrimSpace(env.CausationID)).
-				Str("subject", subject).
-				Msg("failed to publish command noop event")
+				Str("subject", subject)
+			withDeliveryKey(logEvt, env).Msg("failed to publish command noop event")
 		}
 	}
 	return result, nil
@@ -204,14 +204,14 @@ func (b *Bus) publishDLQ(ctx context.Context, env swarm.Envelope, reason string,
 	}
 	if emitEvent {
 		if err := b.PublishEvent(ctx, swarm.SubjectEventCommandDeadLettered, commandEventEnvelope(env, nil, "deadlettered", reason)); err != nil {
-			b.logger.Warn().
+			logEvt := b.logger.Warn().
 				Err(err).
 				Str("envelope_id", env.ID).
 				Str("task_id", strings.TrimSpace(env.TaskID)).
 				Str("session_id", strings.TrimSpace(env.SessionID)).
 				Str("correlation_id", strings.TrimSpace(env.CorrelationID)).
-				Str("causation_id", strings.TrimSpace(env.CausationID)).
-				Msg("failed to publish command deadlettered event")
+				Str("causation_id", strings.TrimSpace(env.CausationID))
+			withDeliveryKey(logEvt, env).Msg("failed to publish command deadlettered event")
 		}
 	}
 	return nil

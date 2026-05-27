@@ -443,7 +443,7 @@ func commandLogEvent(evt *zerolog.Event, msg jetstream.Msg) *zerolog.Event {
 
 func commandLogEnvelope(evt *zerolog.Event, env swarm.Envelope) *zerolog.Event {
 	to, _ := env.To.String()
-	return evt.
+	evt = evt.
 		Str("envelope_id", strings.TrimSpace(env.ID)).
 		Str("namespace", strings.TrimSpace(env.Namespace)).
 		Str("task_id", strings.TrimSpace(env.TaskID)).
@@ -452,4 +452,5 @@ func commandLogEnvelope(evt *zerolog.Event, env swarm.Envelope) *zerolog.Event {
 		Str("causation_id", strings.TrimSpace(env.CausationID)).
 		Str("actor_key", strings.TrimSpace(env.To.Key)).
 		Str("to", strings.TrimSpace(to))
+	return withDeliveryKey(evt, env)
 }
