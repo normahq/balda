@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
+	"time"
 
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
@@ -204,6 +206,14 @@ func TestCommandHandlerSwarmQueueAndMailboxStatusCommands(t *testing.T) {
 	assertLastSentContains(t, tgClient, "DLQ status")
 	assertLastSentContains(t, tgClient, "stream: BALDA_DLQ")
 
+	if err := handler.onCommand(ctx, newCommandEvent("dlq", "7", 101, 9001, nil)); err != nil {
+		t.Fatalf("/dlq <id> error = %v", err)
+	}
+	assertLastSentContains(t, tgClient, "DLQ entry")
+	assertLastSentContains(t, tgClient, "sequence: 7")
+	assertLastSentContains(t, tgClient, "envelope_id: dlq-entry-7")
+	assertLastSentContains(t, tgClient, "reason: token=[REDACTED]")
+
 	if err := handler.onCommand(ctx, newCommandEvent("projection", "status", 101, 9001, nil)); err != nil {
 		t.Fatalf("/projection status error = %v", err)
 	}
@@ -234,6 +244,27 @@ func TestCommandHandlerSwarmStatusShowsDisabledModeContract(t *testing.T) {
 	assertLastSentContains(t, tgClient, "runtime enabled: false")
 	assertLastSentContains(t, tgClient, "command_bus: unavailable")
 	assertLastSentContains(t, tgClient, "disabled_mode_contract: runtime_unavailable_no_fallback")
+}
+
+func TestCommandHandlerDLQEntryUsageAndNotFound(t *testing.T) {
+	ctx := context.Background()
+	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
+	_, bus, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
+	handler.swarmConfig = swarm.Config{Enabled: true}
+	handler.swarmCoordinator = coordinator
+	handler.commandBus = bus
+	handler.tasks = tasks
+	handler.agentRegistry = registry
+
+	if err := handler.onCommand(ctx, newCommandEvent("dlq", "abc", 101, 9001, nil)); err != nil {
+		t.Fatalf("/dlq usage error = %v", err)
+	}
+	assertLastSentContains(t, tgClient, "Usage: /dlq <stream_seq>")
+
+	if err := handler.onCommand(ctx, newCommandEvent("dlq", "999", 101, 9001, nil)); err != nil {
+		t.Fatalf("/dlq not found error = %v", err)
+	}
+	assertLastSentContains(t, tgClient, "DLQ entry 999 not found.")
 }
 
 func newTaskVisibilitySwarmServices(t *testing.T, ctx context.Context) (baldastate.Provider, *statusCommandBus, *swarm.Coordinator, *swarm.TaskService, *swarm.AgentRegistry) {
@@ -282,6 +313,28 @@ func (*statusCommandBus) Status(context.Context) (swarm.CommandBusStatus, error)
 		Worker:     swarm.ConsumerStatus{Name: swarm.DefaultCommandConsumer},
 		ProjectionLag: map[string]uint64{
 			swarm.DefaultEventProjectorConsumer: 2,
+		},
+	}, nil
+}
+
+func (*statusCommandBus) GetDLQEntry(_ context.Context, sequence uint64) (swarm.DLQEntry, error) {
+	if sequence != 7 {
+		return swarm.DLQEntry{}, fmt.Errorf("%w: sequence=%d", swarm.ErrDLQEntryNotFound, sequence)
+	}
+	return swarm.DLQEntry{
+		Stream:      swarm.DefaultDLQStream,
+		Sequence:    7,
+		Subject:     swarm.SubjectDLQCommand,
+		PublishedAt: time.Date(2026, time.May, 27, 10, 0, 0, 0, time.UTC),
+		Reason:      "token=secret",
+		Envelope: swarm.Envelope{
+			ID:            "dlq-entry-7",
+			Namespace:     swarm.NamespaceTaskControl,
+			Kind:          "cancel_task",
+			TaskID:        "task-active",
+			SessionID:     "tg-9001-0",
+			CorrelationID: "corr-7",
+			CausationID:   "cause-7",
 		},
 	}, nil
 }

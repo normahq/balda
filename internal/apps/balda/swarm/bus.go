@@ -10,6 +10,9 @@ import (
 // ErrCommandQueueFull means the durable command stream rejected new work due to pressure.
 var ErrCommandQueueFull = errors.New("command queue is full")
 
+// ErrDLQEntryNotFound means a DLQ sequence does not exist in the stream.
+var ErrDLQEntryNotFound = errors.New("dlq entry not found")
+
 const (
 	// CommandLifecycleEventPublishingMode documents that command lifecycle events are visibility telemetry.
 	CommandLifecycleEventPublishingMode = "best_effort_visibility"
@@ -127,6 +130,21 @@ type ConsumerStatus struct {
 // CommandBusStatusProvider is implemented by buses that can report runtime status.
 type CommandBusStatusProvider interface {
 	Status(ctx context.Context) (CommandBusStatus, error)
+}
+
+// DLQEntry describes a terminal command message stored in BALDA_DLQ.
+type DLQEntry struct {
+	Stream      string
+	Sequence    uint64
+	Subject     string
+	PublishedAt time.Time
+	Reason      string
+	Envelope    Envelope
+}
+
+// DLQInspector provides targeted inspection for /dlq <id>.
+type DLQInspector interface {
+	GetDLQEntry(ctx context.Context, sequence uint64) (DLQEntry, error)
 }
 
 // UnsupportedCommandBus is installed when the swarm runtime is disabled.

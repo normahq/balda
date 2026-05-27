@@ -889,6 +889,61 @@ func TestBus_PublishDLQIncludesOriginalEnvelopeAndReason(t *testing.T) {
 	}
 }
 
+func TestBus_GetDLQEntryBySequence(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:         fxtest.NewLifecycle(t),
+		Config:     baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm:      swarm.Config{Enabled: true},
+		WorkingDir: t.TempDir(),
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewCommandBus() error = %v", err)
+	}
+	bus := busRaw.(*Bus)
+	defer func() { _ = bus.Drain(context.Background()) }()
+
+	env := commandTestEnvelope("dlq-entry-inspect")
+	reason := "token=secret"
+	if err := bus.PublishDLQ(context.Background(), env, reason); err != nil {
+		t.Fatalf("PublishDLQ() error = %v", err)
+	}
+
+	entry, err := bus.GetDLQEntry(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("GetDLQEntry() error = %v", err)
+	}
+	if entry.Stream != swarm.DefaultDLQStream || entry.Sequence != 1 || entry.Subject != swarm.SubjectDLQCommand {
+		t.Fatalf("DLQ entry identity = %+v", entry)
+	}
+	if entry.Reason != reason {
+		t.Fatalf("DLQ entry reason = %q, want %q", entry.Reason, reason)
+	}
+	if entry.Envelope.ID != env.ID || entry.Envelope.Namespace != env.Namespace || entry.Envelope.Kind != env.Kind {
+		t.Fatalf("DLQ entry envelope = %+v, want original envelope identity", entry.Envelope)
+	}
+}
+
+func TestBus_GetDLQEntryReturnsNotFound(t *testing.T) {
+	busRaw, err := NewCommandBus(Params{
+		LC:         fxtest.NewLifecycle(t),
+		Config:     baldaeventbus.Config{Embedded: true, JetStream: true},
+		Swarm:      swarm.Config{Enabled: true},
+		WorkingDir: t.TempDir(),
+		Logger:     zerolog.Nop(),
+	})
+	if err != nil {
+		t.Fatalf("NewCommandBus() error = %v", err)
+	}
+	bus := busRaw.(*Bus)
+	defer func() { _ = bus.Drain(context.Background()) }()
+
+	_, err = bus.GetDLQEntry(context.Background(), 99)
+	if !errors.Is(err, swarm.ErrDLQEntryNotFound) {
+		t.Fatalf("GetDLQEntry(not-found) error = %v, want ErrDLQEntryNotFound", err)
+	}
+}
+
 func TestBus_EventProjectionPermanentFailurePublishesDLQ(t *testing.T) {
 	busRaw, err := NewCommandBus(Params{
 		LC:         fxtest.NewLifecycle(t),

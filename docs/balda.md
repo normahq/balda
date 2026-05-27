@@ -567,6 +567,8 @@ Balda runs with a single provider per process (`balda.provider`).
 - `/queue status` (owner/collaborator): preferred JetStream queue/runtime status command.
 - `/mailbox status` (owner/collaborator): compatibility alias for `/queue status`.
 - `/dlq` (owner/collaborator): shows JetStream DLQ stream backlog summary.
+- `/dlq <stream_seq>` (owner/collaborator): inspects a single `BALDA_DLQ`
+  message by stream sequence.
 - `/projection status` (owner/collaborator): shows event-projector lag and projection health summary.
 - `/actors status` (owner/collaborator): shows configured logical agent roles/toolsets.
 - `/close` (DM only, owner/collaborator): resets current session history, then in the owner DM `topic_id=0` stops the owner session; in topic contexts, closes that topic.

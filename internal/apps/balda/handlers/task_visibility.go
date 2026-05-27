@@ -3,8 +3,10 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -165,11 +167,61 @@ func (h *CommandHandler) onDLQCommand(ctx context.Context, commandCtx baldateleg
 	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
 		return h.channel.SendPlain(ctx, commandCtx.Locator, "Only the bot owner or collaborators can use this command.")
 	}
-	if strings.TrimSpace(commandCtx.Args) != "" {
-		return h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /dlq")
-	}
+	args := strings.TrimSpace(commandCtx.Args)
 	if h.commandBus == nil {
 		return h.channel.SendPlain(ctx, commandCtx.Locator, "DLQ visibility is unavailable right now.")
+	}
+	if args != "" {
+		inspector, ok := h.commandBus.(swarm.DLQInspector)
+		if !ok {
+			return h.channel.SendPlain(ctx, commandCtx.Locator, "DLQ entry inspection is unavailable right now.")
+		}
+		seq, err := strconv.ParseUint(args, 10, 64)
+		if err != nil || seq == 0 {
+			return h.channel.SendPlain(ctx, commandCtx.Locator, "Usage: /dlq <stream_seq>")
+		}
+		entry, err := inspector.GetDLQEntry(ctx, seq)
+		if err != nil {
+			if errors.Is(err, swarm.ErrDLQEntryNotFound) {
+				return h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("DLQ entry %d not found.", seq))
+			}
+			return h.channel.SendPlain(ctx, commandCtx.Locator, fmt.Sprintf("Failed to read DLQ entry %d: %v", seq, err))
+		}
+		var out strings.Builder
+		out.WriteString("DLQ entry")
+		out.WriteString("\n- stream: ")
+		out.WriteString(firstNonEmpty(strings.TrimSpace(entry.Stream), swarm.DefaultDLQStream))
+		out.WriteString("\n- sequence: ")
+		fmt.Fprintf(&out, "%d", entry.Sequence)
+		out.WriteString("\n- subject: ")
+		out.WriteString(entry.Subject)
+		out.WriteString("\n- published_at: ")
+		out.WriteString(entry.PublishedAt.UTC().Format(time.RFC3339))
+		out.WriteString("\n- reason: ")
+		out.WriteString(redactSecrets(entry.Reason))
+		out.WriteString("\n- envelope_id: ")
+		out.WriteString(entry.Envelope.ID)
+		out.WriteString("\n- namespace: ")
+		out.WriteString(entry.Envelope.Namespace)
+		out.WriteString("\n- kind: ")
+		out.WriteString(entry.Envelope.Kind)
+		if taskID := strings.TrimSpace(entry.Envelope.TaskID); taskID != "" {
+			out.WriteString("\n- task_id: ")
+			out.WriteString(taskID)
+		}
+		if sessionID := strings.TrimSpace(entry.Envelope.SessionID); sessionID != "" {
+			out.WriteString("\n- session_id: ")
+			out.WriteString(sessionID)
+		}
+		if correlationID := strings.TrimSpace(entry.Envelope.CorrelationID); correlationID != "" {
+			out.WriteString("\n- correlation_id: ")
+			out.WriteString(correlationID)
+		}
+		if causationID := strings.TrimSpace(entry.Envelope.CausationID); causationID != "" {
+			out.WriteString("\n- causation_id: ")
+			out.WriteString(causationID)
+		}
+		return h.channel.SendAgentReply(ctx, commandCtx.Locator, out.String())
 	}
 	status, err := h.commandBus.Status(ctx)
 	if err != nil {

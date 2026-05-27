@@ -180,6 +180,7 @@ Built-in provider types:
 - `/queue status`: show JetStream queue/runtime status (preferred command).
 - `/mailbox status`: compatibility alias for `/queue status`.
 - `/dlq`: show JetStream DLQ stream backlog summary.
+- `/dlq <stream_seq>`: inspect one DLQ entry by `BALDA_DLQ` stream sequence.
 - `/projection status`: show projector lag and projection health summary.
 - `/actors status`: show configured logical agents and toolsets.
 - `/reset`: clear conversation history for the current session.
