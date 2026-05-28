@@ -67,13 +67,17 @@ func (r *Registry) Resolve(address string) (Actor, bool) {
 	return actor, ok
 }
 
+func (r *Registry) LaneKey(env Envelope) string {
+	return actorLaneKey(env)
+}
+
 type Runtime struct {
-	bus       RuntimeBus
-	tasks     *TaskService
-	registry  ActorRegistry
-	scheduler *KeyedActorScheduler
-	logger    zerolog.Logger
-	enabled   bool
+	bus      RuntimeBus
+	tasks    *TaskService
+	registry ActorRegistry
+	engine   *runtimeEngine
+	logger   zerolog.Logger
+	enabled  bool
 	// heartbeatTick controls the in-progress ack cadence for long-running commands.
 	// Zero falls back to the package default.
 	heartbeatTick time.Duration
@@ -107,11 +111,22 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 		bus:           params.Bus,
 		tasks:         params.Tasks,
 		registry:      registry,
-		scheduler:     NewKeyedActorScheduler(),
 		logger:        params.Logger.With().Str("component", "balda.swarm.runtime").Logger(),
 		enabled:       params.Config.Enabled,
 		heartbeatTick: heartbeatInterval,
 	}
+	engine, err := newRuntimeEngine(runtimeEngineConfig{
+		Resolver:       registry,
+		EventSink:      runtimeEngineEventSink{bus: params.Bus},
+		DeadLetterTask: r.deadletterTask,
+		IsRetryable:    isRetryableRuntimeError,
+		ComputeBackoff: nextRetryDelay,
+		RetryExhausted: retryExhaustedCommand,
+	})
+	if err != nil {
+		return nil, err
+	}
+	r.engine = engine
 	params.LC.Append(fx.Hook{
 		OnStart: r.Start,
 		OnStop:  r.Stop,
@@ -160,35 +175,10 @@ func (r *Runtime) HandleCommand(ctx context.Context, cmd CommandMessage) error {
 	env := cmd.Envelope()
 	heartbeatCtx, stop := r.startHeartbeat(ctx, cmd, env)
 	defer stop()
-	var err error
-	if r.scheduler != nil {
-		err = r.scheduler.Dispatch(heartbeatCtx, env, r.handleEnvelopeDirect)
-	} else {
-		err = r.handleEnvelopeDirect(heartbeatCtx, env)
+	if r.engine == nil {
+		return nil
 	}
-	if err != nil && heartbeatCtx.Err() == nil && isRetryableRuntimeError(err) && retryExhaustedCommand(cmd) {
-		r.deadletterTask(ctx, env, "retry exhausted: "+err.Error())
-	}
-	return err
-}
-
-func (r *Runtime) handleEnvelopeDirect(ctx context.Context, env Envelope) error {
-	to, err := env.To.String()
-	if err != nil {
-		return PermanentError(err)
-	}
-	actor, ok := r.registry.Resolve(to)
-	if !ok {
-		r.deadletterTask(ctx, env, "actor not found: "+to)
-		return PermanentError(fmt.Errorf("actor not found: %s", to))
-	}
-	if err := actor.Handle(ctx, env); err != nil {
-		if !isRetryableRuntimeError(err) {
-			r.deadletterTask(ctx, env, err.Error())
-		}
-		return err
-	}
-	return nil
+	return r.engine.HandleDelivery(heartbeatCtx, cmd)
 }
 
 func (r *Runtime) startHeartbeat(ctx context.Context, cmd CommandMessage, env Envelope) (context.Context, func()) {
@@ -204,7 +194,14 @@ func (r *Runtime) startHeartbeat(ctx context.Context, cmd CommandMessage, env En
 				if err := cmd.InProgress(child); err != nil {
 					r.logger.Warn().Err(err).Str("envelope_id", env.ID).Msg("failed to send jetstream in-progress ack")
 				}
-				_ = r.bus.PublishEvent(child, SubjectEventCommandInProgress, commandNoopEvent(env))
+				if r.engine != nil {
+					r.engine.emit(child, EngineLifecycleEvent{
+						Status:      EngineEventInProgress,
+						Envelope:    env,
+						Attempt:     cmd.DeliveryAttempt(),
+						MaxAttempts: cmd.MaxDeliveries(),
+					})
+				}
 			case <-child.Done():
 				return
 			}
@@ -277,4 +274,17 @@ func commandNoopEvent(env Envelope) Envelope {
 		out.PayloadJSON = `{"ok":true}`
 	}
 	return out
+}
+
+type runtimeEngineEventSink struct {
+	bus RuntimeBus
+}
+
+func (s runtimeEngineEventSink) PublishLifecycleEvent(ctx context.Context, event EngineLifecycleEvent) {
+	if s.bus == nil {
+		return
+	}
+	if event.Status == EngineEventInProgress {
+		_ = s.bus.PublishEvent(ctx, SubjectEventCommandInProgress, commandNoopEvent(event.Envelope))
+	}
 }

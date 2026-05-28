@@ -24,15 +24,93 @@ type commandMessage struct {
 	msg           jetstream.Msg
 	numDelivered  int
 	maxDeliveries int
+	bus           *Bus
+
+	mu      sync.Mutex
+	settled bool
 }
 
-func (m commandMessage) Envelope() swarm.Envelope { return m.env }
-func (m commandMessage) Subject() string          { return m.subject }
-func (m commandMessage) InProgress(context.Context) error {
+func (m *commandMessage) Envelope() swarm.Envelope { return m.env }
+func (m *commandMessage) Subject() string          { return m.subject }
+func (m *commandMessage) InProgress(context.Context) error {
 	return m.msg.InProgress()
 }
-func (m commandMessage) DeliveryAttempt() int { return m.numDelivered }
-func (m commandMessage) MaxDeliveries() int   { return m.maxDeliveries }
+func (m *commandMessage) DeliveryAttempt() int { return m.numDelivered }
+func (m *commandMessage) MaxDeliveries() int   { return m.maxDeliveries }
+
+func (m *commandMessage) Ack(ctx context.Context) error {
+	return m.settle(func() error {
+		settleCtx, settleCancel := settlementContext(ctx)
+		defer settleCancel()
+		if err := m.msg.DoubleAck(settleCtx); err != nil {
+			return err
+		}
+		if err := m.bus.PublishEvent(settleCtx, swarm.SubjectEventCommandAcked, commandEventEnvelope(m.env, nil, "acked", "")); err != nil {
+			m.bus.logger.Warn().
+				Err(err).
+				Str("envelope_id", m.env.ID).
+				Msg("failed to publish command acked event")
+		}
+		commandLogEnvelope(commandLogEvent(m.bus.logger.Info(), m.msg), m.env).Msg("command handled and acknowledged")
+		return nil
+	})
+}
+
+func (m *commandMessage) Retry(ctx context.Context, delay time.Duration, reason string) error {
+	return m.settle(func() error {
+		settleCtx, settleCancel := settlementContext(ctx)
+		defer settleCancel()
+		if err := m.msg.NakWithDelay(delay); err != nil {
+			return err
+		}
+		if err := m.bus.PublishEvent(settleCtx, swarm.SubjectEventCommandRetrying, commandEventEnvelope(m.env, nil, "retrying", reason)); err != nil {
+			m.bus.logger.Warn().
+				Err(err).
+				Str("envelope_id", m.env.ID).
+				Msg("failed to publish command retrying event")
+		}
+		commandLogEnvelope(commandLogEvent(m.bus.logger.Warn(), m.msg), m.env).Str("retry_reason", reason).Dur("retry_delay", delay).Msg("command failed with retryable error")
+		return nil
+	})
+}
+
+func (m *commandMessage) DeadLetter(ctx context.Context, reason string) error {
+	return m.settle(func() error {
+		settleCtx, settleCancel := settlementContext(ctx)
+		defer settleCancel()
+		if err := m.bus.publishDLQ(settleCtx, m.env, reason, false); err != nil {
+			return err
+		}
+		if err := m.msg.TermWithReason(reason); err != nil {
+			return err
+		}
+		m.bus.publishCommandEventBestEffort(settleCtx, swarm.SubjectEventCommandDeadLettered, m.env, "deadlettered", reason)
+		commandLogEnvelope(commandLogEvent(m.bus.logger.Warn(), m.msg), m.env).Str("reason", reason).Msg("command deadlettered")
+		return nil
+	})
+}
+
+func (m *commandMessage) isSettled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.settled
+}
+
+func (m *commandMessage) settle(fn func() error) error {
+	m.mu.Lock()
+	if m.settled {
+		m.mu.Unlock()
+		return nil
+	}
+	m.mu.Unlock()
+	if err := fn(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.settled = true
+	m.mu.Unlock()
+	return nil
+}
 
 func (b *Bus) RunCommandConsumer(ctx context.Context, handler swarm.CommandHandler) error {
 	if b == nil || b.consumer == nil {
@@ -116,60 +194,34 @@ func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler swar
 	}
 	numDelivered := messageDeliveryAttempt(msg)
 	env.Attempt = numDelivered - 1
-	cmd := commandMessage{subject: msg.Subject(), env: env, msg: msg, numDelivered: numDelivered, maxDeliveries: b.cfg.Swarm.Commands.MaxDeliver}
+	cmd := &commandMessage{
+		subject:       msg.Subject(),
+		env:           env,
+		msg:           msg,
+		numDelivered:  numDelivered,
+		maxDeliveries: b.cfg.Swarm.Commands.MaxDeliver,
+		bus:           b,
+	}
 	b.publishCommandEventBestEffort(ctx, swarm.SubjectEventCommandRunning, env, "running", "")
 	commandLogEnvelope(commandLogEvent(b.logger.Debug(), msg), env).Msg("command running")
 	err = handler(ctx, cmd)
+	if cmd.isSettled() {
+		return nil
+	}
 	settleCtx, settleCancel := settlementContext(ctx)
 	defer settleCancel()
 	if err == nil {
-		if err := msg.DoubleAck(settleCtx); err != nil {
-			return err
-		}
-		if err := b.PublishEvent(settleCtx, swarm.SubjectEventCommandAcked, commandEventEnvelope(env, nil, "acked", "")); err != nil {
-			b.logger.Warn().
-				Err(err).
-				Str("envelope_id", env.ID).
-				Msg("failed to publish command acked event")
-		}
-		commandLogEnvelope(commandLogEvent(b.logger.Info(), msg), env).Msg("command handled and acknowledged")
-		return nil
+		return cmd.Ack(settleCtx)
 	}
 	if isRetryable(err) {
 		if retryExhausted(numDelivered, b.cfg.Swarm.Commands.MaxDeliver) {
 			reason := "retry exhausted: " + err.Error()
-			if err := b.publishDLQ(settleCtx, env, reason, false); err != nil {
-				return err
-			}
-			if err := msg.TermWithReason(reason); err != nil {
-				return err
-			}
-			b.publishCommandEventBestEffort(settleCtx, swarm.SubjectEventCommandDeadLettered, env, "deadlettered", reason)
-			commandLogEnvelope(commandLogEvent(b.logger.Warn(), msg), env).Err(err).Str("reason", reason).Msg("command retries exhausted; moved to dlq")
-			return nil
+			return cmd.DeadLetter(settleCtx, reason)
 		}
 		delay := computeBackoff(env.Attempt)
-		if settleErr := msg.NakWithDelay(delay); settleErr != nil {
-			return settleErr
-		}
-		if eventErr := b.PublishEvent(settleCtx, swarm.SubjectEventCommandRetrying, commandEventEnvelope(env, nil, "retrying", err.Error())); eventErr != nil {
-			b.logger.Warn().
-				Err(eventErr).
-				Str("envelope_id", env.ID).
-				Msg("failed to publish command retrying event")
-		}
-		commandLogEnvelope(commandLogEvent(b.logger.Warn(), msg), env).Err(err).Dur("retry_delay", delay).Msg("command failed with retryable error")
-		return nil
+		return cmd.Retry(settleCtx, delay, err.Error())
 	}
-	if dlqErr := b.publishDLQ(settleCtx, env, err.Error(), false); dlqErr != nil {
-		return dlqErr
-	}
-	if err := msg.TermWithReason(err.Error()); err != nil {
-		return err
-	}
-	b.publishCommandEventBestEffort(settleCtx, swarm.SubjectEventCommandDeadLettered, env, "deadlettered", err.Error())
-	commandLogEnvelope(commandLogEvent(b.logger.Warn(), msg), env).Err(err).Msg("command failed with permanent error; moved to dlq")
-	return nil
+	return cmd.DeadLetter(settleCtx, err.Error())
 }
 
 func settlementContext(parent context.Context) (context.Context, context.CancelFunc) {

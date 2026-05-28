@@ -6,7 +6,7 @@ Status: active
 ## Invariants
 
 - ActorRuntime consumes commands from JetStream only.
-- Keyed actor lanes serialize mutable state by actor key.
+- Actorlayer engine lanes serialize mutable state by actor key.
 - Command settlement happens after actor side effects complete.
 - Retry/permanent failure handling is explicit and classified.
 - Task actors attach role-based shell execution policy metadata (`none`, `read_only`, `workspace_write`) to runtime status surfaces.

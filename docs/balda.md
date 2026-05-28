@@ -640,7 +640,7 @@ balda.v1.dlq.>"]
 
     subgraph Runtime["Actor Runtime"]
         RT["ActorRuntime"]
-        LNS["KeyedActorScheduler lanes
+        LNS["Actorlayer engine lanes
 session/task/agent/delivery/memory"]
         ACT["Session/Task/Agent/Delivery/Memory actors"]
     end
@@ -852,8 +852,8 @@ All events are published as the same envelope shape. For event envelopes,
   - owner: process-local `RunCommandConsumer`
   - capacity: `fetch_batch` (bounded local fan-out)
   - behavior: no persistence, no retry policy; settlement remains JetStream-owned
-- Keyed actor lanes:
-  - owner: process-local `KeyedActorScheduler`
+- Actor lanes:
+  - owner: process-local actorlayer runtime engine
   - capacity: 1 active handler per actor key (`task:<id>`, session/agent fallbacks)
   - behavior: serializes mutable task/session state transitions
 - Session turn queue:

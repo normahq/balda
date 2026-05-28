@@ -33,6 +33,9 @@ type testCommandMessage struct {
 	numDelivered  int
 	maxDeliveries int
 	inProgress    func(context.Context) error
+	ack           func(context.Context) error
+	retry         func(context.Context, time.Duration, string) error
+	deadletter    func(context.Context, string) error
 }
 
 func (m testCommandMessage) Envelope() Envelope { return m.env }
@@ -50,6 +53,26 @@ func (m testCommandMessage) DeliveryAttempt() int {
 	return m.numDelivered
 }
 func (m testCommandMessage) MaxDeliveries() int { return m.maxDeliveries }
+func (m testCommandMessage) Ack(ctx context.Context) error {
+	if m.ack != nil {
+		return m.ack(ctx)
+	}
+	return nil
+}
+
+func (m testCommandMessage) Retry(ctx context.Context, delay time.Duration, reason string) error {
+	if m.retry != nil {
+		return m.retry(ctx, delay, reason)
+	}
+	return nil
+}
+
+func (m testCommandMessage) DeadLetter(ctx context.Context, reason string) error {
+	if m.deadletter != nil {
+		return m.deadletter(ctx, reason)
+	}
+	return nil
+}
 
 type recordingCommandBus struct {
 	events   []string
@@ -113,24 +136,44 @@ func TestRuntime_HandleCommandDispatchesActor(t *testing.T) {
 	}
 }
 
-func TestRuntime_UnknownActorReturnsPermanent(t *testing.T) {
+func TestRuntime_UnknownActorDeadLettersMessage(t *testing.T) {
 	runtime := newRuntimeForTest(&recordingCommandBus{}, NewRegistry())
-	err := runtime.HandleCommand(context.Background(), testCommandMessage{env: runtimeTestEnvelope("unknown", ActorAddress{Target: ActorTypeSession, Key: "s-1"})})
-	if ClassifyError(err) != ErrorKindPermanent {
-		t.Fatalf("ClassifyError(%v) = %s, want permanent", err, ClassifyError(err))
+	var deadletterReason string
+	err := runtime.HandleCommand(context.Background(), testCommandMessage{
+		env: runtimeTestEnvelope("unknown", ActorAddress{Target: ActorTypeSession, Key: "s-1"}),
+		deadletter: func(_ context.Context, reason string) error {
+			deadletterReason = reason
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleCommand() error = %v", err)
+	}
+	if deadletterReason == "" {
+		t.Fatal("DeadLetter() was not called")
 	}
 }
 
-func TestRuntime_ActorErrorPropagatesForJetStreamSettlement(t *testing.T) {
+func TestRuntime_ActorErrorRequestsRetry(t *testing.T) {
 	actor := &testActor{address: WildcardAddress(ActorTypeSession), err: TransientError(fmt.Errorf("temporary"))}
 	registry := NewRegistry()
 	if err := registry.Register(actor); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
 	runtime := newRuntimeForTest(&recordingCommandBus{}, registry)
-	err := runtime.HandleCommand(context.Background(), testCommandMessage{env: runtimeTestEnvelope("retry", ActorAddress{Target: ActorTypeSession, Key: "s-1"})})
-	if ClassifyError(err) != ErrorKindTransient {
-		t.Fatalf("ClassifyError(%v) = %s, want transient", err, ClassifyError(err))
+	var called bool
+	err := runtime.HandleCommand(context.Background(), testCommandMessage{
+		env: runtimeTestEnvelope("retry", ActorAddress{Target: ActorTypeSession, Key: "s-1"}),
+		retry: func(_ context.Context, _ time.Duration, _ string) error {
+			called = true
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleCommand() error = %v", err)
+	}
+	if !called {
+		t.Fatal("Retry() was not called")
 	}
 }
 
@@ -163,9 +206,21 @@ func TestRuntime_RetryExhaustionMarksTaskDeadlettered(t *testing.T) {
 	runtime.tasks = tasks
 	env := runtimeTestEnvelope("retry-exhausted", ActorAddress{Target: ActorTypeSession, Key: "s-1"})
 	env.TaskID = "task-retry"
-	err = runtime.HandleCommand(ctx, testCommandMessage{env: env, numDelivered: 5, maxDeliveries: 5})
-	if ClassifyError(err) != ErrorKindTransient {
-		t.Fatalf("ClassifyError(%v) = %s, want transient", err, ClassifyError(err))
+	var deadletterCalled bool
+	err = runtime.HandleCommand(ctx, testCommandMessage{
+		env:           env,
+		numDelivered:  5,
+		maxDeliveries: 5,
+		deadletter: func(context.Context, string) error {
+			deadletterCalled = true
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleCommand() error = %v", err)
+	}
+	if !deadletterCalled {
+		t.Fatal("DeadLetter() was not called")
 	}
 	task, ok, err := tasks.Get(ctx, "task-retry")
 	if err != nil {
@@ -234,7 +289,36 @@ func TestRuntime_LongRunningCommandSendsInProgressHeartbeat(t *testing.T) {
 }
 
 func newRuntimeForTest(bus RuntimeBus, registry ActorRegistry) *Runtime {
-	return &Runtime{bus: bus, registry: registry, scheduler: NewKeyedActorScheduler(), heartbeatTick: heartbeatInterval}
+	rt := &Runtime{bus: bus, registry: registry, heartbeatTick: heartbeatInterval}
+	resolver, ok := registry.(EngineResolver)
+	if !ok {
+		resolver = runtimeResolver{registry: registry}
+	}
+	engine, err := newRuntimeEngine(runtimeEngineConfig{
+		Resolver:       resolver,
+		EventSink:      runtimeEngineEventSink{bus: bus},
+		DeadLetterTask: rt.deadletterTask,
+		IsRetryable:    isRetryableRuntimeError,
+		ComputeBackoff: nextRetryDelay,
+		RetryExhausted: retryExhaustedCommand,
+	})
+	if err != nil {
+		panic(err)
+	}
+	rt.engine = engine
+	return rt
+}
+
+type runtimeResolver struct {
+	registry ActorRegistry
+}
+
+func (r runtimeResolver) Resolve(address string) (Actor, bool) {
+	return r.registry.Resolve(address)
+}
+
+func (runtimeResolver) LaneKey(env Envelope) string {
+	return actorLaneKey(env)
 }
 
 func runtimeTestEnvelope(id string, to ActorAddress) Envelope {

@@ -41,6 +41,9 @@ type CommandMessage interface {
 	InProgress(ctx context.Context) error
 	DeliveryAttempt() int
 	MaxDeliveries() int
+	Ack(ctx context.Context) error
+	Retry(ctx context.Context, delay time.Duration, reason string) error
+	DeadLetter(ctx context.Context, reason string) error
 }
 
 // CommandHandler handles one durable command message.
