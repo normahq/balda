@@ -593,6 +593,8 @@ github.com/nishanths/predeclared v0.2.2 h1:V2EPdZPliZymNAn79T8RkNApBjMmVKh5XRpLm
 github.com/nishanths/predeclared v0.2.2/go.mod h1:RROzoN6TnGQupbC+lqggsOlcgysk3LMK/HI84Mp280c=
 github.com/normahq/norma v0.0.4 h1:Q36EIGsROvdVfdHYe/H9ZOhJNArVUTcCaIsvDWGroh4=
 github.com/normahq/norma v0.0.4/go.mod h1:/+jvosLW/19LPEesZYSXBtp2QeJun1i+FKtdW0XpygE=
+github.com/normahq/norma v0.0.5-0.20260528110752-18dc112a08f6 h1:A+iuFX2FotaFdV+hrSe2xOKPH+wVaDqZ1L6SY6NVypU=
+github.com/normahq/norma v0.0.5-0.20260528110752-18dc112a08f6/go.mod h1:/+jvosLW/19LPEesZYSXBtp2QeJun1i+FKtdW0XpygE=
 github.com/nunnatsa/ginkgolinter v0.23.0 h1:x3o4DGYOWbBMP/VdNQKgSj+25aJKx2Pe6lHr8gBcgf8=
 github.com/nunnatsa/ginkgolinter v0.23.0/go.mod h1:9qN1+0akwXEccwV1CAcCDfcoBlWXHB+ML9884pL4SZ4=
 github.com/oapi-codegen/runtime v1.1.2 h1:P2+CubHq8fO4Q6fV1tqDBZHCwpVpvPg7oKiYzQgXIyI=
