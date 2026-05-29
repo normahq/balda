@@ -141,8 +141,8 @@ func TestRuntime_HandleCommandDispatchesActor(t *testing.T) {
 	actor := &testActor{address: WildcardAddress(ActorTypeSession)}
 	registry := newTestRegistry(t, actor)
 	runtime := newRuntimeForTest(bus, registry)
-	if err := runtime.HandleCommand(context.Background(), testCommandMessage{env: runtimeTestEnvelope("ok", ActorAddress{Target: ActorTypeSession, Key: "s-1"})}); err != nil {
-		t.Fatalf("HandleCommand() error = %v", err)
+	if err := runtime.handleCommand(context.Background(), testCommandMessage{env: runtimeTestEnvelope("ok", ActorAddress{Target: ActorTypeSession, Key: "s-1"})}); err != nil {
+		t.Fatalf("handleCommand() error = %v", err)
 	}
 	if actor.calls != 1 {
 		t.Fatalf("actor calls = %d, want 1", actor.calls)
@@ -154,8 +154,8 @@ func TestRuntime_HandleCommandDispatchesActorWithNormalizedAddress(t *testing.T)
 	actor := &testActor{address: "  SESSION:S-1  "}
 	registry := newTestRegistry(t, actor)
 	runtime := newRuntimeForTest(bus, registry)
-	if err := runtime.HandleCommand(context.Background(), testCommandMessage{env: runtimeTestEnvelope("normalized", ActorAddress{Target: ActorTypeSession, Key: "s-1"})}); err != nil {
-		t.Fatalf("HandleCommand() error = %v", err)
+	if err := runtime.handleCommand(context.Background(), testCommandMessage{env: runtimeTestEnvelope("normalized", ActorAddress{Target: ActorTypeSession, Key: "s-1"})}); err != nil {
+		t.Fatalf("handleCommand() error = %v", err)
 	}
 	if actor.calls != 1 {
 		t.Fatalf("actor calls = %d, want 1", actor.calls)
@@ -213,7 +213,7 @@ func TestRuntime_UnknownActorDeadLettersMessage(t *testing.T) {
 	runtime := newRuntimeForTest(&recordingCommandBus{}, registry)
 	var deadletterReason string
 	var retried bool
-	err := runtime.HandleCommand(context.Background(), testCommandMessage{
+	err := runtime.handleCommand(context.Background(), testCommandMessage{
 		env: runtimeTestEnvelope("unknown", ActorAddress{Target: ActorTypeSession, Key: "s-1"}),
 		deadletter: func(_ context.Context, reason string) error {
 			deadletterReason = reason
@@ -225,7 +225,7 @@ func TestRuntime_UnknownActorDeadLettersMessage(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("HandleCommand() error = %v", err)
+		t.Fatalf("handleCommand() error = %v", err)
 	}
 	if deadletterReason == "" {
 		t.Fatal("DeadLetter() was not called")
@@ -243,7 +243,7 @@ func TestRuntime_ActorErrorRequestsRetry(t *testing.T) {
 	registry := newTestRegistry(t, actor)
 	runtime := newRuntimeForTest(&recordingCommandBus{}, registry)
 	var called bool
-	err := runtime.HandleCommand(context.Background(), testCommandMessage{
+	err := runtime.handleCommand(context.Background(), testCommandMessage{
 		env: runtimeTestEnvelope("retry", ActorAddress{Target: ActorTypeSession, Key: "s-1"}),
 		retry: func(_ context.Context, _ time.Duration, _ string) error {
 			called = true
@@ -251,7 +251,7 @@ func TestRuntime_ActorErrorRequestsRetry(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("HandleCommand() error = %v", err)
+		t.Fatalf("handleCommand() error = %v", err)
 	}
 	if !called {
 		t.Fatal("Retry() was not called")
@@ -285,7 +285,7 @@ func TestRuntime_RetryExhaustionMarksTaskDeadlettered(t *testing.T) {
 	env := runtimeTestEnvelope("retry-exhausted", ActorAddress{Target: ActorTypeSession, Key: "s-1"})
 	env.TaskID = "task-retry"
 	var deadletterCalled bool
-	err = runtime.HandleCommand(ctx, testCommandMessage{
+	err = runtime.handleCommand(ctx, testCommandMessage{
 		env:           env,
 		numDelivered:  5,
 		maxDeliveries: 5,
@@ -295,7 +295,7 @@ func TestRuntime_RetryExhaustionMarksTaskDeadlettered(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("HandleCommand() error = %v", err)
+		t.Fatalf("handleCommand() error = %v", err)
 	}
 	if !deadletterCalled {
 		t.Fatal("DeadLetter() was not called")
@@ -331,7 +331,7 @@ func TestRuntime_LongRunningCommandSendsInProgressHeartbeat(t *testing.T) {
 	var inProgressCalls atomic.Int32
 	done := make(chan error, 1)
 	go func() {
-		done <- runtime.HandleCommand(context.Background(), testCommandMessage{
+		done <- runtime.handleCommand(context.Background(), testCommandMessage{
 			env: runtimeTestEnvelope("long-running", ActorAddress{Target: ActorTypeSession, Key: "s-1"}),
 			inProgress: func(context.Context) error {
 				inProgressCalls.Add(1)
@@ -356,7 +356,7 @@ func TestRuntime_LongRunningCommandSendsInProgressHeartbeat(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("HandleCommand() error = %v, want nil", err)
+			t.Fatalf("handleCommand() error = %v, want nil", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for long-running command completion")
@@ -386,7 +386,7 @@ func TestRuntime_LaneStatusTracksActiveLanes(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- runtime.HandleCommand(context.Background(), testCommandMessage{env: env})
+		done <- runtime.handleCommand(context.Background(), testCommandMessage{env: env})
 	}()
 
 	select {
@@ -406,7 +406,7 @@ func TestRuntime_LaneStatusTracksActiveLanes(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("HandleCommand() error = %v", err)
+			t.Fatalf("handleCommand() error = %v", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for completion")

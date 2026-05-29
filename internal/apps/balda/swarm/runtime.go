@@ -146,7 +146,7 @@ func (r *Runtime) Stop(ctx context.Context) error {
 	return stopErr
 }
 
-func (r *Runtime) HandleCommand(ctx context.Context, cmd CommandMessage) error {
+func (r *Runtime) handleCommand(ctx context.Context, cmd CommandMessage) error {
 	executionCtx, stop, delivery := r.prepareCommandDelivery(ctx, cmd)
 	defer stop()
 	if r.engine == nil {
