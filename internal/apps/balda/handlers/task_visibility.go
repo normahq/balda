@@ -24,6 +24,8 @@ const (
 	maxTaskPayloadSummary   = 180
 	maxTaskOutcomeTextRunes = 1200
 	statusCommandArg        = "status"
+	maxStatusLaneKeys       = 8
+	statusValueNone         = "none"
 )
 
 type taskSessionInfoProvider interface {
@@ -396,6 +398,11 @@ func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) 
 		fmt.Fprintf(&out, "%d", projectionLagSeconds(status.ProjectionLag))
 		out.WriteString("\n- delivery_duplicate_suppressed_total: ")
 		fmt.Fprintf(&out, "%d", status.DeliveryDuplicateSuppressedTotal)
+		lanes := h.activeRuntimeLanes()
+		out.WriteString("\n- active_actor_lanes: ")
+		fmt.Fprintf(&out, "%d", lanes.Active)
+		out.WriteString("\n- active_actor_lane_keys: ")
+		out.WriteString(formatLaneKeys(lanes.Keys, maxStatusLaneKeys))
 	} else {
 		out.WriteString("\n- unavailable")
 	}
@@ -574,7 +581,7 @@ func formatTaskList(sessionID string, tasks []baldastate.SwarmTaskRecord) string
 
 func formatAllowedTools(tools []string) string {
 	if len(tools) == 0 {
-		return "none"
+		return statusValueNone
 	}
 	return strings.Join(tools, ",")
 }
@@ -751,6 +758,23 @@ func parseTaskResult(raw string) map[string]any {
 		return nil
 	}
 	return out
+}
+
+func (h *CommandHandler) activeRuntimeLanes() swarm.RuntimeLaneStatus {
+	if h == nil || h.swarmRuntime == nil {
+		return swarm.RuntimeLaneStatus{}
+	}
+	return h.swarmRuntime.LaneStatus()
+}
+
+func formatLaneKeys(keys []string, limit int) string {
+	if len(keys) == 0 {
+		return statusValueNone
+	}
+	if limit <= 0 || len(keys) <= limit {
+		return strings.Join(keys, ",")
+	}
+	return fmt.Sprintf("%s,+%d more", strings.Join(keys[:limit], ","), len(keys)-limit)
 }
 
 func stringFromResult(result map[string]any, key string) string {

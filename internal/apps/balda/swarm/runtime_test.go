@@ -289,6 +289,64 @@ func TestRuntime_LongRunningCommandSendsInProgressHeartbeat(t *testing.T) {
 	}
 }
 
+func TestRuntime_LaneStatusTracksActiveLanes(t *testing.T) {
+	bus := &recordingCommandBus{}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	actor := &testActor{
+		address: WildcardAddress(ActorTypeSession),
+		run: func(ctx context.Context, _ Envelope) error {
+			close(started)
+			select {
+			case <-release:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	}
+	registry := NewRegistry()
+	if err := registry.Register(actor); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	runtime := newRuntimeForTest(bus, registry)
+	env := runtimeTestEnvelope("lane-track", ActorAddress{Target: ActorTypeSession, Key: "s-1"})
+	env.TaskID = "task-1"
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runtime.HandleCommand(context.Background(), testCommandMessage{env: env})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for actor start")
+	}
+	status := runtime.LaneStatus()
+	if status.Active != 1 {
+		t.Fatalf("LaneStatus().Active = %d, want 1", status.Active)
+	}
+	if len(status.Keys) != 1 || status.Keys[0] != "task:task-1" {
+		t.Fatalf("LaneStatus().Keys = %v, want [task:task-1]", status.Keys)
+	}
+
+	close(release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("HandleCommand() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for completion")
+	}
+
+	status = runtime.LaneStatus()
+	if status.Active != 0 || len(status.Keys) != 0 {
+		t.Fatalf("LaneStatus() after completion = %+v, want zero", status)
+	}
+}
+
 func newRuntimeForTest(bus RuntimeBus, registry ActorRegistry) *Runtime {
 	rt := &Runtime{bus: bus, registry: registry, heartbeatTick: heartbeatInterval}
 	engine, err := actorengine.New(actorengine.Config{

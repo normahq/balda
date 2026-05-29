@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ const heartbeatInterval = 30 * time.Second
 const (
 	retryBaseDelay = time.Second
 	retryMaxDelay  = time.Minute
+	unknownLaneKey = "unknown"
 )
 
 type Actor interface {
@@ -83,8 +85,17 @@ type Runtime struct {
 	// Zero falls back to the package default.
 	heartbeatTick time.Duration
 
+	laneMu           sync.Mutex
+	activeLaneCounts map[string]int
+
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+}
+
+// RuntimeLaneStatus summarizes currently active actor lanes.
+type RuntimeLaneStatus struct {
+	Active int
+	Keys   []string
 }
 
 type runtimeParams struct {
@@ -109,12 +120,13 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 		}
 	}
 	r := &Runtime{
-		bus:           params.Bus,
-		tasks:         params.Tasks,
-		registry:      registry,
-		logger:        params.Logger.With().Str("component", "balda.swarm.runtime").Logger(),
-		enabled:       params.Config.Enabled,
-		heartbeatTick: heartbeatInterval,
+		bus:              params.Bus,
+		tasks:            params.Tasks,
+		registry:         registry,
+		logger:           params.Logger.With().Str("component", "balda.swarm.runtime").Logger(),
+		enabled:          params.Config.Enabled,
+		heartbeatTick:    heartbeatInterval,
+		activeLaneCounts: make(map[string]int),
 	}
 	engine, err := actorengine.New(actorengine.Config{
 		Resolver: runtimeResolver{registry: registry},
@@ -185,13 +197,63 @@ func (r *Runtime) HandleCommand(ctx context.Context, cmd CommandMessage) error {
 	if r.engine == nil {
 		return nil
 	}
+	laneKey := normalizeLaneKey(actorLaneKey(env))
 	delivery := &runtimeDelivery{
 		cmd: cmd,
 		onDeadLetter: func(reason string) {
 			r.deadletterTask(ctx, env, reason)
 		},
 	}
-	return r.engine.Handle(heartbeatCtx, delivery, r.handleDelivery)
+	return r.engine.Handle(heartbeatCtx, delivery, func(ctx context.Context, delivery actorengine.Delivery) error {
+		r.markLaneStarted(laneKey)
+		defer r.markLaneFinished(laneKey)
+		return r.handleDelivery(ctx, delivery)
+	})
+}
+
+func (r *Runtime) LaneStatus() RuntimeLaneStatus {
+	if r == nil {
+		return RuntimeLaneStatus{}
+	}
+	r.laneMu.Lock()
+	defer r.laneMu.Unlock()
+	keys := make([]string, 0, len(r.activeLaneCounts))
+	for key, count := range r.activeLaneCounts {
+		if count > 0 {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return RuntimeLaneStatus{
+		Active: len(keys),
+		Keys:   keys,
+	}
+}
+
+func (r *Runtime) markLaneStarted(key string) {
+	if r == nil {
+		return
+	}
+	r.laneMu.Lock()
+	defer r.laneMu.Unlock()
+	if r.activeLaneCounts == nil {
+		r.activeLaneCounts = make(map[string]int)
+	}
+	r.activeLaneCounts[key]++
+}
+
+func (r *Runtime) markLaneFinished(key string) {
+	if r == nil {
+		return
+	}
+	r.laneMu.Lock()
+	defer r.laneMu.Unlock()
+	next := r.activeLaneCounts[key] - 1
+	if next <= 0 {
+		delete(r.activeLaneCounts, key)
+		return
+	}
+	r.activeLaneCounts[key] = next
 }
 
 func (r *Runtime) startHeartbeat(ctx context.Context, cmd CommandMessage, env Envelope) (context.Context, func()) {
@@ -280,4 +342,12 @@ func commandNoopEvent(env Envelope) Envelope {
 		out.PayloadJSON = `{"ok":true}`
 	}
 	return out
+}
+
+func normalizeLaneKey(key string) string {
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" {
+		return unknownLaneKey
+	}
+	return trimmed
 }

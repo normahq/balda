@@ -14,11 +14,11 @@ type runtimeResolver struct {
 
 func (r runtimeResolver) LaneKey(delivery actorengine.Delivery) string {
 	if delivery == nil {
-		return "unknown"
+		return unknownLaneKey
 	}
 	env, ok := delivery.Envelope().(Envelope)
 	if !ok {
-		return "unknown"
+		return unknownLaneKey
 	}
 	return actorLaneKey(env)
 }

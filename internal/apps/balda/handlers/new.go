@@ -34,6 +34,7 @@ type CommandHandler struct {
 	sessionManager    commandSessionManager
 	turnDispatcher    turnQueue
 	swarmCoordinator  *swarm.Coordinator
+	swarmRuntime      swarmRuntimeStatusProvider
 	swarmConfig       swarm.Config
 	commandBus        swarm.CommandBusStatusProvider
 	agentRegistry     *swarm.AgentRegistry
@@ -43,6 +44,10 @@ type CommandHandler struct {
 	messenger         *messenger.Messenger
 	userHandler       *userHandler
 	memoryStore       *memory.Store
+}
+
+type swarmRuntimeStatusProvider interface {
+	LaneStatus() swarm.RuntimeLaneStatus
 }
 
 func BuildAgentWelcomeMessage(name, sessionID, agentType, model string, mcpServers []string) string {
@@ -58,6 +63,7 @@ type commandHandlerParams struct {
 	SessionManager    *session.Manager
 	TurnDispatcher    *TurnDispatcher
 	SwarmCoordinator  *swarm.Coordinator
+	SwarmRuntime      *swarm.Runtime
 	SwarmConfig       swarm.Config
 	CommandBus        swarm.CommandBusStatusProvider
 	AgentRegistry     *swarm.AgentRegistry
@@ -78,6 +84,7 @@ func NewCommandHandler(params commandHandlerParams) *CommandHandler {
 		sessionManager:    params.SessionManager,
 		turnDispatcher:    params.TurnDispatcher,
 		swarmCoordinator:  params.SwarmCoordinator,
+		swarmRuntime:      params.SwarmRuntime,
 		swarmConfig:       params.SwarmConfig,
 		commandBus:        params.CommandBus,
 		agentRegistry:     params.AgentRegistry,

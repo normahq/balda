@@ -20,6 +20,7 @@ func TestCommandHandlerTaskVisibilityCommands(t *testing.T) {
 	provider, bus, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
 	handler.swarmConfig = swarm.Config{Enabled: true}
 	handler.swarmCoordinator = coordinator
+	handler.swarmRuntime = fakeSwarmRuntimeStatusProvider{}
 	handler.commandBus = bus
 	handler.tasks = tasks
 	handler.agentRegistry = registry
@@ -86,6 +87,7 @@ func TestCommandHandlerTaskVisibilityShowsTaskStatusWithoutProjectedEvents(t *te
 	_, bus, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
 	handler.swarmConfig = swarm.Config{Enabled: true}
 	handler.swarmCoordinator = coordinator
+	handler.swarmRuntime = fakeSwarmRuntimeStatusProvider{}
 	handler.commandBus = bus
 	handler.tasks = tasks
 	handler.agentRegistry = registry
@@ -119,6 +121,7 @@ func TestCommandHandlerTaskVisibilityRedactsSecrets(t *testing.T) {
 	_, bus, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
 	handler.swarmConfig = swarm.Config{Enabled: true}
 	handler.swarmCoordinator = coordinator
+	handler.swarmRuntime = fakeSwarmRuntimeStatusProvider{}
 	handler.commandBus = bus
 	handler.tasks = tasks
 	handler.agentRegistry = registry
@@ -161,6 +164,12 @@ func TestCommandHandlerSwarmQueueAndMailboxStatusCommands(t *testing.T) {
 	_, bus, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
 	handler.swarmConfig = swarm.Config{Enabled: true}
 	handler.swarmCoordinator = coordinator
+	handler.swarmRuntime = fakeSwarmRuntimeStatusProvider{
+		status: swarm.RuntimeLaneStatus{
+			Active: 2,
+			Keys:   []string{"session:tg-9001-0", "task:task-status"},
+		},
+	}
 	handler.commandBus = bus
 	handler.tasks = tasks
 	handler.agentRegistry = registry
@@ -198,6 +207,8 @@ func TestCommandHandlerSwarmQueueAndMailboxStatusCommands(t *testing.T) {
 	assertLastSentContains(t, tgClient, "projection_lag_total: 2")
 	assertLastSentContains(t, tgClient, "projection_lag_seconds: 2")
 	assertLastSentContains(t, tgClient, "delivery_duplicate_suppressed_total: 0")
+	assertLastSentContains(t, tgClient, "active_actor_lanes: 2")
+	assertLastSentContains(t, tgClient, "active_actor_lane_keys: session:tg-9001-0,task:task-status")
 
 	if err := handler.onCommand(ctx, newCommandEvent("mailbox", "status", 101, 9001, nil)); err != nil {
 		t.Fatalf("/mailbox status error = %v", err)
@@ -262,6 +273,7 @@ func TestCommandHandlerDLQEntryUsageAndNotFound(t *testing.T) {
 	_, bus, coordinator, tasks, registry := newTaskVisibilitySwarmServices(t, ctx)
 	handler.swarmConfig = swarm.Config{Enabled: true}
 	handler.swarmCoordinator = coordinator
+	handler.swarmRuntime = fakeSwarmRuntimeStatusProvider{}
 	handler.commandBus = bus
 	handler.tasks = tasks
 	handler.agentRegistry = registry
@@ -358,4 +370,12 @@ func createTaskRecord(t *testing.T, ctx context.Context, tasks *swarm.TaskServic
 	if !created {
 		t.Fatalf("Create(%s) created = false, want true", record.ID)
 	}
+}
+
+type fakeSwarmRuntimeStatusProvider struct {
+	status swarm.RuntimeLaneStatus
+}
+
+func (f fakeSwarmRuntimeStatusProvider) LaneStatus() swarm.RuntimeLaneStatus {
+	return f.status
 }
