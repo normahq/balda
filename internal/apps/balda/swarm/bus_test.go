@@ -3,6 +3,7 @@ package swarm
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 const subjectTestTaskID = "task-1"
@@ -65,6 +66,42 @@ func TestEnvelopeHeaders_UseJetStreamIdentityHeaders(t *testing.T) {
 	}
 	if headers[HeaderPriority] != "80" {
 		t.Fatalf("%s = %q, want 80", HeaderPriority, headers[HeaderPriority])
+	}
+}
+
+func TestRetryExhausted(t *testing.T) {
+	t.Run("non-positive max attempts", func(t *testing.T) {
+		if got := RetryExhausted(1, 0); got {
+			t.Fatalf("RetryExhausted(1, 0) = %v, want false", got)
+		}
+		if got := RetryExhausted(10, -1); got {
+			t.Fatalf("RetryExhausted(10, -1) = %v, want false", got)
+		}
+	})
+
+	t.Run("attempt threshold behavior", func(t *testing.T) {
+		if got := RetryExhausted(2, 3); got {
+			t.Fatalf("RetryExhausted(2, 3) = %v, want false", got)
+		}
+		if got := RetryExhausted(3, 3); !got {
+			t.Fatalf("RetryExhausted(3, 3) = %v, want true", got)
+		}
+	})
+}
+
+func TestRetryDelay_AppliesExponentialBackoffWithJitter(t *testing.T) {
+	t.Parallel()
+
+	low := RetryDelay(0)
+	baseDelay := time.Second
+	if low < baseDelay || low > baseDelay+(baseDelay/4) {
+		t.Fatalf("RetryDelay(0) = %s, want in [%s, %s]", low, baseDelay, baseDelay+(baseDelay/4))
+	}
+
+	high := RetryDelay(16)
+	maxDelay := time.Minute
+	if high < maxDelay || high > maxDelay+(maxDelay/4) {
+		t.Fatalf("RetryDelay(16) = %s, want in [%s, %s]", high, maxDelay, maxDelay+(maxDelay/4))
 	}
 }
 
