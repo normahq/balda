@@ -237,8 +237,7 @@ func (r *Runtime) deadletterTask(ctx context.Context, env Envelope, reason strin
 
 func isRetryableRuntimeError(err error) bool {
 	if err != nil {
-		var resolveErr *actorengine.ResolveError
-		if errors.As(err, &resolveErr) && resolveErr != nil {
+		if errors.Is(err, actorengine.ErrActorNotFound) {
 			return false
 		}
 	}

@@ -423,6 +423,14 @@ func TestIsRetryableRuntimeError(t *testing.T) {
 		}
 	})
 
+	t.Run("wrapped canonical actor not found is non-retryable", func(t *testing.T) {
+		t.Parallel()
+		err := fmt.Errorf("lookup failed: %w", actorengine.ErrActorNotFound)
+		if got := isRetryableRuntimeError(err); got {
+			t.Fatalf("isRetryableRuntimeError() = true, want false")
+		}
+	})
+
 	t.Run("other errors stay classified by actor errors", func(t *testing.T) {
 		t.Parallel()
 		err := fmt.Errorf("%w", PermanentError(errors.New("persist failed")))
