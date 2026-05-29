@@ -140,6 +140,25 @@ func TestRuntime_HandleCommandDispatchesActor(t *testing.T) {
 	}
 }
 
+func TestRuntime_HandleCommandDispatchesActorWithNormalizedAddress(t *testing.T) {
+	bus := &recordingCommandBus{}
+	actor := &testActor{address: "  SESSION:S-1  "}
+	registry, err := NewRegistry()
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	if err := registry.Register(actor); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	runtime := newRuntimeForTest(bus, registry)
+	if err := runtime.HandleCommand(context.Background(), testCommandMessage{env: runtimeTestEnvelope("normalized", ActorAddress{Target: ActorTypeSession, Key: "s-1"})}); err != nil {
+		t.Fatalf("HandleCommand() error = %v", err)
+	}
+	if actor.calls != 1 {
+		t.Fatalf("actor calls = %d, want 1", actor.calls)
+	}
+}
+
 func TestRuntime_UnknownActorDeadLettersMessage(t *testing.T) {
 	registry, err := NewRegistry()
 	if err != nil {
