@@ -228,6 +228,17 @@ func TestSQLiteSwarmStore_DeliveryOutboxLifecycle(t *testing.T) {
 	if created || sent.Status != SwarmDeliveryStatusSent || sent.ProviderMessageID != "tg-42" || sent.SentAt.IsZero() {
 		t.Fatalf("ReserveDelivery(after sent) = %+v created=%v, want sent existing", sent, created)
 	}
+
+	if err := store.MarkDeliveryFailed(ctx, record.DeliveryKey, "provider timeout"); err != nil {
+		t.Fatalf("MarkDeliveryFailed() error = %v", err)
+	}
+	deliveryCounts, err := store.ListDeliveryStatusCounts(ctx)
+	if err != nil {
+		t.Fatalf("ListDeliveryStatusCounts() error = %v", err)
+	}
+	if len(deliveryCounts) != 1 || deliveryCounts[0].Status != SwarmDeliveryStatusFailed || deliveryCounts[0].Count != 1 {
+		t.Fatalf("delivery status counts = %+v, want failed=1", deliveryCounts)
+	}
 }
 
 func TestSQLiteSwarmStore_AgentStepLifecycle(t *testing.T) {

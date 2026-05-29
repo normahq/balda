@@ -175,6 +175,27 @@ func TestCommandHandlerSwarmQueueAndMailboxStatusCommands(t *testing.T) {
 	handler.agentRegistry = registry
 
 	createTaskRecord(t, ctx, tasks, baldastate.SwarmTaskRecord{ID: "task-status", SessionID: "tg-9001-0", Title: "Goal: status", Objective: "status", Status: baldastate.SwarmTaskStatusCreated})
+	delivery, created, err := tasks.ReserveDelivery(ctx, baldastate.SwarmDeliveryRecord{
+		ID:          "delivery-status-1",
+		DeliveryKey: "task-status:delivery:final",
+		TaskID:      "task-status",
+		SessionID:   "tg-9001-0",
+		Channel:     "telegram",
+		AddressKey:  "9001:0",
+		Kind:        "delivery",
+		PayloadJSON: `{"text":"status"}`,
+		PayloadHash: "hash-status-1",
+		Status:      baldastate.SwarmDeliveryStatusPending,
+	})
+	if err != nil {
+		t.Fatalf("ReserveDelivery(status) error = %v", err)
+	}
+	if !created || delivery.ID == "" {
+		t.Fatalf("ReserveDelivery(status) = %+v created=%v, want created", delivery, created)
+	}
+	if err := tasks.MarkDeliveryFailed(ctx, delivery.DeliveryKey, "provider timeout"); err != nil {
+		t.Fatalf("MarkDeliveryFailed(status) error = %v", err)
+	}
 
 	if err := handler.onCommand(ctx, newCommandEvent("swarm", "status", 101, 9001, nil)); err != nil {
 		t.Fatalf("/swarm status error = %v", err)
@@ -207,6 +228,8 @@ func TestCommandHandlerSwarmQueueAndMailboxStatusCommands(t *testing.T) {
 	assertLastSentContains(t, tgClient, "projection_lag_total: 2")
 	assertLastSentContains(t, tgClient, "projection_lag_seconds: 2")
 	assertLastSentContains(t, tgClient, "delivery_duplicate_suppressed_total: 0")
+	assertLastSentContains(t, tgClient, "delivery_outbox_failed: 1")
+	assertLastSentNotContains(t, tgClient, "delivery_outbox: none")
 	assertLastSentContains(t, tgClient, "active_actor_lanes: 2")
 	assertLastSentContains(t, tgClient, "active_actor_lane_keys: session:tg-9001-0,task:task-status")
 

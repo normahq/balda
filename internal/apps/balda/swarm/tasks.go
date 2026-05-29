@@ -117,6 +117,13 @@ func (s *TaskService) StatusCounts(ctx context.Context) ([]baldastate.SwarmStatu
 	return s.store.ListTaskStatusCounts(ctx)
 }
 
+func (s *TaskService) DeliveryStatusCounts(ctx context.Context) ([]baldastate.SwarmStatusCount, error) {
+	if s == nil {
+		return nil, nil
+	}
+	return s.store.ListDeliveryStatusCounts(ctx)
+}
+
 func (s *TaskService) MarkStatus(ctx context.Context, taskID string, status string, actor string, messageID string, reason string, payload any) error {
 	if s == nil {
 		return nil

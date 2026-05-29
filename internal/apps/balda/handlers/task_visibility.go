@@ -457,6 +457,22 @@ func (h *CommandHandler) formatSwarmStatus(ctx context.Context) (string, error) 
 				fmt.Fprintf(&out, "%d", count.Count)
 			}
 		}
+		deliveryCounts, err := h.tasks.DeliveryStatusCounts(ctx)
+		if err != nil {
+			return "", err
+		}
+		out.WriteString("\n- delivery_outbox_failed: ")
+		fmt.Fprintf(&out, "%d", statusCountFor(deliveryCounts, baldastate.SwarmDeliveryStatusFailed))
+		if len(deliveryCounts) == 0 {
+			out.WriteString("\n- delivery_outbox: none")
+		} else {
+			for _, count := range deliveryCounts {
+				out.WriteString("\n- delivery_outbox_")
+				out.WriteString(count.Status)
+				out.WriteString(": ")
+				fmt.Fprintf(&out, "%d", count.Count)
+			}
+		}
 	}
 
 	return out.String(), nil
@@ -496,6 +512,16 @@ func projectionLagSeconds(lag map[string]uint64) uint64 {
 	// Until projector watermarks are timestamped, the best available lag-time
 	// proxy is the count of pending projection events.
 	return sumProjectionLag(lag)
+}
+
+func statusCountFor(counts []baldastate.SwarmStatusCount, status string) int {
+	target := strings.TrimSpace(status)
+	for _, count := range counts {
+		if strings.TrimSpace(count.Status) == target {
+			return count.Count
+		}
+	}
+	return 0
 }
 
 func (h *CommandHandler) taskArtifacts(ctx context.Context, task baldastate.SwarmTaskRecord) taskArtifactSnapshot {
