@@ -209,10 +209,15 @@ func TestRuntime_UnknownActorDeadLettersMessage(t *testing.T) {
 	registry := newTestRegistry(t)
 	runtime := newRuntimeForTest(&recordingCommandBus{}, registry)
 	var deadletterReason string
+	var retried bool
 	err := runtime.HandleCommand(context.Background(), testCommandMessage{
 		env: runtimeTestEnvelope("unknown", ActorAddress{Target: ActorTypeSession, Key: "s-1"}),
 		deadletter: func(_ context.Context, reason string) error {
 			deadletterReason = reason
+			return nil
+		},
+		retry: func(context.Context, time.Duration, string) error {
+			retried = true
 			return nil
 		},
 	})
@@ -221,6 +226,12 @@ func TestRuntime_UnknownActorDeadLettersMessage(t *testing.T) {
 	}
 	if deadletterReason == "" {
 		t.Fatal("DeadLetter() was not called")
+	}
+	if got := deadletterReason; !strings.Contains(got, actorengine.ErrActorNotFound.Error()) {
+		t.Fatalf("deadletter reason = %q, want to contain %q", got, actorengine.ErrActorNotFound.Error())
+	}
+	if retried {
+		t.Fatal("Retry() was called for unknown actor")
 	}
 }
 
