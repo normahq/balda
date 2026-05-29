@@ -2,9 +2,11 @@ package swarm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/normahq/norma/actorlayer"
 	actorengine "github.com/normahq/norma/actorlayer/engine"
 )
 
@@ -58,9 +60,28 @@ func (r *Runtime) handleDelivery(ctx context.Context, delivery actorengine.Deliv
 	if err != nil {
 		return DecodeError(err)
 	}
-	actor, found := r.registry.Resolve(to)
+	ref, found := r.registry.Resolve(to)
 	if !found {
 		return PermanentError(fmt.Errorf("actor not found: %s", to))
 	}
-	return actor.Handle(ctx, env)
+	system := r.registry.System()
+	if system == nil {
+		return TransientError(fmt.Errorf("actorlayer system is required"))
+	}
+	_, err = actorlayer.Ask(ctx, system, ref, env)
+	if err != nil {
+		var actorErr *ActorError
+		if ok := errors.As(err, &actorErr); ok {
+			return err
+		}
+		switch err {
+		case actorlayer.ErrAskTimeout:
+			return TransientError(fmt.Errorf("actor ask timeout: %w", err))
+		case actorlayer.ErrActorNotFound:
+			return PermanentError(fmt.Errorf("actor not found: %s", to))
+		default:
+			return err
+		}
+	}
+	return nil
 }
