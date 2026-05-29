@@ -422,7 +422,7 @@ func newRuntimeForTest(bus RuntimeBus, registry dispatch.Registry) *Runtime {
 		LaneKey:   actorLaneKeyFromEnvelope,
 		Retry: actorengine.RetryPolicy{
 			IsRetryable: IsRetryableError,
-			Backoff:     nextRetryDelay,
+			Backoff:     RetryDelay,
 			RetryExhausted: func(delivery actorengine.Delivery) bool {
 				wrapped, ok := delivery.(*runtimeDelivery)
 				if !ok {

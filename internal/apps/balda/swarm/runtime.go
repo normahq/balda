@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -16,11 +15,6 @@ import (
 )
 
 const heartbeatInterval = 30 * time.Second
-
-const (
-	retryBaseDelay = time.Second
-	retryMaxDelay  = time.Minute
-)
 
 type Actor interface {
 	Address() string
@@ -106,7 +100,7 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 		LaneKey:   actorLaneKeyFromEnvelope,
 		Retry: actorengine.RetryPolicy{
 			IsRetryable: IsRetryableError,
-			Backoff:     nextRetryDelay,
+			Backoff:     RetryDelay,
 			RetryExhausted: func(delivery actorengine.Delivery) bool {
 				wrapped, ok := delivery.(*runtimeDelivery)
 				if !ok {
@@ -241,23 +235,6 @@ func retryExhaustedCommand(cmd CommandMessage) bool {
 	}
 	maxDeliveries := cmd.MaxDeliveries()
 	return RetryExhausted(cmd.DeliveryAttempt(), maxDeliveries)
-}
-
-func nextRetryDelay(attempt int) time.Duration {
-	if attempt < 0 {
-		attempt = 0
-	}
-	delay := retryBaseDelay
-	for range attempt {
-		delay *= 2
-		if delay >= retryMaxDelay {
-			delay = retryMaxDelay
-			break
-		}
-	}
-	jitterCap := max(delay/4, time.Millisecond)
-	jitter := time.Duration(rand.Int64N(int64(jitterCap)))
-	return delay + jitter
 }
 
 func commandNoopEvent(env Envelope) Envelope {

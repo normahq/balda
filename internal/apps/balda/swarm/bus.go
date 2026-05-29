@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"time"
 )
 
@@ -200,10 +201,28 @@ type Subscription interface {
 
 // RetryDelay computes the first retry delay for simple bus adapters.
 func RetryDelay(attempt int) time.Duration {
-	return nextRetryDelay(attempt)
+	if attempt < 0 {
+		attempt = 0
+	}
+	delay := retryBaseDelay
+	for range attempt {
+		delay *= 2
+		if delay >= retryMaxDelay {
+			delay = retryMaxDelay
+			break
+		}
+	}
+	jitterCap := max(delay/4, time.Millisecond)
+	jitter := time.Duration(rand.Int64N(int64(jitterCap)))
+	return delay + jitter
 }
 
 // RetryExhausted reports whether an attempt has reached terminal retry limit.
 func RetryExhausted(attempt int, maxAttempts int) bool {
 	return maxAttempts > 0 && attempt >= maxAttempts
 }
+
+const (
+	retryBaseDelay = time.Second
+	retryMaxDelay  = time.Minute
+)
