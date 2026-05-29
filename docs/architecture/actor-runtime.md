@@ -7,6 +7,7 @@ Status: active
 
 - ActorRuntime consumes commands from JetStream only.
 - Actorlayer engine lanes serialize mutable state by actor key.
+- Runtime execution uses `actorlayer/engine.DispatchRuntime.Run` through a JetStream source adapter (`runtimeSource`) so command settlement and retry policy are centralized in the actorlayer runtime.
 - Command settlement happens after actor side effects complete.
 - Retry/permanent failure handling is explicit and classified.
 - Task actors attach role-based shell execution policy metadata (`none`, `read_only`, `workspace_write`) to runtime status surfaces.
