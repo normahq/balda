@@ -41,18 +41,12 @@ func (a dispatchActor) Handle(ctx context.Context, envelope any) error {
 	return a.actor.Handle(ctx, typed)
 }
 
-type ActorRegistry interface {
-	Register(actor Actor) error
-	DispatchRegistry() dispatch.Registry
-	Shutdown(ctx context.Context) error
-}
-
 type Registry struct {
 	actors *dispatch.MemoryRegistry
 }
 
-func NewRegistry() (*Registry, error) {
-	return &Registry{actors: dispatch.NewMemoryRegistry()}, nil
+func NewRegistry() *Registry {
+	return &Registry{actors: dispatch.NewMemoryRegistry()}
 }
 
 func (r *Registry) Register(actor Actor) error {
@@ -72,17 +66,10 @@ func (r *Registry) DispatchRegistry() dispatch.Registry {
 	return r.actors
 }
 
-func (r *Registry) Shutdown(_ context.Context) error {
-	if r == nil {
-		return nil
-	}
-	return nil
-}
-
 type Runtime struct {
 	bus      RuntimeBus
 	tasks    *TaskService
-	registry ActorRegistry
+	registry *Registry
 	engine   *actorengine.DispatchRuntime
 	logger   zerolog.Logger
 	enabled  bool
@@ -115,10 +102,7 @@ func NewRuntime(params runtimeParams) (*Runtime, error) {
 	if params.Bus == nil {
 		return nil, fmt.Errorf("jetstream command bus is required")
 	}
-	registry, err := NewRegistry()
-	if err != nil {
-		return nil, err
-	}
+	registry := NewRegistry()
 	for _, actor := range params.Actors {
 		if err := registry.Register(actor); err != nil {
 			return nil, err
@@ -182,9 +166,6 @@ func (r *Runtime) Start(context.Context) error {
 
 func (r *Runtime) Stop(ctx context.Context) error {
 	if r.cancel == nil {
-		if r.registry != nil {
-			return r.registry.Shutdown(ctx)
-		}
 		return nil
 	}
 	r.cancel()
@@ -199,9 +180,6 @@ func (r *Runtime) Stop(ctx context.Context) error {
 		stopErr = nil
 	case <-ctx.Done():
 		stopErr = ctx.Err()
-	}
-	if shutdownErr := r.registry.Shutdown(ctx); shutdownErr != nil && stopErr == nil {
-		return shutdownErr
 	}
 	return stopErr
 }

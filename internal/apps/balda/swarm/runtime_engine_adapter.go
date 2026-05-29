@@ -11,7 +11,7 @@ type runtimeDelivery struct {
 	onDeadLetter func(reason string)
 }
 
-func runtimeAddressOf(envelope any, registry ActorRegistry) (string, error) {
+func runtimeAddressOf(envelope any, registry *Registry) (string, error) {
 	if registry == nil {
 		return "", PermanentError(fmt.Errorf("actor registry is required"))
 	}
