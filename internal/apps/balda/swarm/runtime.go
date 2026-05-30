@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	dispatch "github.com/normahq/norma/actorlayer/dispatch"
-	actorengine "github.com/normahq/norma/actorlayer/engine"
+	dispatch "github.com/normahq/norma/pkg/actorlayer/dispatch"
+	actorengine "github.com/normahq/norma/pkg/actorlayer/engine"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 )

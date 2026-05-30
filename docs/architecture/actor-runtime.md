@@ -68,7 +68,7 @@ Status: active
 
 ### Balda implementation map
 
-- Actor dispatch and lane execution live in `internal/apps/balda/swarm/runtime.go`, backed by `github.com/normahq/norma/actorlayer/engine`.
+- Actor dispatch and lane execution live in `internal/apps/balda/swarm/runtime.go`, backed by `github.com/normahq/norma/pkg/actorlayer/engine`.
 - Actor definitions live in `internal/apps/balda/handlers/swarm_*.go` and are registered as actorlayer dispatch actors.
 - ADK session/provider runtime ownership lives in `internal/apps/balda/agent` and `internal/apps/balda/session`; all sessions use the configured `balda.provider`.
 - JetStream command delivery and settlement live in `internal/apps/balda/eventbus/nats` and the `swarm.CommandMessage` contract.

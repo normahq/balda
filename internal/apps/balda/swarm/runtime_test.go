@@ -11,8 +11,8 @@ import (
 	"time"
 
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
-	"github.com/normahq/norma/actorlayer/dispatch"
-	actorengine "github.com/normahq/norma/actorlayer/engine"
+	"github.com/normahq/norma/pkg/actorlayer/dispatch"
+	actorengine "github.com/normahq/norma/pkg/actorlayer/engine"
 )
 
 type testActor struct {

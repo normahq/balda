@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	actorengine "github.com/normahq/norma/actorlayer/engine"
+	actorengine "github.com/normahq/norma/pkg/actorlayer/engine"
 )
 
 func TestClassifyErrorKinds(t *testing.T) {

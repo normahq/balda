@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	actorengine "github.com/normahq/norma/actorlayer/engine"
+	actorengine "github.com/normahq/norma/pkg/actorlayer/engine"
 )
 
 var (
