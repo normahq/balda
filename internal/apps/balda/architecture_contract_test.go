@@ -244,6 +244,15 @@ func TestJetStreamArchitectureContractStatic(t *testing.T) {
 		}
 	})
 
+	t.Run("sessionmcp production store keeps test memory helpers out", func(t *testing.T) {
+		path := filepath.Clean(filepath.Join(root, "../sessionmcp/store.go"))
+		source := readSource(t, path)
+		pattern := regexp.MustCompile(`type\s+MemoryStore\s+struct|func\s+NewMemoryStore\s*\(|func\s+ResetSharedStore\s*\(`)
+		if pattern.FindStringIndex(source) != nil {
+			t.Fatalf("%s still defines test-only in-memory store helpers", filepath.ToSlash(path))
+		}
+	})
+
 	t.Run("handler wiring stays package-local", func(t *testing.T) {
 		matches := findSourceMatches(t, root, files, regexp.MustCompile(`type\s+StartHandlerParams\s+struct|func\s+NewStartHandler\s*\(|func\s+\(h\s+\*StartHandler\)\s+SetBaldaHandler\s*\(|func\s+NewBaldaHandler\s*\(|func\s+\(h\s+\*BaldaHandler\)\s+SetOwner\s*\(|func\s+\(h\s+\*BaldaHandler\)\s+ActivateOwner\s*\(|func\s+NewCommandHandler\s*\(|func\s+NewUserHandler\s*\(|func\s+NewScheduledTaskScheduler\s*\(|func\s+NewInboundWebhookReceiver\s*\(|func\s+WireHandlers\s*\(`))
 		if len(matches) > 0 {

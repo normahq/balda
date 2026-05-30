@@ -2,14 +2,17 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/normahq/balda/internal/apps/balda/session"
-	"github.com/normahq/balda/internal/apps/sessionmcp"
 	"github.com/normahq/norma/pkg/runtime/mcpregistry"
 	"github.com/rs/zerolog"
 )
@@ -18,6 +21,120 @@ func internalMCPStarted(m *InternalMCPManager) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.started
+}
+
+type testSessionStore struct {
+	mu     sync.RWMutex
+	values map[string]any
+}
+
+func newTestSessionStore() *testSessionStore {
+	return &testSessionStore{values: make(map[string]any)}
+}
+
+func (s *testSessionStore) Get(_ context.Context, key string) (string, bool, error) {
+	val, ok, err := s.get(key)
+	if err != nil {
+		return "", false, err
+	}
+	if !ok {
+		return "", false, nil
+	}
+	str, ok := val.(string)
+	if ok {
+		return str, true, nil
+	}
+	data, err := json.Marshal(val)
+	if err != nil {
+		return "", false, fmt.Errorf("marshal value: %w", err)
+	}
+	return string(data), true, nil
+}
+
+func (s *testSessionStore) Set(_ context.Context, key, value string) error {
+	s.set(key, value)
+	return nil
+}
+
+func (s *testSessionStore) Delete(_ context.Context, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.values, strings.TrimSpace(key))
+	return nil
+}
+
+func (s *testSessionStore) List(_ context.Context, prefix string) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	trimmedPrefix := strings.TrimSpace(prefix)
+	keys := make([]string, 0, len(s.values))
+	for key := range s.values {
+		if trimmedPrefix == "" || strings.HasPrefix(key, trimmedPrefix) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys, nil
+}
+
+func (s *testSessionStore) Clear(_ context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.values = make(map[string]any)
+	return nil
+}
+
+func (s *testSessionStore) GetJSON(_ context.Context, key string) (interface{}, bool, error) {
+	return s.get(key)
+}
+
+func (s *testSessionStore) SetJSON(_ context.Context, key string, value interface{}) error {
+	s.set(key, value)
+	return nil
+}
+
+func (s *testSessionStore) MergeJSON(_ context.Context, key string, fields map[string]interface{}) (map[string]interface{}, error) {
+	trimmedKey := strings.TrimSpace(key)
+	if trimmedKey == "" {
+		return nil, fmt.Errorf("key is required")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	merged := make(map[string]interface{})
+	if current, ok := s.values[trimmedKey].(map[string]interface{}); ok {
+		for k, v := range current {
+			merged[k] = v
+		}
+	}
+	for k, v := range fields {
+		merged[k] = v
+	}
+	s.values[trimmedKey] = merged
+	return merged, nil
+}
+
+func (s *testSessionStore) get(key string) (interface{}, bool, error) {
+	trimmedKey := strings.TrimSpace(key)
+	if trimmedKey == "" {
+		return nil, false, nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	val, ok := s.values[trimmedKey]
+	return val, ok, nil
+}
+
+func (s *testSessionStore) set(key string, value any) {
+	trimmedKey := strings.TrimSpace(key)
+	if trimmedKey == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.values[trimmedKey] = value
 }
 
 func TestIsBundled(t *testing.T) {
@@ -133,7 +250,7 @@ func TestEnsureBundledServers_RegistersSharedListenerURLs(t *testing.T) {
 		registry:         mcpregistry.New(nil),
 		workingDir:       workDir,
 		sessionManager:   &session.Manager{},
-		stateStore:       sessionmcp.NewMemoryStore(),
+		stateStore:       newTestSessionStore(),
 	}
 
 	if err := manager.ensureBundledServers(ctx); err != nil {
@@ -174,7 +291,7 @@ func TestInternalMCPManagerEnsureStarted_IsIdempotent(t *testing.T) {
 		registry:         mcpregistry.New(nil),
 		workingDir:       t.TempDir(),
 		sessionManager:   &session.Manager{},
-		stateStore:       sessionmcp.NewMemoryStore(),
+		stateStore:       newTestSessionStore(),
 	}
 
 	if err := manager.EnsureStarted(ctx); err != nil {

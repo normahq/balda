@@ -29,7 +29,7 @@ Status: active
   - Concrete JetStream adapter semantics: command stream, ack/nak/term behavior, heartbeats, in-progress redelivery, exposed upward only as actorlayer source/delivery and small Balda-facing dispatch/event interfaces.
   - Retry strategy and classification, dead-letter promotion logic, and DLQ reporting.
   - Task/projector side effects in SQLite (`swarm_tasks`, `swarm_task_events`, command/task status state).
-  - Internal command visibility and operator-facing status surfaces backed by logs and tooling.
+  - Internal command visibility backed by logs and tooling.
   - Mapping between policy metadata (`chat_id`, `topic_id`, `goal_id`, `attempt`) and actor-level envelopes.
   - The single app-scoped ADK provider runtime selected by `balda.provider`.
 

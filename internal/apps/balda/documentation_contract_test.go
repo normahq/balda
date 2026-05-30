@@ -210,6 +210,7 @@ func TestDocumentationContract(t *testing.T) {
 			regexp.MustCompile(`event projection/status`),
 			regexp.MustCompile(`dispatch/event/status interfaces`),
 			regexp.MustCompile(`projection/status integration`),
+			regexp.MustCompile(`operator-facing status surfaces`),
 		}
 		for _, path := range paths {
 			body := readFile(t, path)
