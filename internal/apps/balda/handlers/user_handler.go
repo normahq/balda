@@ -126,8 +126,14 @@ func (h *userHandler) onList(ctx context.Context, commandCtx baldatelegram.Comma
 	if len(collaborators) > 0 {
 		lines = append(lines, "Collaborators:")
 		for _, c := range collaborators {
+			name := "unknown"
+			if strings.TrimSpace(c.Username) != "" {
+				name = "@" + c.Username
+			} else if strings.TrimSpace(c.FirstName) != "" {
+				name = c.FirstName
+			}
 			lines = append(lines, fmt.Sprintf("• %s (%s) - added %s",
-				c.UserID, displayName(c.Username, c.FirstName), c.AddedAt.Format("2006-01-02 15:04")))
+				c.UserID, name, c.AddedAt.Format("2006-01-02 15:04")))
 		}
 	} else {
 		lines = append(lines, "No collaborators")
@@ -184,16 +190,6 @@ func (h *userHandler) onRemove(ctx context.Context, commandCtx baldatelegram.Com
 		return err
 	}
 	return nil
-}
-
-func displayName(username, firstName string) string {
-	if username != "" {
-		return "@" + username
-	}
-	if firstName != "" {
-		return firstName
-	}
-	return "unknown"
 }
 
 func buildInviteLink(botUsername, inviteToken string) string {
