@@ -41,7 +41,7 @@ func NewBus(params Params) (*Bus, error) {
 	if err != nil {
 		return nil, err
 	}
-	bus := &Bus{cfg: cfg, logger: params.Logger.With().Str("component", "balda.jetstream_bus").Logger()}
+	bus := &Bus{cfg: cfg, logger: params.Logger.With().Str("component", "balda.runtime_bus").Logger()}
 	if cfg.NATS.Embedded {
 		embedded, err := StartEmbeddedNATS(context.Background(), cfg)
 		if err != nil {
