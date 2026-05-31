@@ -35,7 +35,15 @@ var Module = fx.Module("balda_handlers",
 		baldatelegram.NewAdapter,
 		newScheduledTaskScheduler,
 		newInboundWebhookReceiver,
-		newStartHandler,
+		func(params startHandlerParams) *StartHandler {
+			return &StartHandler{
+				ownerStore:        params.OwnerStore,
+				inviteStore:       params.InviteStore,
+				collaboratorStore: params.CollaboratorStore,
+				messenger:         params.Messenger,
+				authToken:         params.AuthToken,
+			}
+		},
 		newBaldaHandler,
 		provideSessionTurnRunner,
 		provideScheduledTaskRecorder,

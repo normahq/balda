@@ -49,16 +49,6 @@ type startCommandArgs struct {
 	token string
 }
 
-func newStartHandler(params startHandlerParams) *StartHandler {
-	return &StartHandler{
-		ownerStore:        params.OwnerStore,
-		inviteStore:       params.InviteStore,
-		collaboratorStore: params.CollaboratorStore,
-		messenger:         params.Messenger,
-		authToken:         params.AuthToken,
-	}
-}
-
 func (h *StartHandler) setBaldaHandler(rh baldaOwnerActivator) {
 	h.baldaHandler = rh
 }

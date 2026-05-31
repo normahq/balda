@@ -608,13 +608,13 @@ func newStartHandlerFullTestHarness(t *testing.T, authToken string) (*StartHandl
 
 	tgClient := &fakeTelegramClient{}
 	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
-	handler := newStartHandler(startHandlerParams{
-		OwnerStore:        ownerStore,
-		InviteStore:       inviteStore,
-		CollaboratorStore: collaboratorStore,
-		Messenger:         msg,
-		AuthToken:         authToken,
-	})
+	handler := &StartHandler{
+		ownerStore:        ownerStore,
+		inviteStore:       inviteStore,
+		collaboratorStore: collaboratorStore,
+		messenger:         msg,
+		authToken:         authToken,
+	}
 
 	return handler, ownerStore, inviteStore, collaboratorStore, tgClient
 }
@@ -695,11 +695,11 @@ func newBaldaHandlerTestHarness(t *testing.T) (*StartHandler, *auth.OwnerStore, 
 	tgClient := &fakeTelegramClient{}
 	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
 	baldaHandler := &fakeBaldaHandler{}
-	startHandler := newStartHandler(startHandlerParams{
-		OwnerStore: ownerStore,
-		Messenger:  msg,
-		AuthToken:  "",
-	})
+	startHandler := &StartHandler{
+		ownerStore: ownerStore,
+		messenger:  msg,
+		authToken:  "",
+	}
 	startHandler.setBaldaHandler(baldaHandler)
 
 	return startHandler, ownerStore, tgClient, baldaHandler
