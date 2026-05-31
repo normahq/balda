@@ -468,9 +468,9 @@ session-start snapshot. New or restored sessions read the latest file.
 - `balda.state_dir`: balda state directory for persistent balda SQLite state (`state.db`).
   - Stores owner/app KV, `balda.state` MCP KV, session metadata, task/read-model state, optional session history, and Telegram polling offset.
   - Schema is migration-versioned and auto-applied on startup.
-  - Goose `goose_db_version` is the migration version authority. Legacy imported
-    databases may still contain `schema_migrations`, but balda does not use it
-    for migration control.
+  - Goose `goose_db_version` is the migration version authority. Imported
+    databases from older versions may still contain `schema_migrations`, but
+    balda does not use it for migration control.
   - Relative paths are resolved from `balda.working_dir`.
   - Default: `.config/balda`
 - `balda.sessions.persistence`: `sqlite|memory` (default `sqlite`)
