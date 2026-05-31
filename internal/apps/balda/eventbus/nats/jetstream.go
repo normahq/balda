@@ -170,7 +170,7 @@ func (b *Bus) Run(ctx context.Context, handler actorengine.Handler) error {
 				defer wg.Done()
 				defer func() { <-workers }()
 				if err := b.handleMessage(ctx, msg, handler); err != nil {
-					b.logger.Warn().Err(err).Str("subject", msg.Subject()).Msg("failed to settle jetstream command")
+					b.logger.Warn().Err(err).Str("subject", msg.Subject()).Msg("failed to settle command")
 				}
 			}(msg)
 		}
@@ -255,7 +255,7 @@ func (b *Bus) publishCommandEventBestEffort(ctx context.Context, subject string,
 
 func (b *Bus) RunEventConsumer(ctx context.Context, handler swarm.EventHandler) error {
 	if b == nil || b.eventConsumer == nil {
-		return fmt.Errorf("jetstream event projector consumer is required")
+		return fmt.Errorf("event projector consumer is required")
 	}
 	if handler == nil {
 		return fmt.Errorf("event handler is required")
@@ -276,7 +276,7 @@ func (b *Bus) RunEventConsumer(ctx context.Context, handler swarm.EventHandler) 
 		}
 		for msg := range batch.Messages() {
 			if err := b.handleEventMessage(ctx, msg, handler); err != nil {
-				b.logger.Warn().Err(err).Str("subject", msg.Subject()).Msg("failed to settle jetstream event")
+				b.logger.Warn().Err(err).Str("subject", msg.Subject()).Msg("failed to settle event")
 			}
 		}
 	}
@@ -311,7 +311,7 @@ func messageDeliveryAttempt(msg jetstream.Msg) int {
 
 func ensureStreams(ctx context.Context, js jetstream.JetStream, cfg resolvedConfig) error {
 	if js == nil {
-		return fmt.Errorf("jetstream is required")
+		return fmt.Errorf("runtime transport is required")
 	}
 	streams := []jetstream.StreamConfig{
 		streamConfig(cfg.Swarm.Commands.Stream, []string{swarm.SubjectCommandAll}, jetstream.WorkQueuePolicy, cfg.Commands),

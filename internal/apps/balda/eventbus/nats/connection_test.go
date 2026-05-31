@@ -1141,7 +1141,7 @@ func TestBus_EventProjectionFailureDoesNotBlockCommandExecution(t *testing.T) {
 	}
 }
 
-func TestBus_EnsureRuntimeRequiresJetStream(t *testing.T) {
+func TestBus_EnsureRuntimeRequiresTransport(t *testing.T) {
 	cfg, err := resolveConfig(
 		baldaeventbus.Config{Embedded: true, JetStream: true},
 		swarm.Config{},
@@ -1152,8 +1152,8 @@ func TestBus_EnsureRuntimeRequiresJetStream(t *testing.T) {
 	}
 	bus := &Bus{cfg: cfg}
 	err = bus.ensureRuntime(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "jetstream is required") {
-		t.Fatalf("ensureRuntime() error = %v, want jetstream required", err)
+	if err == nil || !strings.Contains(err.Error(), "runtime transport is required") {
+		t.Fatalf("ensureRuntime() error = %v, want runtime transport required", err)
 	}
 }
 

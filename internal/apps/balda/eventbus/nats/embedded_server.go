@@ -58,7 +58,7 @@ func StartEmbeddedNATS(ctx context.Context, cfg resolvedConfig) (*EmbeddedNATS, 
 	if err != nil {
 		conn.Close()
 		srv.Shutdown()
-		return nil, fmt.Errorf("create jetstream client: %w", err)
+		return nil, fmt.Errorf("create runtime client: %w", err)
 	}
 	return &EmbeddedNATS{Server: srv, Conn: conn, JS: js, URL: srv.ClientURL()}, nil
 }

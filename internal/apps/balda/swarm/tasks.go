@@ -269,7 +269,7 @@ func taskEventForStatus(status string) string {
 
 func (s *TaskService) publishTaskEvent(ctx context.Context, event baldastate.SwarmTaskEventRecord) error {
 	if s == nil || s.bus == nil {
-		return fmt.Errorf("jetstream event bus is required")
+		return fmt.Errorf("event bus is required")
 	}
 	payload := strings.TrimSpace(event.PayloadJSON)
 	if payload == "" {

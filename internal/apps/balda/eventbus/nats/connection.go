@@ -63,13 +63,13 @@ func NewBus(params Params) (*Bus, error) {
 		js, err := jetstream.New(conn)
 		if err != nil {
 			conn.Close()
-			return nil, fmt.Errorf("create jetstream client: %w", err)
+			return nil, fmt.Errorf("create runtime client: %w", err)
 		}
 		bus.js = js
 	}
 	if bus.js == nil {
 		_ = bus.Drain(context.Background())
-		return nil, fmt.Errorf("jetstream is required")
+		return nil, fmt.Errorf("runtime transport is required")
 	}
 	if err := bus.ensureRuntime(context.Background()); err != nil {
 		_ = bus.Drain(context.Background())
@@ -92,9 +92,9 @@ func (b *Bus) Dispatch(ctx context.Context, env swarm.Envelope) (*swarm.Dispatch
 	ack, err := b.js.PublishMsg(ctx, msg, jetstream.WithMsgID(msgID), jetstream.WithExpectStream(b.cfg.Swarm.Commands.Stream))
 	if err != nil {
 		if isJetStreamQueuePressure(err) {
-			return nil, fmt.Errorf("%w: publish jetstream command %q: %w", swarm.ErrCommandQueueFull, subject, err)
+			return nil, fmt.Errorf("%w: publish command %q: %w", swarm.ErrCommandQueueFull, subject, err)
 		}
-		return nil, fmt.Errorf("publish jetstream command %q: %w", subject, err)
+		return nil, fmt.Errorf("publish command %q: %w", subject, err)
 	}
 	result := &swarm.DispatchReceipt{Stream: ack.Stream, Sequence: ack.Sequence, Subject: subject, MsgID: msgID, Duplicate: ack.Duplicate}
 	logEvt := b.logger.Debug().
@@ -109,7 +109,7 @@ func (b *Bus) Dispatch(ctx context.Context, env swarm.Envelope) (*swarm.Dispatch
 		Uint64("sequence", ack.Sequence).
 		Str("msg_id", msgID).
 		Bool("duplicate", ack.Duplicate)
-	withDeliveryKey(logEvt, env).Msg("published command to jetstream")
+	withDeliveryKey(logEvt, env).Msg("published command to runtime transport")
 	if err := b.PublishEvent(ctx, swarm.SubjectEventCommandAccepted, commandEventEnvelope(env, result, "accepted", "", nil)); err != nil {
 		logEvt := b.logger.Warn().
 			Err(err).
@@ -184,7 +184,7 @@ func (b *Bus) PublishEvent(ctx context.Context, subject string, env swarm.Envelo
 	}
 	_, err = b.js.PublishMsg(ctx, msg, jetstream.WithExpectStream(b.cfg.Swarm.Events.Stream), jetstream.WithMsgID(swarm.DedupeKeyOrID(env)))
 	if err != nil {
-		return fmt.Errorf("publish jetstream event %q: %w", subject, err)
+		return fmt.Errorf("publish event %q: %w", subject, err)
 	}
 	return nil
 }
@@ -196,7 +196,7 @@ func (b *Bus) publishDLQ(ctx context.Context, env swarm.Envelope, reason string,
 	}
 	_, err = b.js.PublishMsg(ctx, msg, jetstream.WithExpectStream(b.cfg.Swarm.DLQ.Stream), jetstream.WithMsgID(swarm.DedupeKeyOrID(env)+":dlq"))
 	if err != nil {
-		return fmt.Errorf("publish jetstream dlq: %w", err)
+		return fmt.Errorf("publish dlq: %w", err)
 	}
 	if emitEvent {
 		if err := b.PublishEvent(ctx, swarm.SubjectEventCommandDeadLettered, commandEventEnvelope(env, nil, "deadlettered", reason, nil)); err != nil {
@@ -251,7 +251,7 @@ func (b *Bus) ensureRuntime(ctx context.Context) error {
 		FilterSubject: swarm.SubjectCommandAll,
 	})
 	if err != nil {
-		return fmt.Errorf("create jetstream command consumer: %w", err)
+		return fmt.Errorf("create command consumer: %w", err)
 	}
 	b.consumer = consumer
 	eventConsumer, err := b.js.CreateOrUpdateConsumer(ctx, b.cfg.Swarm.Events.Stream, jetstream.ConsumerConfig{
@@ -264,7 +264,7 @@ func (b *Bus) ensureRuntime(ctx context.Context) error {
 		FilterSubject: swarm.SubjectEventAll,
 	})
 	if err != nil {
-		return fmt.Errorf("create jetstream event projector consumer: %w", err)
+		return fmt.Errorf("create event projector consumer: %w", err)
 	}
 	b.eventConsumer = eventConsumer
 	return nil
