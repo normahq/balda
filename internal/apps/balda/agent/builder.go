@@ -392,9 +392,23 @@ func (b *Builder) buildSessionState(ctx context.Context, agentName, workspaceDir
 		}
 		return b.addMemorySnapshot(ctx, state)
 	}
-	state, err := buildSessionStateFallback(workspaceDir)
+	cwd := strings.TrimSpace(workspaceDir)
+	if cwd == "" {
+		return nil, fmt.Errorf("session cwd is empty")
+	}
+	absCWD, err := filepath.Abs(cwd)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve session cwd %q: %w", cwd, err)
+	}
+	info, err := os.Stat(absCWD)
+	if err != nil {
+		return nil, fmt.Errorf("stat session cwd %q: %w", absCWD, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("session cwd %q is not a directory", absCWD)
+	}
+	state := map[string]any{
+		sessionstate.CWDKey: absCWD,
 	}
 	return b.addMemorySnapshot(ctx, state)
 }
@@ -419,29 +433,6 @@ func (b *Builder) addMemorySnapshot(ctx context.Context, state map[string]any) (
 	state[memory.MemoryStateKey] = strings.TrimSpace(memoryText)
 	state[memory.SoulStateKey] = strings.TrimSpace(soulText)
 	return state, nil
-}
-
-func buildSessionStateFallback(workspaceDir string) (map[string]any, error) {
-	cwd := strings.TrimSpace(workspaceDir)
-	if cwd == "" {
-		return nil, fmt.Errorf("session cwd is empty")
-	}
-
-	absCWD, err := filepath.Abs(cwd)
-	if err != nil {
-		return nil, fmt.Errorf("resolve session cwd %q: %w", cwd, err)
-	}
-	info, err := os.Stat(absCWD)
-	if err != nil {
-		return nil, fmt.Errorf("stat session cwd %q: %w", absCWD, err)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("session cwd %q is not a directory", absCWD)
-	}
-
-	return map[string]any{
-		sessionstate.CWDKey: absCWD,
-	}, nil
 }
 
 func modelFromAgentConfig(cfg agentconfig.Config) string {
