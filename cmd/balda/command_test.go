@@ -128,11 +128,11 @@ balda:
 	if doc.Balda.NATS.StoreDir != ".balda/nats" {
 		t.Fatalf("nats.store_dir = %q, want .balda/nats", doc.Balda.NATS.StoreDir)
 	}
-	if doc.Balda.Swarm.Commands.Stream != "BALDA_COMMANDS" {
-		t.Fatalf("swarm.commands.stream = %q, want BALDA_COMMANDS", doc.Balda.Swarm.Commands.Stream)
+	if doc.Balda.Swarm.Commands.Stream != "" {
+		t.Fatalf("swarm.commands.stream = %q, want omitted from defaults YAML", doc.Balda.Swarm.Commands.Stream)
 	}
-	if doc.Balda.Swarm.Commands.Consumer != "BALDA_WORKER_COMMANDS" {
-		t.Fatalf("swarm.commands.consumer = %q, want BALDA_WORKER_COMMANDS", doc.Balda.Swarm.Commands.Consumer)
+	if doc.Balda.Swarm.Commands.Consumer != "" {
+		t.Fatalf("swarm.commands.consumer = %q, want omitted from defaults YAML", doc.Balda.Swarm.Commands.Consumer)
 	}
 }
 

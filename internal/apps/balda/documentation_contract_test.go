@@ -359,10 +359,35 @@ func TestDocumentationContract(t *testing.T) {
 			"Task records, projections, and DLQ state",
 			"Command lifecycle events (`accepted|running|acked|retrying|deadlettered`)",
 			"SessionActor currently honors only the internal per-envelope `queue_mode=interrupt` control hint",
+			`stream: "BALDA_COMMANDS"`,
+			`consumer: "BALDA_WORKER_COMMANDS"`,
+			`stream: "BALDA_EVENTS"`,
+			`stream: "BALDA_DLQ"`,
 		}
 		for _, needle := range forbidden {
 			if strings.Contains(section, needle) {
 				t.Fatalf("%s configuration section still exposes internal runtime detail %q", filepath.ToSlash(path), needle)
+			}
+		}
+	})
+
+	t.Run("shipped config samples avoid raw swarm transport names", func(t *testing.T) {
+		paths := []string{
+			filepath.Join(repoRoot, "README.md"),
+			filepath.Join(repoRoot, "cmd/balda/balda.yaml"),
+		}
+		forbidden := []string{
+			"BALDA_COMMANDS",
+			"BALDA_WORKER_COMMANDS",
+			"BALDA_EVENTS",
+			"BALDA_DLQ",
+		}
+		for _, path := range paths {
+			body := readFile(t, path)
+			for _, needle := range forbidden {
+				if strings.Contains(body, needle) {
+					t.Fatalf("%s still exposes raw swarm transport name %q", filepath.ToSlash(path), needle)
+				}
 			}
 		}
 	})

@@ -225,19 +225,7 @@ balda:
     max_store: "2gb"
     sync_always: false
     expose_monitoring: false
-  swarm:
-    commands:
-      stream: "BALDA_COMMANDS"
-      consumer: "BALDA_WORKER_COMMANDS"
-      ack_wait: "5m"
-      max_deliver: 5
-      max_ack_pending: 64
-      fetch_batch: 16
-      fetch_wait: "1s"
-    events:
-      stream: "BALDA_EVENTS"
-    dlq:
-      stream: "BALDA_DLQ"
+  swarm: {}
   scheduler:
     tasks: []
   workspace:
