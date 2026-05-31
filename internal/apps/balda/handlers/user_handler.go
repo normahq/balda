@@ -7,9 +7,7 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
-	"github.com/normahq/balda/internal/apps/balda/messenger"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
-	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
 	"github.com/tgbotkit/client"
 	"go.uber.org/fx"
 )
@@ -18,7 +16,6 @@ type userHandler struct {
 	ownerStore        *auth.OwnerStore
 	inviteStore       *auth.InviteStore
 	collaboratorStore *auth.CollaboratorStore
-	messenger         *messenger.Messenger
 	channel           *baldatelegram.Adapter
 	tgClient          client.ClientWithResponsesInterface
 	botUsername       string
@@ -30,7 +27,6 @@ type userHandlerParams struct {
 	OwnerStore        *auth.OwnerStore
 	InviteStore       *auth.InviteStore
 	CollaboratorStore *auth.CollaboratorStore
-	Messenger         *messenger.Messenger
 	Channel           *baldatelegram.Adapter
 	TGClient          client.ClientWithResponsesInterface `optional:"true"`
 }
@@ -40,14 +36,9 @@ func newUserHandler(params userHandlerParams) *userHandler {
 		ownerStore:        params.OwnerStore,
 		inviteStore:       params.InviteStore,
 		collaboratorStore: params.CollaboratorStore,
-		messenger:         params.Messenger,
 		channel:           params.Channel,
 		tgClient:          params.TGClient,
 	}
-}
-
-func (h *userHandler) Register(registry tgbotkit.Registry) {
-	// UserHandler is routed through CommandHandler, not directly registered
 }
 
 func (h *userHandler) getBotUsername(ctx context.Context) string {

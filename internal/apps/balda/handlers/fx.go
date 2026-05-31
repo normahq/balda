@@ -56,11 +56,6 @@ var Module = fx.Module("balda_handlers",
 			fx.As(new(tgbotkit.Handler)),
 			fx.ResultTags(`group:"bot_handlers"`),
 		),
-		fx.Annotate(
-			registerUserHandler,
-			fx.As(new(tgbotkit.Handler)),
-			fx.ResultTags(`group:"bot_handlers"`),
-		),
 	),
 	fx.Invoke(
 		wireHandlers,
@@ -110,9 +105,5 @@ func registerBaldaHandler(h *BaldaHandler) tgbotkit.Handler {
 }
 
 func registerCommandHandler(h *CommandHandler) tgbotkit.Handler {
-	return h
-}
-
-func registerUserHandler(h *userHandler) tgbotkit.Handler {
 	return h
 }

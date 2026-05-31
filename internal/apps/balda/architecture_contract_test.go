@@ -50,6 +50,21 @@ func TestJetStreamArchitectureContractStatic(t *testing.T) {
 		}
 	})
 
+	t.Run("user command routing stays owned by command handler", func(t *testing.T) {
+		handlerSource := readSource(t, filepath.Join(root, "handlers/command_handler.go"))
+		if !strings.Contains(handlerSource, `case "user":`) {
+			t.Fatal("command handler must own /user routing")
+		}
+		fxSource := readSource(t, filepath.Join(root, "handlers/fx.go"))
+		if strings.Contains(fxSource, "registerUserHandler") {
+			t.Fatal("user handler must not be registered as an independent bot handler")
+		}
+		userHandlerSource := readSource(t, filepath.Join(root, "handlers/user_handler.go"))
+		if strings.Contains(userHandlerSource, "func (h *userHandler) Register(") {
+			t.Fatal("user handler must not expose a standalone Register hook")
+		}
+	})
+
 	t.Run("actors execute from actorlayer delivery source", func(t *testing.T) {
 		runtimeSource := readSource(t, filepath.Join(root, "swarm/runtime.go"))
 		if !strings.Contains(runtimeSource, "Source actorengine.Source") {
