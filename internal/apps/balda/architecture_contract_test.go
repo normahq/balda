@@ -203,13 +203,13 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 		}
 	})
 
-	t.Run("swarm runtime package does not import ingress handlers or ADK", func(t *testing.T) {
+	t.Run("swarm runtime package does not import ingress handlers or external session SDK", func(t *testing.T) {
 		swarmDir := filepath.Join(root, "swarm")
 		swarmFiles := productionGoFiles(t, swarmDir)
 		forbiddenImportPattern := regexp.MustCompile(`github\.com/normahq/balda/internal/apps/balda/handlers|google\.golang\.org/adk`)
 		matches := findSourceMatches(t, swarmDir, swarmFiles, forbiddenImportPattern)
 		if len(matches) > 0 {
-			t.Fatalf("swarm runtime packages must not import ingress handlers or ADK:\n%s", formatSourceMatches(matches))
+			t.Fatalf("swarm runtime packages must not import ingress handlers or external session SDK:\n%s", formatSourceMatches(matches))
 		}
 	})
 }

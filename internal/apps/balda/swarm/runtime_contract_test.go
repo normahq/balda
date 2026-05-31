@@ -18,8 +18,8 @@ var (
 )
 
 // TestRuntimeCoreNoProviderImports verifies that the runtime core module does
-// not introduce direct Google ADK package imports, which keeps the actorlayer
-// engine boundary explicit.
+// not introduce direct session SDK imports, which keeps the actorlayer engine
+// boundary explicit.
 func TestRuntimeCoreNoProviderImports(t *testing.T) {
 	t.Parallel()
 	_, testFile, _, ok := runtime.Caller(0)
