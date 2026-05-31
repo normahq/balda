@@ -250,7 +250,7 @@ func TestValidateRuntimeConfigLint_AllowsAlwaysOnSwarmConfig(t *testing.T) {
 	}
 }
 
-func TestValidateRuntimeConfigLint_RejectsInvalidAndDuplicateJetStreamNames(t *testing.T) {
+func TestValidateRuntimeConfigLint_RejectsInvalidAndDuplicateRuntimeNames(t *testing.T) {
 	t.Parallel()
 
 	err := validateRuntimeConfigLint(swarm.Config{
