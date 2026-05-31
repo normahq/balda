@@ -195,10 +195,10 @@ actorlayer and keeps product policy in Balda.
 
 Balda startup order is strict:
 
-1. Load Norma + balda config.
+1. Load runtime + balda config.
 2. Start internal MCP lifecycle manager.
 3. Start Balda provider via `agentfactory.Factory`.
-4. Start Telegram runtime receiver.
+4. Start channel and ingress runtimes (Telegram, configured scheduler tasks, and inbound webhook receiver).
 
 Internal MCP v1 scope is config + lifecycle plumbing; server implementations can be added incrementally.
 
