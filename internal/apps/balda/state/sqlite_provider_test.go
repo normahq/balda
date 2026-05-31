@@ -328,7 +328,7 @@ func TestSQLiteProvider_WritesSchemaMigrationVersion(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	assertGooseVersion(t, ctx, db, expectedSQLiteMigrationVersion)
-	assertSQLiteSchemaHasNoRelayLeftovers(t, ctx, db)
+	assertSQLiteSchemaHasNoPreviousSchemaLeftovers(t, ctx, db)
 	assertSessionMetadataHasNoOldChatTopicUnique(t, ctx, db)
 }
 
@@ -393,11 +393,11 @@ func TestSQLiteProvider_RuntimeSessionPersistsAcrossReopen(t *testing.T) {
 	}
 }
 
-func TestSQLiteProvider_AdoptsExistingLegacySchema(t *testing.T) {
+func TestSQLiteProvider_MigratesPreviousSchema(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "state.db")
 	ctx := context.Background()
 
-	seedLegacyRelayDB(t, dbPath)
+	seedPreviousSchemaDB(t, dbPath)
 
 	provider, err := NewSQLiteProvider(ctx, dbPath)
 	if err != nil {
@@ -443,11 +443,11 @@ func TestSQLiteProvider_AdoptsExistingLegacySchema(t *testing.T) {
 	assertGooseVersion(t, ctx, db, expectedSQLiteMigrationVersion)
 }
 
-func TestSQLiteProvider_RebrandsRelaySchemaAtVersion8(t *testing.T) {
+func TestSQLiteProvider_MigratesPreviousSchemaAtVersion8(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "state.db")
 	ctx := context.Background()
 
-	seedRelayDBAtVersion8(t, dbPath)
+	seedPreviousSchemaAtVersion8(t, dbPath)
 
 	provider, err := NewSQLiteProvider(ctx, dbPath)
 	if err != nil {
@@ -509,7 +509,7 @@ func TestSQLiteProvider_RebrandsRelaySchemaAtVersion8(t *testing.T) {
 
 	assertTableExists(t, ctx, db, "balda_app_kv")
 	assertTableMissing(t, ctx, db, "relay_app_kv")
-	assertSQLiteSchemaHasNoRelayLeftovers(t, ctx, db)
+	assertSQLiteSchemaHasNoPreviousSchemaLeftovers(t, ctx, db)
 	assertSessionMetadataHasNoOldChatTopicUnique(t, ctx, db)
 	assertKVNamespaceMissing(t, ctx, db, "relay.app")
 	assertKVNamespaceMissing(t, ctx, db, "relay.session_mcp")
@@ -526,12 +526,12 @@ func TestSQLiteProvider_RebrandsRelaySchemaAtVersion8(t *testing.T) {
 	if err := db.QueryRowContext(ctx, `
 		SELECT task_id, content
 		FROM balda_scheduled_tasks
-		WHERE task_id = 'legacy-daily-review'`,
+		WHERE task_id = 'previous-daily-review'`,
 	).Scan(&taskID, &content); err != nil {
 		t.Fatalf("query migrated scheduled task: %v", err)
 	}
-	if taskID != "legacy-daily-review" || content != "Review legacy queue" {
-		t.Fatalf("migrated scheduled task = %q/%q, want legacy-daily-review/Review legacy queue", taskID, content)
+	if taskID != "previous-daily-review" || content != "Review previous queue" {
+		t.Fatalf("migrated scheduled task = %q/%q, want previous-daily-review/Review previous queue", taskID, content)
 	}
 	assertTableMissing(t, ctx, db, "balda_scheduled_jobs")
 
@@ -548,7 +548,7 @@ func TestSQLiteProvider_Migration11BackfillsBuggyTelegramAddressColumns(t *testi
 	}
 	defer func() { _ = db.Close() }()
 
-	seedBaldaDBAtVersion10WithBuggyZeroLegacySession(t, db)
+	seedBaldaDBAtVersion10WithBuggyZeroSession(t, db)
 
 	if err := migrate(ctx, db); err != nil {
 		t.Fatalf("migrate() error = %v", err)
@@ -586,7 +586,7 @@ func closeProvider(t *testing.T, provider Provider) {
 	}
 }
 
-func seedLegacyRelayDB(t *testing.T, dbPath string) {
+func seedPreviousSchemaDB(t *testing.T, dbPath string) {
 	t.Helper()
 
 	db, err := sql.Open("sqlite", dbPath)
@@ -595,7 +595,7 @@ func seedLegacyRelayDB(t *testing.T, dbPath string) {
 	}
 	defer func() { _ = db.Close() }()
 
-	legacySchema := []string{
+	previousSchema := []string{
 		`CREATE TABLE relay_app_kv (
 			namespace TEXT NOT NULL,
 			key TEXT NOT NULL,
@@ -628,14 +628,14 @@ func seedLegacyRelayDB(t *testing.T, dbPath string) {
 		 VALUES ('relay-default', 321, '2026-01-01T00:00:00Z');`,
 	}
 
-	for _, stmt := range legacySchema {
+	for _, stmt := range previousSchema {
 		if _, err := db.Exec(stmt); err != nil {
-			t.Fatalf("seed legacy relay db stmt failed: %v\nstmt: %s", err, stmt)
+			t.Fatalf("seed previous schema db stmt failed: %v\nstmt: %s", err, stmt)
 		}
 	}
 }
 
-func seedRelayDBAtVersion8(t *testing.T, dbPath string) {
+func seedPreviousSchemaAtVersion8(t *testing.T, dbPath string) {
 	t.Helper()
 
 	db, err := sql.Open("sqlite", dbPath)
@@ -794,8 +794,8 @@ func seedRelayDBAtVersion8(t *testing.T, dbPath string) {
 			max_retries, retry_count, last_dispatch_key, next_run_at, last_run_at, last_error, created_at, updated_at
 		)
 		 VALUES (
-			'legacy-daily-review', 'tg-1-2', 'telegram', '1:2', '{"chat_id":1,"topic_id":2}',
-			'Review legacy queue', '0 9 * * *', 'UTC', 'active',
+			'previous-daily-review', 'tg-1-2', 'telegram', '1:2', '{"chat_id":1,"topic_id":2}',
+			'Review previous queue', '0 9 * * *', 'UTC', 'active',
 			3, 0, '', '2026-01-02T09:00:00Z', '', '', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
 		);`,
 	}
@@ -807,7 +807,7 @@ func seedRelayDBAtVersion8(t *testing.T, dbPath string) {
 	}
 }
 
-func seedBaldaDBAtVersion10WithBuggyZeroLegacySession(t *testing.T, db *sql.DB) {
+func seedBaldaDBAtVersion10WithBuggyZeroSession(t *testing.T, db *sql.DB) {
 	t.Helper()
 
 	stmts := []string{
@@ -917,7 +917,7 @@ func assertTableMissing(t *testing.T, ctx context.Context, db *sql.DB, name stri
 	}
 }
 
-func assertSQLiteSchemaHasNoRelayLeftovers(t *testing.T, ctx context.Context, db *sql.DB) {
+func assertSQLiteSchemaHasNoPreviousSchemaLeftovers(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 
 	rows, err := db.QueryContext(ctx, `
@@ -927,7 +927,7 @@ func assertSQLiteSchemaHasNoRelayLeftovers(t *testing.T, ctx context.Context, db
 		   OR lower(coalesce(sql, '')) LIKE '%relay%'
 		ORDER BY type, name`)
 	if err != nil {
-		t.Fatalf("query sqlite schema relay leftovers: %v", err)
+		t.Fatalf("query sqlite schema previous leftovers: %v", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -935,15 +935,15 @@ func assertSQLiteSchemaHasNoRelayLeftovers(t *testing.T, ctx context.Context, db
 	for rows.Next() {
 		var objectType, name string
 		if err := rows.Scan(&objectType, &name); err != nil {
-			t.Fatalf("scan sqlite schema relay leftover: %v", err)
+			t.Fatalf("scan sqlite schema previous leftover: %v", err)
 		}
 		leftovers = append(leftovers, objectType+":"+name)
 	}
 	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate sqlite schema relay leftovers: %v", err)
+		t.Fatalf("iterate sqlite schema previous leftovers: %v", err)
 	}
 	if len(leftovers) > 0 {
-		t.Fatalf("sqlite schema has relay leftovers: %v", leftovers)
+		t.Fatalf("sqlite schema has previous leftovers: %v", leftovers)
 	}
 }
 
