@@ -496,9 +496,7 @@ session-start snapshot. New or restored sessions read the latest file.
 - `balda.swarm.commands.ack_wait`, `max_deliver`, `max_ack_pending`, `fetch_batch`, `fetch_wait`: pull-consumer and redelivery settings.
 - `balda.swarm.events.stream`: event stream name (default `BALDA_EVENTS`)
 - `balda.swarm.dlq.stream`: dead-letter stream name (default `BALDA_DLQ`)
-- Actor-lane queue policy is not a public config surface yet; JetStream is the only command queue. SessionActor currently honors only the internal per-envelope `queue_mode=interrupt` control hint.
 - `/goal` runs the Goalkeeper workflow in the current session and workspace. The workflow runs a worker agent followed by a validator agent until the validator returns `verdict: pass` or `balda.goal.max_iterations` is reached.
-- Task records, projections, DLQ state, and runtime lanes are internal implementation details; they are not chat commands.
 - internal durable memory uses `${balda.state_dir}/MEMORY.md` when `balda.memory.enabled=true`
   - `balda.memory.read` reads the file from MCP.
   - `balda.memory.remember` appends facts to the file from MCP.

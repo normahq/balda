@@ -333,6 +333,21 @@ func TestDocumentationContract(t *testing.T) {
 		}
 	})
 
+	t.Run("balda spec config keeps internal runtime detail out of setup docs", func(t *testing.T) {
+		path := filepath.Join(repoRoot, "docs/balda.md")
+		section := markdownSection(readFile(t, path), "## Configuration")
+		forbidden := []string{
+			"Actor-lane queue policy",
+			"Task records, projections, DLQ state, and runtime lanes",
+			"SessionActor currently honors only the internal per-envelope `queue_mode=interrupt` control hint",
+		}
+		for _, needle := range forbidden {
+			if strings.Contains(section, needle) {
+				t.Fatalf("%s configuration section still exposes internal runtime detail %q", filepath.ToSlash(path), needle)
+			}
+		}
+	})
+
 	t.Run("readme troubleshooting avoids internal operator view wording", func(t *testing.T) {
 		path := filepath.Join(repoRoot, "README.md")
 		section := markdownSection(readFile(t, path), "## Troubleshooting")
