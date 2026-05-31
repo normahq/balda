@@ -122,7 +122,16 @@ func (m *Manager) GetSessionInfo(ctx context.Context, sessionID string) (TopicSe
 	ts := m.sessions[trimmedID]
 	m.mu.RUnlock()
 	if ts != nil {
-		return topicSessionInfo(ts, baldastate.SessionStatusActive), nil
+		return TopicSessionInfo{
+			SessionID:    ts.sessionID,
+			UserID:       ts.userID,
+			Locator:      ts.locator,
+			ChannelType:  ts.locator.ChannelType,
+			AgentName:    ts.agentName,
+			WorkspaceDir: ts.workspaceDir,
+			BranchName:   ts.branchName,
+			Status:       baldastate.SessionStatusActive,
+		}, nil
 	}
 
 	record, ok, err := m.sessionStore.GetBySessionID(ctx, trimmedID)
@@ -133,40 +142,10 @@ func (m *Manager) GetSessionInfo(ctx context.Context, sessionID string) (TopicSe
 		return TopicSessionInfo{}, fmt.Errorf("session %q not found", trimmedID)
 	}
 
-	info, err := topicSessionInfoFromRecord(record)
-	if err != nil {
-		return TopicSessionInfo{}, err
-	}
-	if strings.TrimSpace(record.Status) == "" || record.Status == baldastate.SessionStatusActive {
-		info.Status = sessionStatusPersisted
-	} else {
-		info.Status = record.Status
-	}
-	return info, nil
-}
-
-func topicSessionInfo(ts *TopicSession, status string) TopicSessionInfo {
-	if ts == nil {
-		return TopicSessionInfo{}
-	}
-	return TopicSessionInfo{
-		SessionID:    ts.sessionID,
-		UserID:       ts.userID,
-		Locator:      ts.locator,
-		ChannelType:  ts.locator.ChannelType,
-		AgentName:    ts.agentName,
-		WorkspaceDir: ts.workspaceDir,
-		BranchName:   ts.branchName,
-		Status:       status,
-	}
-}
-
-func topicSessionInfoFromRecord(record baldastate.SessionRecord) (TopicSessionInfo, error) {
 	locator, err := LocatorFromRecord(record)
 	if err != nil {
 		return TopicSessionInfo{}, fmt.Errorf("decode persisted session locator for %q: %w", record.SessionID, err)
 	}
-
 	info := TopicSessionInfo{
 		SessionID:    record.SessionID,
 		UserID:       record.UserID,
@@ -175,6 +154,11 @@ func topicSessionInfoFromRecord(record baldastate.SessionRecord) (TopicSessionIn
 		AgentName:    record.AgentName,
 		WorkspaceDir: record.WorkspaceDir,
 		BranchName:   record.BranchName,
+	}
+	if strings.TrimSpace(record.Status) == "" || record.Status == baldastate.SessionStatusActive {
+		info.Status = sessionStatusPersisted
+	} else {
+		info.Status = record.Status
 	}
 	return info, nil
 }
