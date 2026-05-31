@@ -197,11 +197,7 @@ func shouldRetryWithoutParseMode(mode string, resp *client.SendMessageResponse, 
 	if resp == nil || resp.JSON400 == nil {
 		return false
 	}
-	return isTelegramParseEntitiesError(resp.JSON400.Description)
-}
-
-func isTelegramParseEntitiesError(description string) bool {
-	desc := strings.ToLower(strings.TrimSpace(description))
+	desc := strings.ToLower(strings.TrimSpace(resp.JSON400.Description))
 	if desc == "" {
 		return false
 	}
