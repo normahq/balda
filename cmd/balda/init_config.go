@@ -13,7 +13,15 @@ import (
 )
 
 func buildBaldaInitDocument(workingDir string) (map[string]any, []string, error) {
-	detectedAgents := detectBaldaInitAgents()
+	detectedAgents := make([]baldaInitAgentTemplate, 0, len(baldaInitAgentTemplates))
+	for _, template := range baldaInitAgentTemplates {
+		for _, binary := range template.DetectBinary {
+			if _, err := baldaInitLookPath(binary); err == nil {
+				detectedAgents = append(detectedAgents, template)
+				break
+			}
+		}
+	}
 	if len(detectedAgents) == 0 {
 		return nil, nil, fmt.Errorf(
 			"no supported agent CLI detected in PATH; install at least one of: codex, opencode, copilot, gemini, claude",
@@ -70,19 +78,6 @@ func buildBaldaInitDocument(workingDir string) (map[string]any, []string, error)
 	}
 
 	return doc, agentIDs, nil
-}
-
-func detectBaldaInitAgents() []baldaInitAgentTemplate {
-	detected := make([]baldaInitAgentTemplate, 0, len(baldaInitAgentTemplates))
-	for _, template := range baldaInitAgentTemplates {
-		for _, binary := range template.DetectBinary {
-			if _, err := baldaInitLookPath(binary); err == nil {
-				detected = append(detected, template)
-				break
-			}
-		}
-	}
-	return detected
 }
 
 func buildBaldaInitAgents(detected []baldaInitAgentTemplate) map[string]any {
