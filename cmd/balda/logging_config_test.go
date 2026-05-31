@@ -5,6 +5,7 @@ import (
 
 	baldaapp "github.com/normahq/balda/internal/apps/balda"
 	"github.com/normahq/balda/internal/logging"
+	"github.com/rs/zerolog"
 )
 
 func TestResolveBaldaLoggingSettings(t *testing.T) {
@@ -65,11 +66,8 @@ func TestApplyBaldaLogging_DebugFlagOverridesConfig(t *testing.T) {
 	if err := applyBaldaLogging(baldaapp.LoggerConfig{Level: logging.LevelError, Pretty: true}); err != nil {
 		t.Fatalf("applyBaldaLogging(): %v", err)
 	}
-	if !logging.DebugEnabled() {
-		t.Fatal("DebugEnabled() = false, want true")
-	}
-	if logging.TraceEnabled() {
-		t.Fatal("TraceEnabled() = true, want false")
+	if got := zerolog.GlobalLevel(); got != zerolog.DebugLevel {
+		t.Fatalf("GlobalLevel() = %v, want %v", got, zerolog.DebugLevel)
 	}
 }
 
@@ -80,8 +78,8 @@ func TestApplyBaldaLogging_TraceFlagOverridesDebug(t *testing.T) {
 	if err := applyBaldaLogging(baldaapp.LoggerConfig{Level: logging.LevelError, Pretty: true}); err != nil {
 		t.Fatalf("applyBaldaLogging(): %v", err)
 	}
-	if !logging.TraceEnabled() {
-		t.Fatal("TraceEnabled() = false, want true")
+	if got := zerolog.GlobalLevel(); got != zerolog.TraceLevel {
+		t.Fatalf("GlobalLevel() = %v, want %v", got, zerolog.TraceLevel)
 	}
 }
 

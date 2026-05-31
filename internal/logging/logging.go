@@ -13,10 +13,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var (
-	globalOpts Options
-)
-
 const (
 	LevelTrace = "trace"
 	LevelDebug = "debug"
@@ -36,8 +32,6 @@ func Init(setters ...OptOptionsSetter) error {
 		return fmt.Errorf("resolve logging level: %w", err)
 	}
 	opts.level = levelName
-
-	globalOpts = opts
 
 	// 1. Configure zerolog (Primary for the project)
 	zerolog.SetGlobalLevel(zlLevel)
@@ -72,16 +66,6 @@ func Init(setters ...OptOptionsSetter) error {
 	slog.SetDefault(slog.New(slogHandler))
 
 	return nil
-}
-
-// DebugEnabled reports whether debug logging is enabled.
-func DebugEnabled() bool {
-	return globalOpts.level == LevelDebug || globalOpts.level == LevelTrace
-}
-
-// TraceEnabled reports whether trace logging is enabled.
-func TraceEnabled() bool {
-	return globalOpts.level == LevelTrace
 }
 
 func resolveLevels(levelRaw string) (string, zerolog.Level, slog.Level, error) {

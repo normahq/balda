@@ -22,12 +22,6 @@ func TestInitDefault(t *testing.T) {
 	if !slog.Default().Handler().Enabled(context.TODO(), slog.LevelInfo) {
 		t.Error("expected slog level info enabled")
 	}
-	if DebugEnabled() {
-		t.Error("expected DebugEnabled() to be false")
-	}
-	if TraceEnabled() {
-		t.Error("expected TraceEnabled() to be false")
-	}
 }
 
 func TestInitLevelDebug(t *testing.T) {
@@ -40,12 +34,6 @@ func TestInitLevelDebug(t *testing.T) {
 	if !slog.Default().Handler().Enabled(context.TODO(), slog.LevelDebug) {
 		t.Error("expected slog level debug enabled")
 	}
-	if !DebugEnabled() {
-		t.Error("expected DebugEnabled() to be true")
-	}
-	if TraceEnabled() {
-		t.Error("expected TraceEnabled() to be false")
-	}
 }
 
 func TestInitLevelTrace(t *testing.T) {
@@ -57,12 +45,6 @@ func TestInitLevelTrace(t *testing.T) {
 	}
 	if !slog.Default().Handler().Enabled(context.TODO(), slog.LevelDebug-4) {
 		t.Error("expected slog level trace enabled")
-	}
-	if !DebugEnabled() {
-		t.Error("expected DebugEnabled() to be true at trace level")
-	}
-	if !TraceEnabled() {
-		t.Error("expected TraceEnabled() to be true")
 	}
 }
 
@@ -108,45 +90,6 @@ func TestInitLevelWarningAlias(t *testing.T) {
 func TestInitInvalidLevel(t *testing.T) {
 	if err := Init(WithLevel("nope")); err == nil {
 		t.Fatal("Init() error = nil, want invalid level error")
-	}
-}
-
-func TestDebugEnabled(t *testing.T) {
-	if err := Init(WithLevel(LevelDebug)); err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	if !DebugEnabled() {
-		t.Error("expected DebugEnabled() to be true when level=debug")
-	}
-
-	if err := Init(WithLevel(LevelTrace)); err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	if !DebugEnabled() {
-		t.Error("expected DebugEnabled() to be true when level=trace")
-	}
-
-	if err := Init(WithLevel(LevelInfo)); err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	if DebugEnabled() {
-		t.Error("expected DebugEnabled() to be false when level=info")
-	}
-}
-
-func TestTraceEnabled(t *testing.T) {
-	if err := Init(WithLevel(LevelTrace)); err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	if !TraceEnabled() {
-		t.Error("expected TraceEnabled() to be true when level=trace")
-	}
-
-	if err := Init(WithLevel(LevelDebug)); err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	if TraceEnabled() {
-		t.Error("expected TraceEnabled() to be false when level=debug")
 	}
 }
 
