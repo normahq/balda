@@ -372,7 +372,7 @@ func Module(
 					}
 					go func() {
 						if err := bot.Run(runCtx); err != nil {
-							if isExpectedBotRunShutdown(err) {
+							if shutdown.IsExpected(err) {
 								bot.Logger().Debugf("bot run stopped during shutdown: %v", err)
 								return
 							}
@@ -404,10 +404,6 @@ func validateBaldaMCPConfiguration(normaCfg runtimeconfig.RuntimeConfig) error {
 	}
 	sort.Strings(errs)
 	return fmt.Errorf("invalid balda MCP configuration: %s", strings.Join(errs, "; "))
-}
-
-func isExpectedBotRunShutdown(err error) bool {
-	return shutdown.IsExpected(err)
 }
 
 func openBaldaStateProvider(ctx context.Context, stateDir string) (baldastate.Provider, error) {

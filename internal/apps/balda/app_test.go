@@ -2,7 +2,6 @@ package balda
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,43 +27,6 @@ var (
 	_ = filepath.Clean
 	_ = paths.ConfigPath
 )
-
-func TestIsExpectedBotRunShutdown(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{
-			name: "nil",
-			err:  nil,
-			want: false,
-		},
-		{
-			name: "context canceled",
-			err:  context.Canceled,
-			want: true,
-		},
-		{
-			name: "wrapped context canceled",
-			err:  fmt.Errorf("shutdown: %w", context.Canceled),
-			want: true,
-		},
-		{
-			name: "other error",
-			err:  context.DeadlineExceeded,
-			want: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isExpectedBotRunShutdown(tt.err); got != tt.want {
-				t.Fatalf("isExpectedBotRunShutdown(%v) = %t, want %t", tt.err, got, tt.want)
-			}
-		})
-	}
-}
 
 func TestOpenBaldaStateProviderUsesStateDB(t *testing.T) {
 	stateDir := t.TempDir()
