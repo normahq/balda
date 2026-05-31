@@ -83,7 +83,7 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 		assertOnlyAllowedFiles(t, matches, []string{
 			"eventbus/nats/connection.go",
 			"eventbus/nats/embedded_server.go",
-			"eventbus/nats/jetstream.go",
+			"eventbus/nats/runtime.go",
 			"eventbus/nats/subjects.go",
 		})
 	})
