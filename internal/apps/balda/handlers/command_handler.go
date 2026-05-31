@@ -8,7 +8,6 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
-	"github.com/normahq/balda/internal/apps/balda/messenger"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
@@ -33,7 +32,6 @@ type CommandHandler struct {
 	sessionManager    commandSessionManager
 	actorDispatcher   swarm.ActorDispatcher
 	goalMaxIterations int
-	messenger         *messenger.Messenger
 	userHandler       *userHandler
 }
 
@@ -46,7 +44,6 @@ type commandHandlerParams struct {
 	SessionManager    *session.Manager
 	ActorDispatcher   swarm.ActorDispatcher
 	MaxIterations     int `name:"balda_goal_max_iterations"`
-	Messenger         *messenger.Messenger
 	UserHandler       *userHandler
 }
 
@@ -58,7 +55,6 @@ func newCommandHandler(params commandHandlerParams) *CommandHandler {
 		sessionManager:    params.SessionManager,
 		actorDispatcher:   params.ActorDispatcher,
 		goalMaxIterations: normalizeGoalMaxIterations(params.MaxIterations),
-		messenger:         params.Messenger,
 		userHandler:       params.UserHandler,
 	}
 }

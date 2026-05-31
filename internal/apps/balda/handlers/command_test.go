@@ -661,7 +661,6 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 		sessionManager:    sessionManager,
 		actorDispatcher:   turnDispatcher,
 		goalMaxIterations: normalizeGoalMaxIterations(0),
-		messenger:         msg,
 	}
 	return handler, sessionManager, turnDispatcher, tgClient
 }
