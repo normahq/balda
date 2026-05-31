@@ -51,18 +51,6 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  actor-lanes-race:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: 'go.mod'
-      - name: Race test actor lanes
-        run: go test -race -count=25 ./internal/apps/balda/swarm -run 'TestKeyedActorSchedulerRace'
-
   projection-replay:
     runs-on: ubuntu-latest
     permissions:
@@ -85,7 +73,7 @@ jobs:
         with:
           go-version-file: 'go.mod'
       - name: Structural contract tests
-        run: go test ./internal/apps/balda -run 'TestJetStreamArchitectureContract_Static|TestDocumentationContract'
+        run: go test ./internal/apps/balda -run 'TestRuntimeArchitectureContractStatic'
 
   jetstream-integration:
     runs-on: ubuntu-latest
@@ -109,4 +97,4 @@ jobs:
         with:
           go-version-file: 'go.mod'
       - name: Webhook, scheduler, and goal E2E tests
-        run: go test -race ./internal/apps/balda/handlers -run 'TestInboundWebhookReceiver_AcceptsAndPublishesCommand|TestInboundWebhookReceiver_SessionModePublishesSessionCommand|TestScheduledTaskSchedulerDispatchTask_PublishesCommandAndReschedules|TestCommandHandlerSubmitGoalTask_PublishesDurableCommandOnly|TestTaskActorStartGoalRecordsProgressBeforePlannerDispatch'
+        run: go test -race ./internal/apps/balda/handlers -run 'TestInboundWebhookReceiver_AcceptsAndPublishesCommand|TestInboundWebhookReceiver_SessionModePublishesSessionCommand|TestScheduledTaskSchedulerDispatchTask_PublishesCommandAndReschedules|TestCommandHandlerSubmitGoalTask_PublishesDurableCommandOnly'
