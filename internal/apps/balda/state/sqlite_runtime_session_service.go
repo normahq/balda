@@ -82,10 +82,18 @@ func (s *sqliteRuntimeSessionService) Create(ctx context.Context, req *adksessio
 	}
 	defer rollbackTx(tx)
 
-	if exists, err := runtimeSessionExists(ctx, tx, key); err != nil {
-		return nil, err
-	} else if exists {
+	var one int
+	err = tx.QueryRowContext(ctx, `
+		SELECT 1
+		FROM balda_runtime_sessions
+		WHERE app_name = ? AND user_id = ? AND session_id = ?`,
+		key.appName, key.userID, key.sessionID,
+	).Scan(&one)
+	if err == nil {
 		return nil, fmt.Errorf("runtime session %q already exists", key.sessionID)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("check runtime session %q exists: %w", key.sessionID, err)
 	}
 
 	appState, err := fetchRuntimeAppState(ctx, tx, key.appName)
@@ -592,23 +600,6 @@ func saveRuntimeUserState(ctx context.Context, tx *sql.Tx, appName, userID strin
 		return fmt.Errorf("save runtime user state: %w", err)
 	}
 	return nil
-}
-
-func runtimeSessionExists(ctx context.Context, q dbQueryer, key runtimeSessionKey) (bool, error) {
-	var one int
-	err := q.QueryRowContext(ctx, `
-		SELECT 1
-		FROM balda_runtime_sessions
-		WHERE app_name = ? AND user_id = ? AND session_id = ?`,
-		key.appName, key.userID, key.sessionID,
-	).Scan(&one)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
-		}
-		return false, fmt.Errorf("check runtime session %q exists: %w", key.sessionID, err)
-	}
-	return true, nil
 }
 
 func fetchRuntimeEvents(ctx context.Context, q dbQueryer, key runtimeSessionKey, limit int, after time.Time) ([]*adksession.Event, error) {
