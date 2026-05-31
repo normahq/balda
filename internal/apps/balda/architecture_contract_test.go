@@ -78,7 +78,7 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 		}
 	})
 
-	t.Run("nats imports stay inside jetstream adapter", func(t *testing.T) {
+	t.Run("nats imports stay inside runtime adapter", func(t *testing.T) {
 		matches := findSourceMatches(t, root, files, regexp.MustCompile(`github\.com/nats-io/`))
 		assertOnlyAllowedFiles(t, matches, []string{
 			"eventbus/nats/connection.go",
