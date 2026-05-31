@@ -150,7 +150,19 @@ func (a *taskControlActor) cancelSession(ctx context.Context, payload taskContro
 		}
 	}
 	if payload.Notify {
-		a.sendControlMessage(ctx, payload.Locator, formatCancelResponse(hadInFlight, dropped, taskCanceled))
+		response := "Canceled current turn."
+		if !hadInFlight && dropped == 0 && taskCanceled == 0 {
+			response = "No running or queued session work."
+		} else if !hadInFlight {
+			response = "No running turn to cancel."
+		}
+		if dropped > 0 {
+			response += fmt.Sprintf("\nDropped %d queued session message(s).", dropped)
+		}
+		if taskCanceled > 0 {
+			response += fmt.Sprintf("\nCanceled %d active task(s).", taskCanceled)
+		}
+		a.sendControlMessage(ctx, payload.Locator, response)
 	}
 	return nil
 }
@@ -162,23 +174,6 @@ func (a *taskControlActor) sendControlMessage(ctx context.Context, locator balda
 	if err := a.channel.SendPlain(ctx, locator, text); err != nil {
 		a.logger.Warn().Err(err).Str("session_id", locator.SessionID).Msg("failed to send control response")
 	}
-}
-
-func formatCancelResponse(hadInFlight bool, dropped int, taskCanceled int) string {
-	if !hadInFlight && dropped == 0 && taskCanceled == 0 {
-		return "No running or queued session work."
-	}
-	response := "Canceled current turn."
-	if !hadInFlight {
-		response = "No running turn to cancel."
-	}
-	if dropped > 0 {
-		response += fmt.Sprintf("\nDropped %d queued session message(s).", dropped)
-	}
-	if taskCanceled > 0 {
-		response += fmt.Sprintf("\nCanceled %d active task(s).", taskCanceled)
-	}
-	return response
 }
 
 func ControlCancelEnvelope(locator baldasession.SessionLocator, taskID string, requestedBy string, reason string) (swarm.Envelope, error) {
