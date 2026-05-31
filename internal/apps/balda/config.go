@@ -24,7 +24,7 @@ type BaldaConfig struct {
 	Workspace         WorkspaceConfig      `mapstructure:"workspace"`
 	MCPServers        []string             `mapstructure:"mcp_servers"`
 	GlobalInstruction string               `mapstructure:"global_instruction"`
-	// RemovedEventBus captures removed balda.event_bus config so startup validation fails instead of ignoring it.
+	// RemovedEventBus captures unsupported balda.event_bus config so startup validation fails instead of ignoring it.
 	RemovedEventBus any `mapstructure:"event_bus"`
 }
 
@@ -50,7 +50,7 @@ type WebhooksConfig struct {
 	Enabled    bool                          `mapstructure:"enabled"`
 	ListenAddr string                        `mapstructure:"listen_addr"`
 	Routes     map[string]WebhookRouteConfig `mapstructure:"routes"`
-	// RemovedMode captures removed balda.webhooks.mode config so startup validation fails instead of ignoring it.
+	// RemovedMode captures unsupported balda.webhooks.mode config so startup validation fails instead of ignoring it.
 	RemovedMode any `mapstructure:"mode"`
 }
 
@@ -122,7 +122,7 @@ type SwarmConfig struct {
 	Commands SwarmCommandConfig `mapstructure:"commands"`
 	Events   SwarmEventConfig   `mapstructure:"events"`
 	DLQ      SwarmDLQConfig     `mapstructure:"dlq"`
-	// RemovedMode captures removed balda.swarm.mode config so startup validation fails instead of ignoring it.
+	// RemovedMode captures unsupported balda.swarm.mode config so startup validation fails instead of ignoring it.
 	RemovedMode any `mapstructure:"mode"`
 }
 
@@ -147,9 +147,9 @@ type SwarmDLQConfig struct {
 // SchedulerConfig controls startup-managed recurring tasks.
 type SchedulerConfig struct {
 	Tasks []ScheduledTaskConfig `mapstructure:"tasks"`
-	// RemovedMode captures removed balda.scheduler.mode config so startup validation fails instead of ignoring it.
+	// RemovedMode captures unsupported balda.scheduler.mode config so startup validation fails instead of ignoring it.
 	RemovedMode any `mapstructure:"mode"`
-	// RemovedJobs captures removed balda.scheduler.jobs config so startup validation fails instead of ignoring it.
+	// RemovedJobs captures unsupported balda.scheduler.jobs config so startup validation fails instead of ignoring it.
 	RemovedJobs any `mapstructure:"jobs"`
 }
 

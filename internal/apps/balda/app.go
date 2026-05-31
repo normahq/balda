@@ -407,9 +407,9 @@ func validateBaldaMCPConfiguration(cfg Config, normaCfg runtimeconfig.RuntimeCon
 			errs = append(errs, `runtime.mcp_servers.balda is reserved for the built-in balda MCP server`)
 		default:
 			if _, ok := removedConfigMCPServerIDs[id]; ok {
-				errs = append(errs, fmt.Sprintf("runtime.mcp_servers.%s conflicts with removed built-in config MCP server ID %q; edit the balda config file directly at %q", id, id, configPath))
+				errs = append(errs, fmt.Sprintf("runtime.mcp_servers.%s conflicts with unsupported built-in config MCP server ID %q; edit the balda config file directly at %q", id, id, configPath))
 			} else if replacement, ok := removedBuiltInBaldaMCPServerIDs[id]; ok {
-				errs = append(errs, fmt.Sprintf("runtime.mcp_servers.%s conflicts with removed built-in MCP server ID %q; rename the custom server and use %q for the built-in balda MCP server", id, id, replacement))
+				errs = append(errs, fmt.Sprintf("runtime.mcp_servers.%s conflicts with unsupported built-in MCP server ID %q; rename the custom server and use %q for the built-in balda MCP server", id, id, replacement))
 			}
 		}
 	}
@@ -417,9 +417,9 @@ func validateBaldaMCPConfiguration(cfg Config, normaCfg runtimeconfig.RuntimeCon
 	for i, id := range cfg.Balda.MCPServers {
 		trimmed := strings.TrimSpace(id)
 		if _, ok := removedConfigMCPServerIDs[trimmed]; ok {
-			errs = append(errs, fmt.Sprintf("balda.mcp_servers[%d] references removed built-in config MCP server %q; edit the balda config file directly at %q", i, id, configPath))
+			errs = append(errs, fmt.Sprintf("balda.mcp_servers[%d] references unsupported built-in config MCP server %q; edit the balda config file directly at %q", i, id, configPath))
 		} else if replacement, ok := removedBuiltInBaldaMCPServerIDs[trimmed]; ok {
-			errs = append(errs, fmt.Sprintf("balda.mcp_servers[%d] references removed built-in MCP server %q; use %q", i, id, replacement))
+			errs = append(errs, fmt.Sprintf("balda.mcp_servers[%d] references unsupported built-in MCP server %q; use %q", i, id, replacement))
 		}
 	}
 
@@ -427,9 +427,9 @@ func validateBaldaMCPConfiguration(cfg Config, normaCfg runtimeconfig.RuntimeCon
 		for i, id := range agentCfg.MCPServers {
 			trimmed := strings.TrimSpace(id)
 			if _, ok := removedConfigMCPServerIDs[trimmed]; ok {
-				errs = append(errs, fmt.Errorf("runtime.providers.%s.mcp_servers[%d] references removed built-in config MCP server %q; edit the balda config file directly at %q", agentName, i, id, configPath).Error())
+				errs = append(errs, fmt.Errorf("runtime.providers.%s.mcp_servers[%d] references unsupported built-in config MCP server %q; edit the balda config file directly at %q", agentName, i, id, configPath).Error())
 			} else if replacement, ok := removedBuiltInBaldaMCPServerIDs[trimmed]; ok {
-				errs = append(errs, fmt.Errorf("runtime.providers.%s.mcp_servers[%d] references removed built-in MCP server %q; use %q", agentName, i, id, replacement).Error())
+				errs = append(errs, fmt.Errorf("runtime.providers.%s.mcp_servers[%d] references unsupported built-in MCP server %q; use %q", agentName, i, id, replacement).Error())
 			}
 		}
 	}
@@ -611,7 +611,7 @@ func validateRemovedRuntimeConfig(cfg BaldaConfig) error {
 	if len(errs) == 0 {
 		return nil
 	}
-	return fmt.Errorf("invalid removed runtime configuration: %s", strings.Join(errs, "; "))
+	return fmt.Errorf("invalid unsupported runtime configuration: %s", strings.Join(errs, "; "))
 }
 
 func validateRuntimeConfigLint(swarmCfg swarm.Config, webhookCfg handlers.InboundWebhookConfig) error {

@@ -79,7 +79,7 @@ func TestOpenBaldaStateProviderUsesStateDB(t *testing.T) {
 		t.Fatalf("stat state db: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "balda.db")); !os.IsNotExist(err) {
-		t.Fatalf("removed balda.db stat error = %v, want not exist", err)
+		t.Fatalf("old balda.db stat error = %v, want not exist", err)
 	}
 }
 
@@ -124,10 +124,10 @@ func TestValidateBaldaMCPConfiguration_RejectsUnsupportedBuiltInServerReferences
 	if err == nil {
 		t.Fatal("validateBaldaMCPConfiguration() error = nil, want non-nil")
 	}
-	if !strings.Contains(err.Error(), `balda.mcp_servers[0] references removed built-in config MCP server "balda.config"; edit the balda config file directly at "/tmp/work/.config/balda/config.yaml"`) {
+	if !strings.Contains(err.Error(), `balda.mcp_servers[0] references unsupported built-in config MCP server "balda.config"; edit the balda config file directly at "/tmp/work/.config/balda/config.yaml"`) {
 		t.Fatalf("unexpected balda.mcp_servers validation error: %v", err)
 	}
-	if !strings.Contains(err.Error(), `runtime.providers.root.mcp_servers[0] references removed built-in MCP server "balda.workspace"; use "balda"`) {
+	if !strings.Contains(err.Error(), `runtime.providers.root.mcp_servers[0] references unsupported built-in MCP server "balda.workspace"; use "balda"`) {
 		t.Fatalf("unexpected runtime.providers validation error: %v", err)
 	}
 }
@@ -150,8 +150,8 @@ func TestValidateBaldaMCPConfiguration_RejectsReservedCustomServerIDs(t *testing
 	if !strings.Contains(err.Error(), "runtime.mcp_servers.balda is reserved for the built-in balda MCP server") {
 		t.Fatalf("missing reserved balda error: %v", err)
 	}
-	if !strings.Contains(err.Error(), `runtime.mcp_servers.runtime.config conflicts with removed built-in config MCP server ID "runtime.config"; edit the balda config file directly at "/tmp/work/.config/balda/config.yaml"`) {
-		t.Fatalf("missing removed built-in server conflict error: %v", err)
+	if !strings.Contains(err.Error(), `runtime.mcp_servers.runtime.config conflicts with unsupported built-in config MCP server ID "runtime.config"; edit the balda config file directly at "/tmp/work/.config/balda/config.yaml"`) {
+		t.Fatalf("missing unsupported built-in server conflict error: %v", err)
 	}
 }
 
@@ -254,8 +254,14 @@ func TestValidateUnsupportedRuntimeConfig(t *testing.T) {
 	if strings.Contains(err.Error(), "legacy mode configuration") {
 		t.Fatalf("validateRemovedRuntimeConfig() error = %q, want current unsupported-config wording", err.Error())
 	}
+	if strings.Contains(err.Error(), "invalid removed runtime configuration") {
+		t.Fatalf("validateRemovedRuntimeConfig() error = %q, still contains removed-runtime summary wording", err.Error())
+	}
 	if strings.Contains(err.Error(), "configure balda.nats for JetStream") {
 		t.Fatalf("validateRemovedRuntimeConfig() error = %q, still contains transport-specific event_bus guidance", err.Error())
+	}
+	if !strings.Contains(err.Error(), "invalid unsupported runtime configuration:") {
+		t.Fatalf("validateRemovedRuntimeConfig() error = %q, want unsupported-runtime summary wording", err.Error())
 	}
 	if !strings.Contains(err.Error(), "balda.event_bus is no longer supported; use balda.nats built-in runtime settings") {
 		t.Fatalf("validateRemovedRuntimeConfig() error = %q, want simplified event_bus guidance", err.Error())

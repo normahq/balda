@@ -483,7 +483,7 @@ session-start snapshot. New or restored sessions read the latest file.
 - `balda.nats.jetstream`: built-in command/event runtime toggle; normal installs leave it at the default `true`.
 - `balda.nats.store_dir`: runtime store directory, relative to `balda.working_dir` when not absolute (default `.balda/nats`)
 - `balda.nats.max_memory` / `max_store`: embedded runtime resource caps (defaults `256mb` and `2gb`)
-- removed runtime keys are rejected on startup (`balda.event_bus.*`, `balda.swarm.mode`, `balda.webhooks.mode`, `balda.scheduler.mode`)
+- unsupported runtime keys are rejected on startup (`balda.event_bus.*`, `balda.swarm.mode`, `balda.webhooks.mode`, `balda.scheduler.mode`)
 - `balda.swarm`: optional advanced runtime tuning for command handling, retries, backpressure, and failure retention. Most installs should leave it at defaults.
 - `/goal` runs repeated work and validation passes in the current session and workspace until the goal passes validation or `balda.goal.max_iterations` is reached.
 - internal durable memory uses `${balda.state_dir}/MEMORY.md` when `balda.memory.enabled=true`
