@@ -13,7 +13,7 @@ const (
 	defaultNATSMaxStore  = "2gb"
 )
 
-// Config controls Balda's required JetStream command/event bus.
+// Config controls Balda's built-in command/event runtime.
 type Config struct {
 	Embedded         bool     `mapstructure:"embedded"`
 	URLs             []string `mapstructure:"urls"`
