@@ -47,18 +47,6 @@ type commandHandlerParams struct {
 	UserHandler       *userHandler
 }
 
-func newCommandHandler(params commandHandlerParams) *CommandHandler {
-	return &CommandHandler{
-		ownerStore:        params.OwnerStore,
-		collaboratorStore: params.CollaboratorStore,
-		channel:           params.Channel,
-		sessionManager:    params.SessionManager,
-		actorDispatcher:   params.ActorDispatcher,
-		goalMaxIterations: normalizeGoalMaxIterations(params.MaxIterations),
-		userHandler:       params.UserHandler,
-	}
-}
-
 // Register registers the handler with the registry.
 func (h *CommandHandler) Register(registry tgbotkit.Registry) {
 	registry.OnCommand(h.onCommand)

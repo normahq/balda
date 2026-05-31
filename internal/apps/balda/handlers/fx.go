@@ -39,7 +39,17 @@ var Module = fx.Module("balda_handlers",
 		newBaldaHandler,
 		provideSessionTurnRunner,
 		provideScheduledTaskRecorder,
-		newCommandHandler,
+		func(params commandHandlerParams) *CommandHandler {
+			return &CommandHandler{
+				ownerStore:        params.OwnerStore,
+				collaboratorStore: params.CollaboratorStore,
+				channel:           params.Channel,
+				sessionManager:    params.SessionManager,
+				actorDispatcher:   params.ActorDispatcher,
+				goalMaxIterations: normalizeGoalMaxIterations(params.MaxIterations),
+				userHandler:       params.UserHandler,
+			}
+		},
 		func(params userHandlerParams) *userHandler {
 			return &userHandler{
 				ownerStore:        params.OwnerStore,
