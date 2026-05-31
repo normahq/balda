@@ -122,7 +122,7 @@ balda:
 
   scheduler:
     # Startup-reconciled recurring tasks.
-    # Tasks are upserted by id on boot; missing ids are removed from state.db.
+    # Tasks are upserted by id on boot; missing ids are deleted from state.db.
     # Tasks use cron syntax (5 fields) or cron descriptors like @every 10m.
     # By default, scheduled turns are fire-and-forget. Set envelope.report_to to send progress/final replies.
     # Example:
