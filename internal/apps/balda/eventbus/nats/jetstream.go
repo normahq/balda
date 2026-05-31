@@ -184,7 +184,7 @@ func (b *Bus) commandWorkerLimit() int {
 	switch {
 	case b.cfg.Swarm.Commands.FetchBatch > 0:
 		// Keep local in-memory fan-out bounded to the pull batch size.
-		// JetStream max_ack_pending stays the transport limit.
+		// Transport max_ack_pending stays the transport limit.
 		return b.cfg.Swarm.Commands.FetchBatch
 	case b.cfg.Swarm.Commands.MaxAckPending > 0:
 		return b.cfg.Swarm.Commands.MaxAckPending
