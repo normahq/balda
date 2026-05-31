@@ -168,9 +168,9 @@ func TestEnsureWorkspace_UsesStateDirSessionsRoot(t *testing.T) {
 		t.Fatalf("stat workspaceDir %q: %v", workspaceDir, err)
 	}
 
-	oldPath := filepath.Join(workingDir, ".norma", "balda-sessions", sessionID)
-	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
-		t.Fatalf("old .norma workspace path exists at %q, err=%v", oldPath, err)
+	nonCanonicalPath := filepath.Join(workingDir, ".norma", "balda-sessions", sessionID)
+	if _, err := os.Stat(nonCanonicalPath); !os.IsNotExist(err) {
+		t.Fatalf("non-canonical .norma workspace path exists at %q, err=%v", nonCanonicalPath, err)
 	}
 }
 
