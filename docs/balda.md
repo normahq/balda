@@ -157,7 +157,7 @@ Balda treats `actorlayer` as a pure typed actor engine and never as product poli
 - `balda.provider` selects one app-scoped provider runtime for all Balda sessions and `/goal` work-validation runs in the process.
 - Actorlayer owns generic actor mechanics: registration, addressing, lane execution, lifecycle state, and delivery hooks.
 - Balda owns product actors and product behavior implemented as actors: session turns, task routing, goal execution, delivery, control, and memory.
-- Balda exposes JetStream to product/runtime code only as actorlayer source, delivery, and dispatch abstractions; the concrete transport stays inside the NATS adapter.
+- Balda exposes its durable transport to product/runtime code only as actorlayer source, delivery, and dispatch abstractions; the concrete transport stays inside the NATS adapter.
 
 The boundary is intentionally explicit:
 
@@ -181,7 +181,7 @@ Balda's actorlayer integration is intentionally direct:
 - `internal/apps/balda/swarm/runtime.go`: consumes an `actorlayer/engine.Source` and owns actor lane execution.
 - `internal/apps/balda/actors`: defines Balda product actors for session, task, goal, delivery, control, and memory command contracts.
 - `internal/apps/balda/handlers`: owns ingress, command parsing, and dispatching actor command envelopes.
-- `internal/apps/balda/eventbus/nats`: adapts JetStream publish, fetch, ack, retry, in-progress heartbeat, terminal dead-letter, and event-stream publishing into actorlayer source/delivery/dispatch contracts.
+- `internal/apps/balda/eventbus/nats`: adapts transport publish, fetch, ack, retry, in-progress heartbeat, terminal dead-letter, and event-stream publishing into actorlayer source/delivery/dispatch contracts.
 - `internal/apps/balda/agent` and `internal/apps/balda/session`: own the single app-scoped provider runtime selected by `balda.provider` and the per-session state.
 - `internal/apps/balda/state`: owns SQLite product/read-model state for sessions, tasks, projections, memory, and delivery outbox rows.
 
@@ -583,7 +583,7 @@ durable command first; task records are created after command delivery.
 - Task statuses are `created`, `queued`, `running`, `waiting_for_agent`,
   `waiting_for_user`, `validating`, `completed`, `failed`, `canceled`, and
   `deadlettered`.
-- Task events are append-only JetStream events projected into SQLite read
+- Task events are append-only durable transport events projected into SQLite read
   models. Event projection failure never decides command success. Semantic
   event types include `task.created`, `task.assigned`, `task.started`,
   `agent.started`, `agent.progress`, `agent.result`, `task.validating`,
@@ -604,10 +604,10 @@ durable command first; task records are created after command delivery.
 - Task records and projected task events remain internal runtime/operator data.
   Telegram does not expose direct task inspection or per-task control commands.
 
-### JetStream runtime semantics (internal)
+### Command runtime semantics (internal)
 
-Balda uses JetStream as the concrete durable adapter behind actorlayer dispatch,
-source, delivery, retry, replay, event, and DLQ contracts. SQLite remains
+Balda uses its durable transport adapter behind actorlayer dispatch, source,
+delivery, retry, replay, event, and DLQ contracts. SQLite remains
 product/read-model state only; it does not decide what runs, retries, or wakes
 up.
 
@@ -620,7 +620,7 @@ flowchart LR
         GOAL["/goal"]
     end
 
-    subgraph JS["JetStream"]
+    subgraph JS["Transport adapter"]
         CMD["BALDA_COMMANDS
 balda.v1.cmd.>"]
         WKR["BALDA_WORKER_COMMANDS
@@ -660,8 +660,8 @@ session/task/goal/delivery/memory"]
 ```
 
 - Ownership boundary:
-  - JetStream owns durable storage and wire-level settlement inside
-    `internal/apps/balda/eventbus/nats`.
+  - The NATS transport adapter owns durable storage and wire-level settlement
+    inside `internal/apps/balda/eventbus/nats`.
   - Actorlayer `Source`/`Delivery`/dispatch contracts are the boundary consumed
     by runtime, handlers, and product actors.
   - SQLite owns product state/read models (`swarm_tasks`, projected
@@ -681,9 +681,9 @@ session/task/goal/delivery/memory"]
   command ownership from SQLite queue rows.
 - Projectors are idempotent by event identity (`event_id`/message identity) and
   can safely replay events after restart.
-- Projection failure does not block command execution or JetStream command
+- Projection failure does not block command execution or transport command
   settlement. Command success/failure is decided by actor side effects plus
-  JetStream ack/nak/term only.
+  transport ack/nak/term only.
 - Permanent projection decode/apply failures are terminated to `BALDA_DLQ`
   with source envelope and failure reason.
 - Projection lag is expected and observable through operator logs and internal tooling; lag recovery happens by durable consumer catch-up.
@@ -705,9 +705,9 @@ session/task/goal/delivery/memory"]
 
 | Name | Type | Subject filter | Retention / delivery | Key config |
 |---|---|---|---|---|
-| `BALDA_COMMANDS` | JetStream stream | `balda.v1.cmd.>` | work-queue retention | file storage, configurable limits/discard policy |
-| `BALDA_EVENTS` | JetStream stream | `balda.v1.evt.>` | limits retention | file storage, replay source for projections |
-| `BALDA_DLQ` | JetStream stream | `balda.v1.dlq.>` | limits retention | file storage, terminal failure inspection source |
+| `BALDA_COMMANDS` | durable command stream | `balda.v1.cmd.>` | work-queue retention | file storage, configurable limits/discard policy |
+| `BALDA_EVENTS` | durable event stream | `balda.v1.evt.>` | limits retention | file storage, replay source for projections |
+| `BALDA_DLQ` | durable DLQ stream | `balda.v1.dlq.>` | limits retention | file storage, terminal failure inspection source |
 | `BALDA_WORKER_COMMANDS` | command worker consumer (on `BALDA_COMMANDS`) | `balda.v1.cmd.>` | deliver-all + explicit ack | `ack_wait`, `max_deliver`, `max_ack_pending`, `fetch_batch`, `fetch_wait` |
 | `BALDA_EVENT_PROJECTOR` | event projector consumer (on `BALDA_EVENTS`) | `balda.v1.evt.>` | deliver-all + explicit ack | same retry/backpressure knobs as command consumer; projector applies idempotent read-model updates |
 
@@ -741,7 +741,7 @@ All commands use the common envelope schema:
 | `balda.v1.cmd.delivery` | `to.target=delivery` | `agent.result` / delivery work namespaces | delivery address in `to.key`; `task_id` when task-owned | outbound delivery payload (channel message/terminal update) |
 | `balda.v1.cmd.control` | `namespace=task.control` (forced) | `task.control` | `task_id` and/or `session_id` | cancel/control payload (`reason`, actor/user origin) |
 
-Deduplication policy for all command subjects: JetStream message ID uses
+Deduplication policy for all command subjects: transport message ID uses
 `dedupe_key` when present, otherwise `id`.
 
 #### Event schema table
@@ -769,7 +769,7 @@ All events are published as the same envelope shape. For event envelopes,
 #### Idempotency rules
 
 - Command publish idempotency:
-  - JetStream `MsgID` is `dedupe_key` when present, otherwise envelope `id`.
+  - transport `MsgID` is `dedupe_key` when present, otherwise envelope `id`.
   - duplicate publishes emit `command.noop` and do not create duplicate command work.
 - Command consumption idempotency:
   - all handlers must tolerate redelivery (`at-least-once`).
@@ -796,15 +796,15 @@ All events are published as the same envelope shape. For event envelopes,
   - when delivery attempts reach `max_deliver`, command is moved to `BALDA_DLQ` with reason `retry exhausted: <error>`.
 - DLQ payload contract:
   - keeps original envelope identity/routing/payload (`id`, namespace, from/to, task/session scope).
-  - includes failure reason and JetStream origin metadata (subject/headers for poison decode cases).
+  - includes failure reason and transport origin metadata (subject/headers for poison decode cases).
 - Operational inspection:
-  - inspect DLQ stream contents, JetStream metadata, and structured logs when command failures need replay or triage.
+  - inspect DLQ stream contents, transport metadata, and structured logs when command failures need replay or triage.
 
 #### Failure-mode matrix
 
 | Failure mode | Where detected | Settlement/result | User-visible impact | Operator action |
 |---|---|---|---|---|
-| JetStream unavailable at startup | app startup/runtime bootstrap | startup fails fast | ingress not started; no work accepted | restore NATS/JetStream and restart |
+| Transport unavailable at startup | app startup/runtime bootstrap | startup fails fast | ingress not started; no work accepted | restore NATS transport and restart |
 | Command publish rejected (queue pressure/transport) | ingress publish path | request rejected (`queue_full`/`dispatch_failed`) | command not accepted; no task created | inspect stream limits/backpressure, retry ingress |
 | Envelope decode failure (command consumer) | command consumer decode | `TermWithReason`, publish poison record to `BALDA_DLQ`, emit `command.decode_failed` | affected message skipped; no handler side effects | inspect DLQ payload, fix producer/schema, replay if needed |
 | Retryable actor/runtime error | command handler/runtime | `NakWithDelay`, emit `command.retrying` | delayed completion | inspect retries, root-cause transient dependency failures |
@@ -819,7 +819,7 @@ All events are published as the same envelope shape. For event envelopes,
   `Balda-Causation-ID`, `Balda-Dedupe-Key`, `Balda-Actor-Key`,
   `Balda-Priority`, and `Balda-Namespace`.
 - Embedded NATS binds to `127.0.0.1` by default and is not exposed externally.
-  JetStream files live under `.balda/nats`, which is runtime state and should
+  NATS transport files live under `.balda/nats`, which is runtime state and should
   not be committed.
 - Poison command/event messages that cannot decode as Balda envelopes are
   terminated and copied to `BALDA_DLQ` with the raw subject, headers, payload,
@@ -828,26 +828,26 @@ All events are published as the same envelope shape. For event envelopes,
   (`task:<task_id>`) across task control, goal command/result, and task-bound
   human/webhook/schedule ingress. Different task IDs still run concurrently.
 - Command consumer backpressure boundary:
-  - JetStream command worker consumer (`BALDA_WORKER_COMMANDS`) is the transport queue.
+  - Command worker consumer (`BALDA_WORKER_COMMANDS`) is the transport queue.
   - Local in-process worker fan-out is capped to `fetch_batch` (not `max_ack_pending`) to avoid creating a second deep in-memory queue ahead of actor lanes.
-  - `max_ack_pending` remains a JetStream transport limit; it is not used as local goroutine fan-out.
+  - `max_ack_pending` remains a transport limit; it is not used as local goroutine fan-out.
 
 ### Command-path queue ownership (internal)
 
-- JetStream command stream (`BALDA_COMMANDS`):
-  - owner: JetStream
+- Command stream (`BALDA_COMMANDS`):
+  - owner: NATS transport adapter
   - capacity/backpressure: stream limits + discard policy (`balda.nats.streams.commands.*`)
-  - retry/redelivery: JetStream consumer (`Ack`, `NakWithDelay`, `InProgress`, `Term`)
-  - inspection: JetStream stream metadata (`messages`, `bytes`, seq range`) and logs
-- JetStream worker consumer (`BALDA_WORKER_COMMANDS`):
-  - owner: JetStream
+  - retry/redelivery: transport consumer (`Ack`, `NakWithDelay`, `InProgress`, `Term`)
+  - inspection: transport stream metadata (`messages`, `bytes`, seq range`) and logs
+- Worker consumer (`BALDA_WORKER_COMMANDS`):
+  - owner: NATS transport adapter
   - capacity: `max_ack_pending`
   - fetch window: `fetch_batch`, `fetch_wait`
-  - inspection: JetStream consumer metadata (`num_pending`, `num_ack_pending`, `num_redelivered`) and logs
+  - inspection: transport consumer metadata (`num_pending`, `num_ack_pending`, `num_redelivered`) and logs
 - Local actor delivery workers:
-  - owner: process-local JetStream actorlayer source adapter
+  - owner: process-local transport actorlayer source adapter
   - capacity: `fetch_batch` (bounded local fan-out)
-  - behavior: no persistence, no retry policy; settlement remains JetStream-owned
+  - behavior: no persistence, no retry policy; settlement remains transport-owned
 - Actor lanes:
   - owner: process-local actorlayer runtime engine
   - capacity: 1 active handler per actor key (`task:<id>`, session/goal fallbacks)
@@ -871,8 +871,8 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 - Startup reconciliation: configured task IDs are upserted, and persisted tasks not present in config are deleted from the scheduler state.
 - Publish-before-mark: scheduler publishes the command first, then writes `last_dispatch_key` and advances `next_run_at`, so a failed publish does not mark work dispatched.
 - Success after actor execution: `last_run_at` is updated, `last_error` is cleared, `retry_count` is reset to `0`, and the task remains `active`.
-- Pre-publish failure: target resolution, invalid schedule, or JetStream publish failure increments `retry_count`, records `last_error`, and may pause the task after `max_retries`.
-- Execution failure after JetStream delivery: `last_run_at` and `last_error` are recorded for visibility, but scheduler retry fields and `next_run_at` are not changed. JetStream owns command retry, redelivery, and DLQ after publish.
+- Pre-publish failure: target resolution, invalid schedule, or transport publish failure increments `retry_count`, records `last_error`, and may pause the task after `max_retries`.
+- Execution failure after transport delivery: `last_run_at` and `last_error` are recorded for visibility, but scheduler retry fields and `next_run_at` are not changed. Transport owns command retry, redelivery, and DLQ after publish.
 - Pre-publish retry delay policy: linear backoff in seconds (`1s`, `2s`, `3s`, ...) capped at `60s`.
 
 ### Inbound webhook contract (internal)
@@ -900,7 +900,7 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
   - task mode: the task command later emits the session command for execution
   - session mode: ingress command is already a session command
   - the runtime lazily restores the persisted session when inactive in memory and creates the owner session when no persisted session exists
-  - webhook acceptance therefore depends on JetStream publish, not on synchronous session restore
+  - webhook acceptance therefore depends on transport publish, not on synchronous session restore
   - uses `deliver=false` by default; route `envelope.report_to` enables progress/final delivery to that destination
 - Dedupe:
   - default source is `request_id`
@@ -914,7 +914,7 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
   - invalid body/template render: `400` + `error.code="invalid_payload"` + message `could not accept request`
   - unresolved/restore-failed session: `404` + `error.code="session_not_found"` + message `could not accept request`
   - queue pressure: `429` + `error.code="queue_full"` + message `temporarily busy`
-  - JetStream publish/internal failures: `503` + `error.code="dispatch_failed"` + message `temporarily busy`
+  - transport publish/internal failures: `503` + `error.code="dispatch_failed"` + message `temporarily busy`
 - Observability:
   - logs keep request routing and transport metadata internal; public responses stay limited to request id, message id, status, acceptance, and stable error code/message values
   - internal outcome counters track accepted, invalid, not-found, queue-full, and dispatch-failure events
@@ -953,8 +953,8 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 
 - Startup fails while initializing built-in runtime streams: keep the default `balda.nats` settings unless you have a specific local runtime need, ensure `balda.nats.store_dir` is writable, and verify local disk limits.
 - Startup fails while initializing built-in runtime consumers: verify `balda.swarm.commands.consumer` uniqueness and avoid concurrent writers against the same embedded NATS store dir.
-- Rising command backlog or redelivery counts in JetStream metadata usually means retrying or deadlettering work; inspect lifecycle events, DLQ stream contents, and logs before increasing `max_ack_pending` or `fetch_batch`.
-- Webhook ingress returns `503 dispatch_failed`: confirm JetStream startup succeeded and command publish acknowledgements are being returned.
+- Rising command backlog or redelivery counts in transport metadata usually means retrying or deadlettering work; inspect lifecycle events, DLQ stream contents, and logs before increasing `max_ack_pending` or `fetch_batch`.
+- Webhook ingress returns `503 dispatch_failed`: confirm transport startup succeeded and command publish acknowledgements are being returned.
 
 ## Workspace MCP Usage
 
