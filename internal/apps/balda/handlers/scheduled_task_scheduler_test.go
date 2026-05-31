@@ -277,8 +277,8 @@ func TestScheduledTaskSchedulerRecordExecutionFailureDoesNotScheduleRetry(t *tes
 	}
 
 	cause := errors.New("actor execution failed")
-	if err := scheduler.recordExecutionFailure(ctx, record.TaskID, cause); !errors.Is(err, cause) {
-		t.Fatalf("recordExecutionFailure() error = %v, want %v", err, cause)
+	if err := scheduler.RecordExecutionFailure(ctx, record.TaskID, cause); !errors.Is(err, cause) {
+		t.Fatalf("RecordExecutionFailure() error = %v, want %v", err, cause)
 	}
 	got, ok, err := store.GetByID(ctx, record.TaskID)
 	if err != nil {

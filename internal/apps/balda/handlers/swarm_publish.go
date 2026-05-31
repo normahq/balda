@@ -37,7 +37,7 @@ func (h *BaldaHandler) submitWebhookTask(ctx context.Context, payload actors.Ses
 	return result, taskID, nil
 }
 
-func (h *BaldaHandler) runSessionTurnPayload(ctx context.Context, payload actors.SessionTurnPayload) error {
+func (h *BaldaHandler) RunSessionTurnPayload(ctx context.Context, payload actors.SessionTurnPayload) error {
 	ts, err := h.sessionManager.GetSession(payload.Locator)
 	if err != nil {
 		userID := strings.TrimSpace(payload.UserID)

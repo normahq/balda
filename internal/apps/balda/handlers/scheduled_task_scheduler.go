@@ -306,7 +306,7 @@ func scheduledTaskReportTarget(task baldastate.ScheduledTaskRecord) (*baldasessi
 	return &locator, nil
 }
 
-func (s *ScheduledTaskScheduler) markSuccess(ctx context.Context, taskID string) error {
+func (s *ScheduledTaskScheduler) MarkSuccess(ctx context.Context, taskID string) error {
 	task, ok, err := s.taskStore.GetByID(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("load scheduled task %q: %w", taskID, err)
@@ -361,7 +361,7 @@ func (s *ScheduledTaskScheduler) markFailure(ctx context.Context, taskID string,
 	return cause
 }
 
-func (s *ScheduledTaskScheduler) recordExecutionFailure(ctx context.Context, taskID string, cause error) error {
+func (s *ScheduledTaskScheduler) RecordExecutionFailure(ctx context.Context, taskID string, cause error) error {
 	task, ok, err := s.taskStore.GetByID(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("load scheduled task %q: %w", taskID, err)

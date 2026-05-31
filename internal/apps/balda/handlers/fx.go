@@ -146,8 +146,12 @@ var Module = fx.Module("balda_handlers",
 
 			return h, nil
 		},
-		provideSessionTurnRunner,
-		provideScheduledTaskRecorder,
+		fx.Annotate(
+			func(h *BaldaHandler) actors.SessionTurnRunner { return h },
+		),
+		fx.Annotate(
+			func(s *ScheduledTaskScheduler) actors.ScheduledTaskRecorder { return s },
+		),
 		func(params commandHandlerParams) *CommandHandler {
 			return &CommandHandler{
 				ownerStore:        params.OwnerStore,
@@ -192,31 +196,3 @@ var Module = fx.Module("balda_handlers",
 		func(*InboundWebhookReceiver) {},
 	),
 )
-
-type sessionTurnRunnerAdapter struct {
-	handler *BaldaHandler
-}
-
-func provideSessionTurnRunner(h *BaldaHandler) actors.SessionTurnRunner {
-	return sessionTurnRunnerAdapter{handler: h}
-}
-
-func (a sessionTurnRunnerAdapter) RunSessionTurnPayload(ctx context.Context, payload actors.SessionTurnPayload) error {
-	return a.handler.runSessionTurnPayload(ctx, payload)
-}
-
-type scheduledTaskRecorderAdapter struct {
-	scheduler *ScheduledTaskScheduler
-}
-
-func provideScheduledTaskRecorder(s *ScheduledTaskScheduler) actors.ScheduledTaskRecorder {
-	return scheduledTaskRecorderAdapter{scheduler: s}
-}
-
-func (a scheduledTaskRecorderAdapter) MarkSuccess(ctx context.Context, taskID string) error {
-	return a.scheduler.markSuccess(ctx, taskID)
-}
-
-func (a scheduledTaskRecorderAdapter) RecordExecutionFailure(ctx context.Context, taskID string, cause error) error {
-	return a.scheduler.recordExecutionFailure(ctx, taskID, cause)
-}
