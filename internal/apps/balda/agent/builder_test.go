@@ -20,10 +20,10 @@ import (
 func TestMergeMCPServerIDs(t *testing.T) {
 	explicit := []string{" custom.one ", "balda", "", "custom.one", "custom.two"}
 	extra := []string{"balda.extra", "custom.two", " "}
-	got := mergeMCPServerIDs(explicit, extra, true)
+	got := mergeMCPServerIDs(explicit, extra)
 	want := []string{"balda", "custom.one", "custom.two", "balda.extra"}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("mergeMCPServerIDs(%#v, %#v, true) = %#v, want %#v", explicit, extra, got, want)
+		t.Fatalf("mergeMCPServerIDs(%#v, %#v) = %#v, want %#v", explicit, extra, got, want)
 	}
 }
 
