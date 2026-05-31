@@ -67,8 +67,14 @@ func initCommand() *cobra.Command {
 			if err := os.MkdirAll(baldaConfigDir, 0o700); err != nil {
 				return fmt.Errorf("create balda config directory: %w", err)
 			}
-			if err := ensureBaldaConfigGitignore(baldaConfigDir); err != nil {
-				return err
+			gitignorePath := filepath.Join(baldaConfigDir, ".gitignore")
+			if _, err := os.Stat(gitignorePath); err != nil {
+				if !os.IsNotExist(err) {
+					return fmt.Errorf("stat %s: %w", gitignorePath, err)
+				}
+				if err := os.WriteFile(gitignorePath, []byte(baldaConfigGitignoreContent), 0o600); err != nil {
+					return fmt.Errorf("write %s: %w", gitignorePath, err)
+				}
 			}
 
 			configPath := filepath.Join(baldaConfigDir, baldaConfigFileName)

@@ -6,25 +6,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/normahq/balda/internal/git"
 	"gopkg.in/yaml.v3"
 )
-
-func ensureBaldaConfigGitignore(configDir string) error {
-	gitignorePath := filepath.Join(configDir, ".gitignore")
-	if _, err := os.Stat(gitignorePath); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("stat %s: %w", gitignorePath, err)
-	}
-	if err := os.WriteFile(gitignorePath, []byte(baldaConfigGitignoreContent), 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", gitignorePath, err)
-	}
-	return nil
-}
 
 func buildBaldaInitDocument(workingDir string) (map[string]any, []string, error) {
 	detectedAgents := detectBaldaInitAgents()
