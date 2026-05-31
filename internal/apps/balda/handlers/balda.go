@@ -655,14 +655,6 @@ func (h *BaldaHandler) runTurnWithDelivery(
 }
 
 func emptyTerminalTurnMessage(finishReason genai.FinishReason, _ string) string {
-	baseMessage := emptyTerminalTurnBaseMessage(finishReason)
-	if baseMessage == "" {
-		return ""
-	}
-	return baseMessage
-}
-
-func emptyTerminalTurnBaseMessage(finishReason genai.FinishReason) string {
 	switch finishReason {
 	case genai.FinishReasonMaxTokens:
 		return "The provider hit the output limit before producing a visible reply. Ask for a shorter answer or split the request."
