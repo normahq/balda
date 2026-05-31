@@ -1,30 +1,22 @@
 # Goalkeeper
 
-Balda `/goal <objective>` starts the Goalkeeper workflow in the current session and workspace.
+Balda `/goal <objective>` starts goal work in the current session and workspace.
 
-The workflow uses:
-
-- one ADK `LoopAgent` workflow agent named `Goalkeeper`
-- one worker child agent named `GoalkeeperWorker`
-- one validator child agent named `GoalkeeperValidator`
-
-Both child agents are built from the configured `balda.provider`. They use the same workspace, Balda MCP server set, and ADK session as the current chat session.
+The workflow uses the configured `balda.provider` and the same workspace, Balda MCP server set, and session context as the current chat session.
 
 ## Workflow
 
 The loop is fixed:
 
-- the worker receives the goal and performs the requested work in the current workspace
-- the worker final visible response is persisted in ADK session state as `app:goalkeeper_worker_output`
-- the validator runs after the worker and validates the result against the same goal
-- the validator prompt is wrapped by Balda so validation sees the latest worker summary even when session transcript context is limited
-- if the validator final visible response starts with `verdict: pass`, the loop exits
-- otherwise the worker and validator retry until `balda.goal.max_iterations` is exhausted
+- Balda performs work toward the goal in the current workspace
+- Balda then validates the result against the same goal using the latest visible work summary
+- if the validation final visible response starts with `verdict: pass`, the loop exits
+- otherwise work and validation repeat until `balda.goal.max_iterations` is exhausted
 
 Balda sends:
 
 - a start message with the objective and max iteration count
-- step updates for worker and validator progress
+- step updates during work and validation
 - a final completion or max-iterations message
 
 ## Prompt Contract
@@ -36,7 +28,7 @@ Goal:
 <objective>
 ```
 
-The worker returns a concise plain-text summary and evidence. The validator must start its final response with exactly one of:
+The work phase returns a concise plain-text summary and evidence. The validation phase must start its final response with exactly one of:
 
 ```text
 verdict: pass
@@ -48,10 +40,10 @@ verdict: fail
 
 `verdict: pass` means the objective is complete. `verdict: fail` means the objective is not complete yet and the loop should continue until the configured iteration cap.
 
-Thought parts are ignored when checking the validator verdict. Only visible final response text is considered.
+Thought parts are ignored when checking the validation verdict. Only visible final response text is considered.
 
 ## Runtime Notes
 
-The ADK workflow stream includes metadata-only `session.Event` records around each worker and validator step. These events have no `Content`, are persisted in ADK session history, and identify `step_started`, `step_completed`, or `step_failed` in `CustomMetadata["norma.goalkeeper.event"]`.
+Balda records enough session state to continue the workflow across the work and validation loop.
 
-A passing validation is detected from Norma Goalkeeper's escalation marker, which is set when the validator's visible final response starts with `verdict: pass`. Malformed verdicts, missing verdicts, and `verdict: fail` do not pass validation.
+A passing validation is detected only when the validation phase's visible final response starts with `verdict: pass`. Malformed verdicts, missing verdicts, and `verdict: fail` do not pass validation.

@@ -297,6 +297,13 @@ func TestDocumentationContract(t *testing.T) {
 		forbidden := []string{
 			"GoalkeeperActor",
 			"publishes a durable command",
+			"GoalkeeperWorker",
+			"GoalkeeperValidator",
+			"LoopAgent",
+			"app:goalkeeper_worker_output",
+			"session.Event",
+			`CustomMetadata["norma.goalkeeper.event"]`,
+			"escalation marker",
 		}
 		for _, path := range paths {
 			body := readFile(t, path)
