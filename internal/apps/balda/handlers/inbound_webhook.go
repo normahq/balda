@@ -548,7 +548,8 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 		return
 	}
 
-	rawBody, readErr := readInboundWebhookBody(req.Body)
+	defer func() { _ = req.Body.Close() }()
+	bodyBytes, readErr := io.ReadAll(io.LimitReader(req.Body, inboundWebhookMaxBodyBytes+1))
 	if readErr != nil {
 		r.metrics.invalid.Add(1)
 		r.writeInboundWebhookError(w, requestID, newInboundWebhookHTTPError(
@@ -559,13 +560,34 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 		))
 		return
 	}
+	if len(bodyBytes) > inboundWebhookMaxBodyBytes {
+		r.metrics.invalid.Add(1)
+		r.writeInboundWebhookError(w, requestID, newInboundWebhookHTTPError(
+			http.StatusBadRequest,
+			inboundWebhookCodeInvalidPayload,
+			inboundWebhookMessageCouldNotAccept,
+			fmt.Errorf("request body exceeds %d bytes", inboundWebhookMaxBodyBytes),
+		))
+		return
+	}
+	rawBody := string(bodyBytes)
 
-	prompt, renderErr := renderInboundWebhookPrompt(route, inboundWebhookTemplateData{
+	headers := make(map[string]string, len(req.Header))
+	for name, values := range req.Header {
+		if len(values) == 0 {
+			headers[name] = ""
+			continue
+		}
+		headers[name] = values[0]
+	}
+
+	var promptBuf bytes.Buffer
+	renderErr := route.PromptTemplate.Execute(&promptBuf, inboundWebhookTemplateData{
 		RequestID: requestID,
 		Path:      req.URL.Path,
 		Method:    req.Method,
 		RawBody:   rawBody,
-		Headers:   inboundWebhookHeaders(req.Header),
+		Headers:   headers,
 	})
 	if renderErr != nil {
 		r.metrics.invalid.Add(1)
@@ -574,6 +596,17 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 			inboundWebhookCodeInvalidPayload,
 			inboundWebhookMessageCouldNotAccept,
 			renderErr,
+		))
+		return
+	}
+	prompt := strings.TrimSpace(promptBuf.String())
+	if prompt == "" {
+		r.metrics.invalid.Add(1)
+		r.writeInboundWebhookError(w, requestID, newInboundWebhookHTTPError(
+			http.StatusBadRequest,
+			inboundWebhookCodeInvalidPayload,
+			inboundWebhookMessageCouldNotAccept,
+			fmt.Errorf("rendered prompt is empty"),
 		))
 		return
 	}
@@ -695,43 +728,6 @@ func authorizeInboundWebhookRequest(req *http.Request, policy inboundWebhookAuth
 	default:
 		return fmt.Errorf("unsupported auth type %q", policy.Type)
 	}
-}
-
-func readInboundWebhookBody(body io.ReadCloser) (string, error) {
-	defer func() { _ = body.Close() }()
-
-	payload, err := io.ReadAll(io.LimitReader(body, inboundWebhookMaxBodyBytes+1))
-	if err != nil {
-		return "", err
-	}
-	if len(payload) > inboundWebhookMaxBodyBytes {
-		return "", fmt.Errorf("request body exceeds %d bytes", inboundWebhookMaxBodyBytes)
-	}
-	return string(payload), nil
-}
-
-func inboundWebhookHeaders(header http.Header) map[string]string {
-	out := make(map[string]string, len(header))
-	for name, values := range header {
-		if len(values) == 0 {
-			out[name] = ""
-			continue
-		}
-		out[name] = values[0]
-	}
-	return out
-}
-
-func renderInboundWebhookPrompt(route inboundWebhookRoute, data inboundWebhookTemplateData) (string, error) {
-	var buf bytes.Buffer
-	if err := route.PromptTemplate.Execute(&buf, data); err != nil {
-		return "", err
-	}
-	prompt := strings.TrimSpace(buf.String())
-	if prompt == "" {
-		return "", fmt.Errorf("rendered prompt is empty")
-	}
-	return prompt, nil
 }
 
 func (r *InboundWebhookReceiver) writeInboundWebhookError(
