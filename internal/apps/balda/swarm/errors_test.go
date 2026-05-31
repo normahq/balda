@@ -16,7 +16,7 @@ func TestClassifyErrorKinds(t *testing.T) {
 		err  error
 		want ErrorKind
 	}{
-		{name: "retryable alias", err: RetryableError(errors.New("retry")), want: ErrorKindTransient},
+		{name: "transient", err: TransientError(errors.New("retry")), want: ErrorKindTransient},
 		{name: "permanent", err: PermanentError(errors.New("perm")), want: ErrorKindPermanent},
 		{name: "canceled", err: CanceledError(errors.New("cancel")), want: ErrorKindCanceled},
 		{name: "decode", err: DecodeError(errors.New("decode")), want: ErrorKindDecode},

@@ -41,7 +41,6 @@ func (e *ActorError) Unwrap() error {
 }
 
 func TransientError(err error) error { return actorError(ErrorKindTransient, err) }
-func RetryableError(err error) error { return actorError(ErrorKindTransient, err) }
 func QuotaError(err error) error     { return actorError(ErrorKindQuota, err) }
 func AuthError(err error) error      { return actorError(ErrorKindAuth, err) }
 func PolicyError(err error) error    { return actorError(ErrorKindPolicy, err) }
