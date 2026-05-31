@@ -10,8 +10,8 @@ Status: active
 - Runtime execution uses Norma `actorlayer/engine.DispatchRuntime`; Balda adapts JetStream commands into actorlayer deliveries and supplies only Balda-specific delivery wrapping.
 - Command settlement happens after actor side effects complete.
 - Retry/permanent failure handling is explicit and classified.
-- Product actors own Balda behavior: SessionActor handles turns, TaskActor routes webhook/scheduled work, GoalkeeperActor runs `/goal`, DeliveryActor sends updates, ControlActor cancels work, and MemoryActor syncs durable context.
-- `/goal` uses Norma's reusable ADK Goalkeeper workflow through GoalkeeperActor; it does not dispatch planner/executor/reviewer role actors.
+- Product actors own Balda behavior: session turns, webhook/scheduled work routing, `/goal` execution, outbound delivery, cancellation, and durable memory sync.
+- `/goal` uses Norma's reusable ADK Goalkeeper workflow; it does not dispatch planner/executor/reviewer role actors.
 - Task progress/results and projected task-event payload summaries redact common secret/token patterns before persistence and delivery.
 - The execution core does not depend on ADK, Balda, JetStream, Telegram, MCP, or provider SDK APIs.
 
