@@ -380,7 +380,7 @@ func TestRestoreSession_AlwaysUsesCurrentBaldaProviderBackend(t *testing.T) {
 				ChannelType: baldastate.ChannelTypeTelegram,
 				AddressKey:  "10:42",
 				AddressJSON: `{"chat_id":10,"topic_id":42}`,
-				AgentName:   "old-persisted-label",
+				AgentName:   "previous-persisted-label",
 				Status:      baldastate.SessionStatusActive,
 			},
 		},
@@ -410,8 +410,8 @@ func TestRestoreSession_AlwaysUsesCurrentBaldaProviderBackend(t *testing.T) {
 	}
 
 	ts := m.sessions[locator.SessionID]
-	if ts.agentName != "old-persisted-label" {
-		t.Fatalf("session label = %q, want %q", ts.agentName, "old-persisted-label")
+	if ts.agentName != "previous-persisted-label" {
+		t.Fatalf("session label = %q, want %q", ts.agentName, "previous-persisted-label")
 	}
 }
 
