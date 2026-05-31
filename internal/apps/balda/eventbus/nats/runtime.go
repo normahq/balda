@@ -195,7 +195,37 @@ func (b *Bus) commandWorkerLimit() int {
 func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler actorengine.Handler) error {
 	env, err := swarm.DecodeEnvelope(string(msg.Data()))
 	if err != nil {
-		decodeFailureEnv := commandDecodeFailureEnvelope(msg, err)
+		id := strings.TrimSpace(msg.Headers().Get(swarm.HeaderEnvelopeID))
+		if id == "" {
+			id = "poison-" + uuid.NewString()
+		}
+		namespace := strings.TrimSpace(msg.Headers().Get(swarm.HeaderNamespace))
+		if namespace == "" {
+			namespace = swarm.NamespaceTelemetry
+		}
+		toTarget, toKey := unknownDecodeTarget, unknownDecodeTarget
+		if strings.HasPrefix(msg.Subject(), "balda.v1.cmd.") {
+			toTarget = strings.TrimPrefix(msg.Subject(), "balda.v1.cmd.")
+			toKey = strings.TrimSpace(msg.Headers().Get(swarm.HeaderActorKey))
+			if toKey == "" {
+				toKey = unknownDecodeTarget
+			}
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"subject": msg.Subject(),
+			"reason":  "decode failed: " + err.Error(),
+			"payload": string(msg.Data()),
+		})
+		decodeFailureEnv := swarm.Envelope{
+			ID:          id,
+			Namespace:   namespace,
+			Kind:        "decode_failed",
+			From:        swarm.SystemAddress("transport"),
+			To:          swarm.ActorAddress{Target: toTarget, Key: toKey},
+			SessionID:   strings.TrimSpace(msg.Headers().Get(swarm.HeaderSessionID)),
+			TaskID:      strings.TrimSpace(msg.Headers().Get(swarm.HeaderTaskID)),
+			PayloadJSON: string(payload),
+		}
 		settleCtx, settleCancel := settlementContext(ctx)
 		defer settleCancel()
 		_ = b.publishRawDLQ(settleCtx, msg, "decode failed: "+err.Error())
@@ -458,40 +488,6 @@ func decorateDLQEnvelope(env swarm.Envelope, reason string, class swarm.ErrorKin
 		out.Meta["reason"] = trimmed
 	}
 	return out
-}
-
-func commandDecodeFailureEnvelope(msg jetstream.Msg, err error) swarm.Envelope {
-	id := strings.TrimSpace(msg.Headers().Get(swarm.HeaderEnvelopeID))
-	if id == "" {
-		id = "poison-" + uuid.NewString()
-	}
-	namespace := strings.TrimSpace(msg.Headers().Get(swarm.HeaderNamespace))
-	if namespace == "" {
-		namespace = swarm.NamespaceTelemetry
-	}
-	toTarget, toKey := unknownDecodeTarget, unknownDecodeTarget
-	if strings.HasPrefix(msg.Subject(), "balda.v1.cmd.") {
-		toTarget = strings.TrimPrefix(msg.Subject(), "balda.v1.cmd.")
-		toKey = strings.TrimSpace(msg.Headers().Get(swarm.HeaderActorKey))
-		if toKey == "" {
-			toKey = unknownDecodeTarget
-		}
-	}
-	payload, _ := json.Marshal(map[string]any{
-		"subject": msg.Subject(),
-		"reason":  "decode failed: " + err.Error(),
-		"payload": string(msg.Data()),
-	})
-	return swarm.Envelope{
-		ID:          id,
-		Namespace:   namespace,
-		Kind:        "decode_failed",
-		From:        swarm.SystemAddress("transport"),
-		To:          swarm.ActorAddress{Target: toTarget, Key: toKey},
-		SessionID:   strings.TrimSpace(msg.Headers().Get(swarm.HeaderSessionID)),
-		TaskID:      strings.TrimSpace(msg.Headers().Get(swarm.HeaderTaskID)),
-		PayloadJSON: string(payload),
-	}
 }
 
 func commandLogEvent(evt *zerolog.Event, msg jetstream.Msg) *zerolog.Event {
