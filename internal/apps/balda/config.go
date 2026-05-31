@@ -24,7 +24,7 @@ type BaldaConfig struct {
 	Workspace         WorkspaceConfig      `mapstructure:"workspace"`
 	MCPServers        []string             `mapstructure:"mcp_servers"`
 	GlobalInstruction string               `mapstructure:"global_instruction"`
-	// RemovedEventBus detects stale balda.event_bus config and fails startup loudly.
+	// RemovedEventBus detects removed balda.event_bus config and fails startup loudly.
 	RemovedEventBus any `mapstructure:"event_bus"`
 }
 
@@ -50,7 +50,7 @@ type WebhooksConfig struct {
 	Enabled    bool                          `mapstructure:"enabled"`
 	ListenAddr string                        `mapstructure:"listen_addr"`
 	Routes     map[string]WebhookRouteConfig `mapstructure:"routes"`
-	// RemovedMode detects stale balda.webhooks.mode config and fails startup loudly.
+	// RemovedMode detects removed balda.webhooks.mode config and fails startup loudly.
 	RemovedMode any `mapstructure:"mode"`
 }
 
@@ -122,7 +122,7 @@ type SwarmConfig struct {
 	Commands SwarmCommandConfig `mapstructure:"commands"`
 	Events   SwarmEventConfig   `mapstructure:"events"`
 	DLQ      SwarmDLQConfig     `mapstructure:"dlq"`
-	// RemovedMode detects stale balda.swarm.mode config and fails startup loudly.
+	// RemovedMode detects removed balda.swarm.mode config and fails startup loudly.
 	RemovedMode any `mapstructure:"mode"`
 }
 
@@ -147,9 +147,9 @@ type SwarmDLQConfig struct {
 // SchedulerConfig controls startup-managed recurring tasks.
 type SchedulerConfig struct {
 	Tasks []ScheduledTaskConfig `mapstructure:"tasks"`
-	// RemovedMode detects stale balda.scheduler.mode config so it fails loudly instead of being ignored.
+	// RemovedMode detects removed balda.scheduler.mode config so it fails loudly instead of being ignored.
 	RemovedMode any `mapstructure:"mode"`
-	// RemovedJobs detects stale balda.scheduler.jobs config so it fails loudly instead of being ignored.
+	// RemovedJobs detects removed balda.scheduler.jobs config so it fails loudly instead of being ignored.
 	RemovedJobs any `mapstructure:"jobs"`
 }
 

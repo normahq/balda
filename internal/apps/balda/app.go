@@ -116,7 +116,7 @@ func Module(
 	if err := validateSchedulerConfig(cfg.Balda.Scheduler); err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}
-	if err := validateLegacyRuntimeModes(cfg.Balda); err != nil {
+	if err := validateRemovedRuntimeConfig(cfg.Balda); err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}
 	workspaceSessionsDir, err := resolveWorkspaceSessionsDir(cfg.Balda.Workspace.SessionsDir)
@@ -594,7 +594,7 @@ func validateSchedulerConfig(cfg SchedulerConfig) error {
 	return nil
 }
 
-func validateLegacyRuntimeModes(cfg BaldaConfig) error {
+func validateRemovedRuntimeConfig(cfg BaldaConfig) error {
 	var errs []string
 	if cfg.RemovedEventBus != nil {
 		errs = append(errs, "balda.event_bus is no longer supported; configure balda.nats for JetStream")

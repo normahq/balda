@@ -228,17 +228,17 @@ func TestValidateSessionPersistence(t *testing.T) {
 	}
 }
 
-func TestValidateLegacyRuntimeModes(t *testing.T) {
+func TestValidateRemovedRuntimeConfig(t *testing.T) {
 	t.Parallel()
 
-	err := validateLegacyRuntimeModes(BaldaConfig{
+	err := validateRemovedRuntimeConfig(BaldaConfig{
 		RemovedEventBus: map[string]any{"mode": "sqlite"},
 		Swarm:           SwarmConfig{RemovedMode: "shadow"},
 		Webhooks:        WebhooksConfig{RemovedMode: "mailbox"},
 		Scheduler:       SchedulerConfig{RemovedMode: "mailbox"},
 	})
 	if err == nil {
-		t.Fatal("validateLegacyRuntimeModes() error = nil, want non-nil")
+		t.Fatal("validateRemovedRuntimeConfig() error = nil, want non-nil")
 	}
 	want := []string{
 		"balda.event_bus is no longer supported",
@@ -248,19 +248,19 @@ func TestValidateLegacyRuntimeModes(t *testing.T) {
 	}
 	for _, marker := range want {
 		if !strings.Contains(err.Error(), marker) {
-			t.Fatalf("validateLegacyRuntimeModes() error = %q, want marker %q", err.Error(), marker)
+			t.Fatalf("validateRemovedRuntimeConfig() error = %q, want marker %q", err.Error(), marker)
 		}
 	}
 	if strings.Contains(err.Error(), "legacy mode configuration") {
-		t.Fatalf("validateLegacyRuntimeModes() error = %q, want removed-runtime wording", err.Error())
+		t.Fatalf("validateRemovedRuntimeConfig() error = %q, want removed-runtime wording", err.Error())
 	}
 }
 
-func TestValidateLegacyRuntimeModes_AllowsCurrentConfig(t *testing.T) {
+func TestValidateRemovedRuntimeConfig_AllowsCurrentConfig(t *testing.T) {
 	t.Parallel()
 
-	if err := validateLegacyRuntimeModes(BaldaConfig{}); err != nil {
-		t.Fatalf("validateLegacyRuntimeModes() error = %v, want nil", err)
+	if err := validateRemovedRuntimeConfig(BaldaConfig{}); err != nil {
+		t.Fatalf("validateRemovedRuntimeConfig() error = %v, want nil", err)
 	}
 }
 
