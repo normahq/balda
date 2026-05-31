@@ -23,13 +23,14 @@ func buildVersionString() string {
 		resolvedVersion = "dev"
 	}
 
-	return fmt.Sprintf("balda %s (commit %s, built %s)", resolvedVersion, valueOrUnknown(commit), valueOrUnknown(date))
-}
-
-func valueOrUnknown(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "unknown"
+	resolvedCommit := strings.TrimSpace(commit)
+	if resolvedCommit == "" {
+		resolvedCommit = "unknown"
 	}
-	return value
+	resolvedDate := strings.TrimSpace(date)
+	if resolvedDate == "" {
+		resolvedDate = "unknown"
+	}
+
+	return fmt.Sprintf("balda %s (commit %s, built %s)", resolvedVersion, resolvedCommit, resolvedDate)
 }
