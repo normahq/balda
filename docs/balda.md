@@ -426,7 +426,7 @@ session-start snapshot. New or restored sessions read the latest file.
   - default: `markdownv2`
   - `markdownv2` accepts normal Markdown/plain text from the model and converts it to Telegram MarkdownV2
   - `html` expects Telegram HTML syntax from the model; Balda escapes unsafe raw text while preserving supported Telegram HTML tags
-  - `none` omits Telegram `parse_mode` and sends raw text
+  - `none` sends raw text with no formatting mode
   - invalid values fail startup
   - see [Telegram Message Formatting](telegram-formatting.md) for supported tags, unsupported tags, and escaping behavior
 - `balda.telegram.plan_updates`: surface ACP plan snapshots in balda progress (default: `true`)
@@ -489,7 +489,7 @@ session-start snapshot. New or restored sessions read the latest file.
   - Balda does not expose MCP mutation for `SOUL.md`; edit the file directly.
 - owner auth token is generated during `balda init`, persisted in `state.db`, and reused by `balda start`
   - if token is missing in existing state, `balda start` backfills one-time and persists it
-  - if no owner is registered yet, `balda start` logs the owner bootstrap command and deeplink again to help finish first-time onboarding
+  - if no owner is registered yet, `balda start` logs the owner bootstrap command and auth link again to help finish first-time onboarding
   - after the first successful owner auth, normal startup logs go back to bot identity only and no longer expose owner auth tokens or auth URLs
   - if an owner is already registered, `balda start` fails fast when the owner session cannot be restored or created
 - bundled balda MCP listener always binds to local ephemeral address (`127.0.0.1:0`)
@@ -545,11 +545,11 @@ Per model turn:
 
 1. Non-terminal ADK events send throttled typing indicators for the same chat/topic; DM chats also emit throttled thinking placeholders.
    When `balda.telegram.plan_updates=true`, ACP plan snapshots replace generic DM thinking drafts and are sent as plain-text progress messages in public chats/topics.
-2. Final assistant text is sent with `sendMessage` using `balda.telegram.formatting_mode`:
-   - `markdownv2`: model writes Markdown/plain text; Balda converts it to Telegram MarkdownV2 and sends with `parse_mode=MarkdownV2`.
-   - `html`: model writes Telegram HTML; Balda escapes unsafe raw text, preserves supported Telegram HTML tags, and sends with `parse_mode=HTML`.
-   - `none`: Balda sends text without `parse_mode`.
-3. If send fails at transport level, or Telegram returns parse/escaping API errors (for example `can't parse entities`), balda retries once without `parse_mode`.
+2. Final assistant text uses `balda.telegram.formatting_mode`:
+   - `markdownv2`: model writes Markdown/plain text; Balda converts it to Telegram MarkdownV2.
+   - `html`: model writes Telegram HTML; Balda escapes unsafe raw text and preserves supported Telegram HTML tags.
+   - `none`: Balda sends raw text with no formatting mode.
+3. If a formatted send fails at transport or formatting-validation level, balda retries once without formatting.
 
 ## Topic Sessions
 
@@ -981,7 +981,7 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 7. Restart clears active process sessions, but topic sessions are lazy-restored from persisted metadata.
 8. Polling mode resumes from persisted Telegram offset in balda state DB.
 9. Non-terminal ADK event progress sends throttled typing indicators in DM and public chats; thinking placeholders are DM-only.
-10. Final assistant response is sent with `sendMessage` using configured `balda.telegram.formatting_mode` with fallback retry without `parse_mode` on transport or parse/escaping API errors.
+10. Final assistant response uses configured `balda.telegram.formatting_mode` with fallback retry without formatting on transport or formatting-validation errors.
 11. `/close` in a topic resets history and closes that topic; `/close` in the owner DM main chat resets only the owner session.
 12. With `balda.sessions.persistence=sqlite`, restart restores ADK conversation history and explicit `/close` clears it for the current session.
 13. `balda eval-fixtures` validates deterministic scenario fixtures in `testdata/scenarios` and checks golden event manifests; use `--scenario` and `--actual-events` for event-type comparison.
