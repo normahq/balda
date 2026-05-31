@@ -35,7 +35,7 @@ func (s *sqliteSessionStore) Upsert(ctx context.Context, record SessionRecord) e
 		record.Status = SessionStatusActive
 	}
 
-	chatID, topicID := legacyTelegramAddress(record)
+	chatID, topicID := telegramAddressColumns(record)
 
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO balda_session_metadata (
@@ -73,7 +73,7 @@ func (s *sqliteSessionStore) Upsert(ctx context.Context, record SessionRecord) e
 	return nil
 }
 
-func legacyTelegramAddress(record SessionRecord) (int64, int64) {
+func telegramAddressColumns(record SessionRecord) (int64, int64) {
 	if strings.TrimSpace(record.ChannelType) != ChannelTypeTelegram {
 		return 0, 0
 	}

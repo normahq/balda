@@ -167,10 +167,10 @@ func TestSQLiteProvider_SessionStoreUpsert_PopulatesLegacyTelegramColumns(t *tes
 		WHERE session_id = ?`,
 		record.SessionID,
 	).Scan(&chatID, &topicID); err != nil {
-		t.Fatalf("query legacy telegram columns: %v", err)
+		t.Fatalf("query telegram address columns: %v", err)
 	}
 	if chatID != -1002667079342 || topicID != 8939 {
-		t.Fatalf("legacy telegram columns = %d/%d, want -1002667079342/8939", chatID, topicID)
+		t.Fatalf("telegram address columns = %d/%d, want -1002667079342/8939", chatID, topicID)
 	}
 }
 
@@ -560,10 +560,10 @@ func TestSQLiteProvider_Migration11BackfillsBuggyLegacySessionColumns(t *testing
 		FROM balda_session_metadata
 		WHERE session_id = 'tg--1002667079342-8939'`,
 	).Scan(&chatID, &topicID); err != nil {
-		t.Fatalf("query migrated legacy telegram columns: %v", err)
+		t.Fatalf("query migrated telegram address columns: %v", err)
 	}
 	if chatID != -1002667079342 || topicID != 8939 {
-		t.Fatalf("migrated legacy telegram columns = %d/%d, want -1002667079342/8939", chatID, topicID)
+		t.Fatalf("migrated telegram address columns = %d/%d, want -1002667079342/8939", chatID, topicID)
 	}
 	assertSessionMetadataHasNoLegacyChatTopicUnique(t, ctx, db)
 }
