@@ -91,7 +91,7 @@ func (b *Bus) Dispatch(ctx context.Context, env swarm.Envelope) (*swarm.Dispatch
 	msgID := swarm.DedupeKeyOrID(env)
 	ack, err := b.js.PublishMsg(ctx, msg, jetstream.WithMsgID(msgID), jetstream.WithExpectStream(b.cfg.Swarm.Commands.Stream))
 	if err != nil {
-		if isJetStreamQueuePressure(err) {
+		if isRuntimeQueuePressure(err) {
 			return nil, fmt.Errorf("%w: publish command %q: %w", swarm.ErrCommandQueueFull, subject, err)
 		}
 		return nil, fmt.Errorf("publish command %q: %w", subject, err)
@@ -140,7 +140,7 @@ func (b *Bus) Dispatch(ctx context.Context, env swarm.Envelope) (*swarm.Dispatch
 
 var _ actorengine.Source = (*Bus)(nil)
 
-func isJetStreamQueuePressure(err error) bool {
+func isRuntimeQueuePressure(err error) bool {
 	var jsErr jetstream.JetStreamError
 	if errors.As(err, &jsErr) {
 		apiErr := jsErr.APIError()

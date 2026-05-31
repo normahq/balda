@@ -21,7 +21,7 @@ import (
 
 const testEventKindTask = "task_event"
 
-func TestIsJetStreamQueuePressure(t *testing.T) {
+func TestIsRuntimeQueuePressure(t *testing.T) {
 	t.Parallel()
 
 	for _, err := range []error{
@@ -29,12 +29,12 @@ func TestIsJetStreamQueuePressure(t *testing.T) {
 		fakeJetStreamAPIError{description: "resource limits exceeded"},
 		errors.New("nats: stream is full"),
 	} {
-		if !isJetStreamQueuePressure(err) {
-			t.Fatalf("isJetStreamQueuePressure(%v) = false, want true", err)
+		if !isRuntimeQueuePressure(err) {
+			t.Fatalf("isRuntimeQueuePressure(%v) = false, want true", err)
 		}
 	}
-	if isJetStreamQueuePressure(errors.New("stream not found")) {
-		t.Fatal("isJetStreamQueuePressure(stream not found) = true, want false")
+	if isRuntimeQueuePressure(errors.New("stream not found")) {
+		t.Fatal("isRuntimeQueuePressure(stream not found) = true, want false")
 	}
 }
 
