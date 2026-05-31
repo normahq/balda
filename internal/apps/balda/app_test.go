@@ -83,11 +83,11 @@ func TestOpenBaldaStateProviderUsesStateDB(t *testing.T) {
 	}
 }
 
-func TestOpenBaldaStateProviderIgnoresLegacyOnlyDB(t *testing.T) {
+func TestOpenBaldaStateProviderIgnoresRemovedOldDBPath(t *testing.T) {
 	stateDir := t.TempDir()
-	legacyPath := filepath.Join(stateDir, "balda.db")
-	if err := os.WriteFile(legacyPath, []byte("legacy"), 0o600); err != nil {
-		t.Fatalf("write legacy db: %v", err)
+	removedPath := filepath.Join(stateDir, "balda.db")
+	if err := os.WriteFile(removedPath, []byte("legacy"), 0o600); err != nil {
+		t.Fatalf("write removed old db path: %v", err)
 	}
 
 	provider, err := openBaldaStateProvider(context.Background(), stateDir)
@@ -99,12 +99,12 @@ func TestOpenBaldaStateProviderIgnoresLegacyOnlyDB(t *testing.T) {
 	if _, err := os.Stat(paths.StateDBPath(stateDir)); err != nil {
 		t.Fatalf("stat state db: %v", err)
 	}
-	content, err := os.ReadFile(legacyPath)
+	content, err := os.ReadFile(removedPath)
 	if err != nil {
-		t.Fatalf("read legacy db: %v", err)
+		t.Fatalf("read removed old db path: %v", err)
 	}
 	if string(content) != "legacy" {
-		t.Fatalf("legacy db content = %q, want unchanged", string(content))
+		t.Fatalf("removed old db path content = %q, want unchanged", string(content))
 	}
 }
 
