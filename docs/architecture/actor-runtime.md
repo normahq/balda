@@ -78,4 +78,3 @@ Status: active
 - Command delivery and settlement live in `internal/apps/balda/eventbus/nats` behind actorlayer `Source`/`Delivery` and Balda `ActorDispatcher` contracts.
 - The NATS adapter is the only concrete transport owner. It exposes small interfaces from one bus instance: `ActorDispatcher`, `EventPublisher`, actorlayer `Source`, `EventConsumer`, and `BusDrainer`.
 - Task projection, retry classification, DLQ reporting, and task/read-model persistence live in Balda packages (`swarm`, `handlers`, and `state`), not in Norma actorlayer.
-- Balda must not grow a local `norma` or `adapters` package under `internal/apps/balda`, or actor-runtime selector packages. Future generic actor adapters belong to Norma-owned public packages such as `github.com/normahq/norma/pkg/actoradapter/...`.
