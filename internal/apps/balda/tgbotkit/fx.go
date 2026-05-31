@@ -113,7 +113,13 @@ func NewUpdateSource(
 		if listenAddr == "" {
 			listenAddr = defaultWebhookListenAddr
 		}
-		path := normalizeWebhookPath(cfg.Webhook.Path)
+		path := strings.TrimSpace(cfg.Webhook.Path)
+		if path == "" {
+			path = defaultWebhookPath
+		}
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
 
 		return &webhookUpdateSource{
 			webhookSource: wh,
@@ -133,17 +139,6 @@ func NewUpdateSource(
 		updatepoller.WithLogger(logger.NewZerolog(l)),
 	)
 	return updatepoller.NewPoller(opts)
-}
-
-func normalizeWebhookPath(raw string) string {
-	path := strings.TrimSpace(raw)
-	if path == "" {
-		return defaultWebhookPath
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-	return path
 }
 
 type webhookUpdateSource struct {

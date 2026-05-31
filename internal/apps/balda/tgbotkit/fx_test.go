@@ -196,28 +196,6 @@ func TestWebhookUpdateSource_StartServesConfiguredPathAndToken(t *testing.T) {
 	}
 }
 
-func TestNormalizeWebhookPath(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		in   string
-		want string
-	}{
-		{in: "", want: "/telegram/webhook"},
-		{in: "telegram/webhook", want: "/telegram/webhook"},
-		{in: "/telegram/webhook", want: "/telegram/webhook"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.in, func(t *testing.T) {
-			t.Parallel()
-			if got := normalizeWebhookPath(tc.in); got != tc.want {
-				t.Fatalf("normalizeWebhookPath(%q) = %q, want %q", tc.in, got, tc.want)
-			}
-		})
-	}
-}
-
 func newTestTelegramClient(t *testing.T) client.ClientWithResponsesInterface {
 	t.Helper()
 
