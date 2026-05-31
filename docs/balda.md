@@ -59,11 +59,11 @@ make projection-replay
 `balda init` requires a Telegram bot token, detects supported provider CLIs
 (`codex`, `opencode`, `copilot`, `gemini`, `claude`), writes
 `.config/balda/config.yaml`, initializes `.config/balda/state.db`, and prints
-both an owner auth command and Telegram auth URL. The default token storage is
+both an owner auth command and Telegram auth link. The default token storage is
 CWD `.env` as `BALDA_TELEGRAM_TOKEN`.
 
 Owner onboarding is completed in a direct message with the bot by opening the
-printed auth URL or sending:
+printed auth link or sending:
 
 ```text
 /start owner=<owner_token>
@@ -490,7 +490,7 @@ session-start snapshot. New or restored sessions read the latest file.
 - owner auth token is generated during `balda init`, persisted in `state.db`, and reused by `balda start`
   - if token is missing in existing state, `balda start` backfills one-time and persists it
   - if no owner is registered yet, `balda start` logs the owner bootstrap command and auth link again to help finish first-time onboarding
-  - after the first successful owner auth, normal startup logs go back to bot identity only and no longer expose owner auth tokens or auth URLs
+  - after the first successful owner auth, normal startup logs go back to bot identity only and no longer expose owner auth tokens or auth links
   - if an owner is already registered, `balda start` fails fast when the owner session cannot be restored or created
 - bundled balda MCP listener always binds to local ephemeral address (`127.0.0.1:0`)
   - bundled routes on this listener:

@@ -96,7 +96,7 @@ Replay projection events through the deterministic projector replay suite:
 make projection-replay
 ```
 
-Authenticate in Telegram with the printed auth URL, or send the printed command
+Authenticate in Telegram with the printed auth link, or send the printed command
 directly to your bot:
 
 ```text
