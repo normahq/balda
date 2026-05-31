@@ -248,9 +248,12 @@ func normalizeInboundWebhookConfig(cfg InboundWebhookConfig) (normalizedInboundW
 			return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes key is required")
 		}
 
-		path, err := normalizeInboundWebhookPath(rawRoute.Path)
-		if err != nil {
-			return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes.%s.path: %w", routeName, err)
+		path := strings.TrimSpace(rawRoute.Path)
+		if path == "" {
+			return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes.%s.path: path is required", routeName)
+		}
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
 		}
 		if existingName, exists := seenPaths[path]; exists {
 			return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes.%s.path duplicates route %q", routeName, existingName)
@@ -317,17 +320,6 @@ func normalizeInboundWebhookConfig(cfg InboundWebhookConfig) (normalizedInboundW
 	}
 
 	return normalized, nil
-}
-
-func normalizeInboundWebhookPath(raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", fmt.Errorf("path is required")
-	}
-	if !strings.HasPrefix(trimmed, "/") {
-		trimmed = "/" + trimmed
-	}
-	return trimmed, nil
 }
 
 func normalizeInboundWebhookRouteMode(raw string) (string, error) {
