@@ -94,10 +94,10 @@ func TestTaskServiceAppendEventUsesDeterministicIDsExceptProgress(t *testing.T) 
 	}
 
 	payload := map[string]any{"step": "worker", "iteration": 1}
-	if err := service.AppendEvent(ctx, "task-1", TaskEventAgentStarted, "goalkeeper.actor", "task-1:goalkeeper:worker:1", payload); err != nil {
+	if err := service.AppendEvent(ctx, "task-1", TaskEventAgentStarted, "goal.actor", "task-1:goal:worker:1", payload); err != nil {
 		t.Fatalf("AppendEvent(first started) error = %v", err)
 	}
-	if err := service.AppendEvent(ctx, "task-1", TaskEventAgentStarted, "goalkeeper.actor", "task-1:goalkeeper:worker:1", payload); err != nil {
+	if err := service.AppendEvent(ctx, "task-1", TaskEventAgentStarted, "goal.actor", "task-1:goal:worker:1", payload); err != nil {
 		t.Fatalf("AppendEvent(second started) error = %v", err)
 	}
 	if got := bus.envs[0].ID; got == "" || got != bus.envs[1].ID {
