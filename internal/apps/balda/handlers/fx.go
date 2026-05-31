@@ -42,17 +42,17 @@ var Module = fx.Module("balda_handlers",
 		newCommandHandler,
 		newUserHandler,
 		fx.Annotate(
-			registerStartHandler,
+			func(h *StartHandler) tgbotkit.Handler { return h },
 			fx.As(new(tgbotkit.Handler)),
 			fx.ResultTags(`group:"bot_handlers"`),
 		),
 		fx.Annotate(
-			registerBaldaHandler,
+			func(h *BaldaHandler) tgbotkit.Handler { return h },
 			fx.As(new(tgbotkit.Handler)),
 			fx.ResultTags(`group:"bot_handlers"`),
 		),
 		fx.Annotate(
-			registerCommandHandler,
+			func(h *CommandHandler) tgbotkit.Handler { return h },
 			fx.As(new(tgbotkit.Handler)),
 			fx.ResultTags(`group:"bot_handlers"`),
 		),
@@ -66,10 +66,6 @@ var Module = fx.Module("balda_handlers",
 
 func wireHandlers(start *StartHandler, balda *BaldaHandler) {
 	start.setBaldaHandler(balda)
-}
-
-func registerStartHandler(h *StartHandler) tgbotkit.Handler {
-	return h
 }
 
 type sessionTurnRunnerAdapter struct {
@@ -98,12 +94,4 @@ func (a scheduledTaskRecorderAdapter) MarkSuccess(ctx context.Context, taskID st
 
 func (a scheduledTaskRecorderAdapter) RecordExecutionFailure(ctx context.Context, taskID string, cause error) error {
 	return a.scheduler.recordExecutionFailure(ctx, taskID, cause)
-}
-
-func registerBaldaHandler(h *BaldaHandler) tgbotkit.Handler {
-	return h
-}
-
-func registerCommandHandler(h *CommandHandler) tgbotkit.Handler {
-	return h
 }
