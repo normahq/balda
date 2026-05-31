@@ -59,18 +59,6 @@ type goalActorParams struct {
 	Logger         zerolog.Logger
 }
 
-func newGoalActor(params goalActorParams) swarm.Actor {
-	return &goalActor{
-		tasks:          params.TaskService,
-		dispatcher:     params.Dispatcher,
-		sessions:       params.SessionManager,
-		runtimeBuilder: params.RuntimeManager,
-		taskRuns:       params.TaskRuns,
-		maxIters:       normalizeGoalMaxIterations(params.MaxIters),
-		logger:         params.Logger.With().Str("component", "balda.goal_actor").Logger(),
-	}
-}
-
 func (a *goalActor) Address() string {
 	return swarm.WildcardAddress(swarm.ActorTypeGoal)
 }

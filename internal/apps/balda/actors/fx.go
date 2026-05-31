@@ -28,7 +28,17 @@ var Module = fx.Module("balda_actors",
 			fx.ResultTags(`group:"balda_swarm_actors"`),
 		),
 		fx.Annotate(
-			newGoalActor,
+			func(params goalActorParams) swarm.Actor {
+				return &goalActor{
+					tasks:          params.TaskService,
+					dispatcher:     params.Dispatcher,
+					sessions:       params.SessionManager,
+					runtimeBuilder: params.RuntimeManager,
+					taskRuns:       params.TaskRuns,
+					maxIters:       normalizeGoalMaxIterations(params.MaxIters),
+					logger:         params.Logger.With().Str("component", "balda.goal_actor").Logger(),
+				}
+			},
 			fx.As(new(swarm.Actor)),
 			fx.ResultTags(`group:"balda_swarm_actors"`),
 		),
