@@ -346,7 +346,7 @@ func TestCommandHandlerOnCommand_GoalStartsRun(t *testing.T) {
 	}
 }
 
-func TestCommandHandlerSubmitGoalTask_PublishesJetStreamCommandOnly(t *testing.T) {
+func TestCommandHandlerSubmitGoalTask_PublishesDurableCommandOnly(t *testing.T) {
 	ctx := context.Background()
 	locator := session.SessionLocator{
 		SessionID:   "tg-9001-99",

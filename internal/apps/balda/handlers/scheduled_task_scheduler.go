@@ -281,7 +281,7 @@ func (s *ScheduledTaskScheduler) dispatchTask(ctx context.Context, task baldasta
 		return err
 	}
 
-	// Mark the slot only after JetStream accepts the command.
+	// Mark the slot only after durable command dispatch succeeds.
 	current.LastDispatchKey = dispatchKey
 	current.LastError = ""
 	current.Status = baldastate.ScheduledTaskStatusActive

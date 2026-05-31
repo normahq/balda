@@ -179,7 +179,7 @@ func TestJetStreamArchitectureContractStatic(t *testing.T) {
 		if !strings.Contains(schedulerSource, "s.dispatcher.Dispatch(ctx, env)") {
 			t.Fatal("scheduler ingress must dispatch durable actor work through ActorDispatcher")
 		}
-		if !strings.Contains(schedulerSource, "Mark the slot only after JetStream accepts the command.") {
+		if !strings.Contains(schedulerSource, "Mark the slot only after durable command dispatch succeeds.") {
 			t.Fatal("scheduler must document and preserve publish-before-dispatch-state ordering")
 		}
 
