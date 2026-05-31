@@ -501,6 +501,9 @@ func TestDocumentationContract(t *testing.T) {
 			"sessions, tasks, goalkeeper, delivery, control, and memory",
 			"Session/Task/Goalkeeper/Delivery/Memory actors",
 			"session/task/goalkeeper/delivery/memory",
+			"BALDA_WORKER_COMMANDS\ndurable pull consumer",
+			"BALDA_EVENT_PROJECTOR\ndurable pull consumer",
+			"durable pull consumer with explicit ack",
 		}
 		for _, section := range sections {
 			for _, needle := range forbidden {

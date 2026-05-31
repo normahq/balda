@@ -630,11 +630,11 @@ flowchart LR
         CMD["BALDA_COMMANDS
 balda.v1.cmd.>"]
         WKR["BALDA_WORKER_COMMANDS
-durable pull consumer"]
+command worker consumer"]
         EVT["BALDA_EVENTS
 balda.v1.evt.>"]
         PRJ["BALDA_EVENT_PROJECTOR
-durable pull consumer"]
+event projector consumer"]
         DLQ["BALDA_DLQ
 balda.v1.dlq.>"]
     end
@@ -701,9 +701,9 @@ session/task/goal/delivery/memory"]
   - `BALDA_DLQ`: limits-retention stream for terminal failures on
     `balda.v1.dlq.>`.
 - Required consumer:
-  - `BALDA_WORKER_COMMANDS`: durable pull consumer with explicit ack,
+  - `BALDA_WORKER_COMMANDS`: command worker consumer with explicit ack,
     redelivery, `NakWithDelay`, and `InProgress` heartbeat support.
-  - `BALDA_EVENT_PROJECTOR`: durable pull consumer that projects
+  - `BALDA_EVENT_PROJECTOR`: event projector consumer that projects
     `BALDA_EVENTS` into SQLite read models. Permanent projection failures are
     terminated to `BALDA_DLQ`; transient failures retry with bounded delivery.
 
@@ -714,8 +714,8 @@ session/task/goal/delivery/memory"]
 | `BALDA_COMMANDS` | JetStream stream | `balda.v1.cmd.>` | work-queue retention | file storage, configurable limits/discard policy |
 | `BALDA_EVENTS` | JetStream stream | `balda.v1.evt.>` | limits retention | file storage, replay source for projections |
 | `BALDA_DLQ` | JetStream stream | `balda.v1.dlq.>` | limits retention | file storage, terminal failure inspection source |
-| `BALDA_WORKER_COMMANDS` | durable pull consumer (on `BALDA_COMMANDS`) | `balda.v1.cmd.>` | deliver-all + explicit ack | `ack_wait`, `max_deliver`, `max_ack_pending`, `fetch_batch`, `fetch_wait` |
-| `BALDA_EVENT_PROJECTOR` | durable pull consumer (on `BALDA_EVENTS`) | `balda.v1.evt.>` | deliver-all + explicit ack | same retry/backpressure knobs as command consumer; projector applies idempotent read-model updates |
+| `BALDA_WORKER_COMMANDS` | command worker consumer (on `BALDA_COMMANDS`) | `balda.v1.cmd.>` | deliver-all + explicit ack | `ack_wait`, `max_deliver`, `max_ack_pending`, `fetch_batch`, `fetch_wait` |
+| `BALDA_EVENT_PROJECTOR` | event projector consumer (on `BALDA_EVENTS`) | `balda.v1.evt.>` | deliver-all + explicit ack | same retry/backpressure knobs as command consumer; projector applies idempotent read-model updates |
 
 - Stable subjects:
   - Commands: `balda.v1.cmd.session`, `balda.v1.cmd.task`,
@@ -834,7 +834,7 @@ All events are published as the same envelope shape. For event envelopes,
   (`task:<task_id>`) across task control, goal command/result, and task-bound
   human/webhook/schedule ingress. Different task IDs still run concurrently.
 - Command consumer backpressure boundary:
-  - JetStream durable pull consumer (`BALDA_WORKER_COMMANDS`) is the transport queue.
+  - JetStream command worker consumer (`BALDA_WORKER_COMMANDS`) is the transport queue.
   - Local in-process worker fan-out is capped to `fetch_batch` (not `max_ack_pending`) to avoid creating a second deep in-memory queue ahead of actor lanes.
   - `max_ack_pending` remains a JetStream transport limit; it is not used as local goroutine fan-out.
 
