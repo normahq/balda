@@ -2,7 +2,6 @@
 package logging
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -83,9 +82,4 @@ func resolveLevels(levelRaw string) (string, zerolog.Level, slog.Level, error) {
 	default:
 		return "", zerolog.NoLevel, slog.LevelInfo, fmt.Errorf("unsupported level %q (allowed: trace, debug, info, warn, error)", levelRaw)
 	}
-}
-
-// Ctx returns the logger associated with the context.
-func Ctx(ctx context.Context) *zerolog.Logger {
-	return log.Ctx(ctx)
 }
