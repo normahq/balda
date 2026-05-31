@@ -63,18 +63,33 @@ type taskArtifactSnapshot struct {
 	GitError     string
 }
 
-type reviewableOutcomePayload struct {
-	SchemaVersion string
-	WhatWasDone   string
-	Validation    string
-	Verified      string
-	NotVerified   string
-	NextAction    string
-}
-
 func renderReviewableOutcome(task baldastate.SwarmTaskRecord, artifacts taskArtifactSnapshot) string {
-	result := parseTaskResult(task.ResultJSON)
-	parsedOutcome, hasOutcome := reviewableOutcomeFromResult(result)
+	var result map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(task.ResultJSON)), &result); err != nil {
+		result = nil
+	}
+	parsedOutcome := struct {
+		WhatWasDone string
+		Validation  string
+		Verified    string
+		NotVerified string
+		NextAction  string
+	}{}
+	hasOutcome := false
+	if len(result) != 0 {
+		if outcomeMap, ok := result["reviewable_outcome"].(map[string]any); ok {
+			parsedOutcome.WhatWasDone = redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["what_was_done"])))
+			parsedOutcome.Validation = redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["validation_output"])))
+			parsedOutcome.Verified = redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["what_was_verified"])))
+			parsedOutcome.NotVerified = redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["what_was_not_verified"])))
+			parsedOutcome.NextAction = redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["next_action"])))
+			hasOutcome = parsedOutcome.WhatWasDone != "" ||
+				parsedOutcome.Validation != "" ||
+				parsedOutcome.Verified != "" ||
+				parsedOutcome.NotVerified != "" ||
+				parsedOutcome.NextAction != ""
+		}
+	}
 	goalReached := false
 	switch typed := result["goal_reached"].(type) {
 	case bool:
@@ -142,40 +157,6 @@ func renderReviewableOutcome(task baldastate.SwarmTaskRecord, artifacts taskArti
 	}
 	out.WriteString(limitRunes(oneLine(nextAction), maxTaskOutcomeTextRunes))
 	return out.String()
-}
-
-func reviewableOutcomeFromResult(result map[string]any) (reviewableOutcomePayload, bool) {
-	if len(result) == 0 {
-		return reviewableOutcomePayload{}, false
-	}
-	raw, ok := result["reviewable_outcome"]
-	if !ok {
-		return reviewableOutcomePayload{}, false
-	}
-	outcomeMap, ok := raw.(map[string]any)
-	if !ok {
-		return reviewableOutcomePayload{}, false
-	}
-	out := reviewableOutcomePayload{
-		SchemaVersion: redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["schema_version"]))),
-		WhatWasDone:   redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["what_was_done"]))),
-		Validation:    redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["validation_output"]))),
-		Verified:      redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["what_was_verified"]))),
-		NotVerified:   redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["what_was_not_verified"]))),
-		NextAction:    redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["next_action"]))),
-	}
-	if out.SchemaVersion == "" && out.WhatWasDone == "" && out.Validation == "" && out.Verified == "" && out.NotVerified == "" && out.NextAction == "" {
-		return reviewableOutcomePayload{}, false
-	}
-	return out, true
-}
-
-func parseTaskResult(raw string) map[string]any {
-	var out map[string]any
-	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &out); err != nil {
-		return nil
-	}
-	return out
 }
 
 func stringFromResult(result map[string]any, key string) string {
