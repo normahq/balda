@@ -29,7 +29,22 @@ func BuildAgentWelcomeMessage(name, sessionID, agentType, model string, mcpServe
 		cleanModel = noneValue
 	}
 
-	cleanMCP := normalizeMCPServers(mcpServers)
+	var cleanMCP []string
+	if len(mcpServers) > 0 {
+		seen := make(map[string]struct{}, len(mcpServers))
+		cleanMCP = make([]string, 0, len(mcpServers))
+		for _, serverID := range mcpServers {
+			trimmed := strings.TrimSpace(serverID)
+			if trimmed == "" {
+				continue
+			}
+			if _, exists := seen[trimmed]; exists {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			cleanMCP = append(cleanMCP, trimmed)
+		}
+	}
 	mcpValue := strings.Join(cleanMCP, ", ")
 	if mcpValue == "" {
 		mcpValue = noneValue
@@ -49,25 +64,4 @@ func escapeMarkdownV2(s string) string {
 	// Inside code blocks (backticks), only \ and ` need to be escaped.
 	// Since we are using backticks for values, we escape backticks.
 	return strings.ReplaceAll(s, "`", "\\` ")
-}
-
-func normalizeMCPServers(mcpServers []string) []string {
-	if len(mcpServers) == 0 {
-		return nil
-	}
-
-	seen := make(map[string]struct{}, len(mcpServers))
-	out := make([]string, 0, len(mcpServers))
-	for _, serverID := range mcpServers {
-		trimmed := strings.TrimSpace(serverID)
-		if trimmed == "" {
-			continue
-		}
-		if _, exists := seen[trimmed]; exists {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		out = append(out, trimmed)
-	}
-	return out
 }

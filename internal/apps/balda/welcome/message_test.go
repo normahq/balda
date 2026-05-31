@@ -20,7 +20,7 @@ func TestBuildAgentWelcomeMessage(t *testing.T) {
 			sessionID:  "tg-1-0",
 			agentType:  "opencode_acp",
 			model:      "gpt-5",
-			mcpServers: []string{"balda", "workspace"},
+			mcpServers: []string{" balda ", "workspace", "balda", ""},
 			want:       "🚀 **Session Started** • **Name:** `balda` • **ID:** `tg-1-0` • **Model:** `gpt-5` • **Type:** `opencode_acp` • **MCP:** `balda, workspace` ",
 		},
 		{
@@ -48,40 +48,6 @@ func TestBuildAgentWelcomeMessage(t *testing.T) {
 			got := BuildAgentWelcomeMessage(tt.agentName, tt.sessionID, tt.agentType, tt.model, tt.mcpServers)
 			if got != tt.want {
 				t.Errorf("BuildAgentWelcomeMessage() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestNormalizeMCPServers(t *testing.T) {
-	tests := []struct {
-		name       string
-		mcpServers []string
-		want       []string
-	}{
-		{
-			name:       "deduplicates and trims",
-			mcpServers: []string{" balda ", "workspace", "balda", ""},
-			want:       []string{"balda", "workspace"},
-		},
-		{
-			name:       "empty",
-			mcpServers: []string{" ", ""},
-			want:       nil,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := normalizeMCPServers(tt.mcpServers)
-			if len(got) != len(tt.want) {
-				t.Errorf("normalizeMCPServers() = %v, want %v", got, tt.want)
-				return
-			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("normalizeMCPServers()[%d] = %q, want %q", i, got[i], tt.want[i])
-				}
 			}
 		})
 	}
