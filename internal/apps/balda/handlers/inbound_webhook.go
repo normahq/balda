@@ -294,9 +294,14 @@ func normalizeInboundWebhookConfig(cfg InboundWebhookConfig) (normalizedInboundW
 				return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes.%s.envelope.report_to.key is required", routeName)
 			}
 		}
-		mode, err := normalizeInboundWebhookRouteMode(rawRoute.Envelope.Mode)
-		if err != nil {
-			return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes.%s.envelope.mode: %w", routeName, err)
+		mode := strings.ToLower(strings.TrimSpace(rawRoute.Envelope.Mode))
+		if mode == "" {
+			mode = inboundWebhookRouteModeTask
+		}
+		switch mode {
+		case inboundWebhookRouteModeTask, inboundWebhookRouteModeSession:
+		default:
+			return normalizedInboundWebhookConfig{}, fmt.Errorf("balda.webhooks.routes.%s.envelope.mode: unsupported mode %q", routeName, rawRoute.Envelope.Mode)
 		}
 		authPolicy, err := normalizeInboundWebhookAuthPolicy(rawRoute.Auth)
 		if err != nil {
@@ -320,19 +325,6 @@ func normalizeInboundWebhookConfig(cfg InboundWebhookConfig) (normalizedInboundW
 	}
 
 	return normalized, nil
-}
-
-func normalizeInboundWebhookRouteMode(raw string) (string, error) {
-	mode := strings.ToLower(strings.TrimSpace(raw))
-	if mode == "" {
-		return inboundWebhookRouteModeTask, nil
-	}
-	switch mode {
-	case inboundWebhookRouteModeTask, inboundWebhookRouteModeSession:
-		return mode, nil
-	default:
-		return "", fmt.Errorf("unsupported mode %q", raw)
-	}
 }
 
 func normalizeInboundWebhookAuthPolicy(raw InboundWebhookRouteAuthConfig) (inboundWebhookAuthPolicy, error) {
