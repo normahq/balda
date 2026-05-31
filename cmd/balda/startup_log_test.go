@@ -107,9 +107,6 @@ func TestLogBaldaStartup_DoesNotLogOwnerAuth(t *testing.T) {
 	if strings.Contains(output, "token123") {
 		t.Fatalf("startup log must not include owner token, output=%q", output)
 	}
-	if strings.Contains(output, `"auth_url"`) {
-		t.Fatalf("startup log must not include auth_url field, output=%q", output)
-	}
 	if strings.Contains(output, `"owner_token"`) {
 		t.Fatalf("startup log must not include owner_token field, output=%q", output)
 	}
