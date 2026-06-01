@@ -33,7 +33,7 @@ type GoalBuildConfig struct {
 	ExtraMCPServerIDs   []string
 }
 
-// BuildGoalWorkflow builds Norma's goal work-validation loop using
+// BuildGoalWorkflow builds Balda's /goal worker-validator workflow using
 // Balda's configured provider for both child agents.
 func (b *Builder) BuildGoalWorkflow(ctx context.Context, cfg GoalBuildConfig) (adkagent.Agent, error) {
 	if b == nil || b.factory == nil {
