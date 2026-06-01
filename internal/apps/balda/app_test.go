@@ -76,43 +76,6 @@ func TestValidateBaldaMCPConfiguration_RejectsReservedCustomServerIDs(t *testing
 	}
 }
 
-func TestValidateTelegramFormattingMode(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		in      string
-		want    string
-		wantErr bool
-	}{
-		{name: "default empty", in: "", want: "markdownv2"},
-		{name: "trimmed markdownv2", in: "  MARKDOWNV2 ", want: "markdownv2"},
-		{name: "html", in: "html", want: "html"},
-		{name: "none", in: "none", want: "none"},
-		{name: "invalid", in: "markdown", wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := validateTelegramFormattingMode(tt.in)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("validateTelegramFormattingMode(%q) error = nil, want non-nil", tt.in)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("validateTelegramFormattingMode(%q) error = %v", tt.in, err)
-			}
-			if got != tt.want {
-				t.Fatalf("validateTelegramFormattingMode(%q) = %q, want %q", tt.in, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestValidateSessionPersistence(t *testing.T) {
 	t.Parallel()
 

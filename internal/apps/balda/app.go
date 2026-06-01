@@ -99,7 +99,7 @@ func Module(
 	if err := validateBaldaMCPConfiguration(normaCfg); err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}
-	formattingMode, err := validateTelegramFormattingMode(cfg.Balda.Telegram.FormattingMode)
+	formattingMode, err := telegramfmt.ValidateMode(cfg.Balda.Telegram.FormattingMode)
 	if err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}
@@ -480,14 +480,6 @@ func resolveWorkspaceEnabledForApp(
 	}
 
 	return mode, enabled, nil
-}
-
-func validateTelegramFormattingMode(raw string) (string, error) {
-	mode, err := telegramfmt.ValidateMode(raw)
-	if err != nil {
-		return "", err
-	}
-	return mode, nil
 }
 
 func validateSessionPersistence(raw string) (string, error) {
