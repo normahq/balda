@@ -200,7 +200,7 @@ func (m *Manager) createSession(ctx context.Context, sessionCtx SessionContext, 
 	workspaceDir := m.workingDir
 	startupNotice := ""
 	if m.workspaceEnabled {
-		branchName = m.sessionBranchName(sessionID)
+		branchName = fmt.Sprintf("norma/balda/%s", sessionID)
 		canonicalPath := m.workspaces.CanonicalWorkspaceDir(sessionID)
 		if persisted != nil {
 			if persistedBranch := strings.TrimSpace(persisted.BranchName); persistedBranch != "" {
