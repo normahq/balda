@@ -152,6 +152,7 @@ func TestBuildBaldaInstruction_IncludesGitWorkspaceContext(t *testing.T) {
 	)
 
 	wantSnippets := []string{
+		"You are communicating with the Balda bot owner or an authorized collaborator.",
 		"Workspace settings:",
 		"This session belongs to channel type: telegram.",
 		"Mode: git-worktree",
@@ -186,6 +187,7 @@ func TestBuildBaldaInstruction_IncludesDirectModeSettingsWhenWorkspaceDisabled(t
 	)
 
 	wantSnippets := []string{
+		"You are communicating with the Balda bot owner or an authorized collaborator.",
 		"Workspace settings:",
 		"This session belongs to channel type: telegram.",
 		"Mode: direct",
