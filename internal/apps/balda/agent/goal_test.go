@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/normahq/balda/internal/apps/balda/actors/goalkeeper"
+	"github.com/normahq/balda/internal/apps/balda/goalkeeperworkflow"
 	adkagent "google.golang.org/adk/agent"
 	adkrunner "google.golang.org/adk/runner"
 	adksession "google.golang.org/adk/session"
@@ -104,9 +104,9 @@ func TestGoalValidatorWrapperUsesLatestWorkerOutputEachInvocation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("wrapGoalValidatorWithWorkerOutput() error = %v", err)
 	}
-	workflow, err := goalkeeper.New(worker, wrapped, 2)
+	workflow, err := goalkeeperworkflow.New(worker, wrapped, 2)
 	if err != nil {
-		t.Fatalf("goalkeeper.New() error = %v", err)
+		t.Fatalf("goalkeeperworkflow.New() error = %v", err)
 	}
 
 	sessionService := adksession.InMemoryService()
@@ -151,12 +151,12 @@ func TestBuildGoalWorkflow_UsesGoalKeeperRootName(t *testing.T) {
 		}
 	})
 
-	workflow, err := goalkeeper.New(worker, validator, 1)
+	workflow, err := goalkeeperworkflow.New(worker, validator, 1)
 	if err != nil {
-		t.Fatalf("goalkeeper.New() error = %v", err)
+		t.Fatalf("goalkeeperworkflow.New() error = %v", err)
 	}
-	if got := workflow.Name(); got != goalkeeper.RootAgentName {
-		t.Fatalf("workflow.Name() = %q, want %q", got, goalkeeper.RootAgentName)
+	if got := workflow.Name(); got != goalkeeperworkflow.RootAgentName {
+		t.Fatalf("workflow.Name() = %q, want %q", got, goalkeeperworkflow.RootAgentName)
 	}
 }
 

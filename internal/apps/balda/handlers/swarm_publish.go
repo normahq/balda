@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/normahq/balda/internal/apps/balda/actors"
+	"github.com/normahq/balda/internal/apps/balda/actors/goalkeeper"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 )
@@ -94,7 +95,7 @@ func (h *BaldaHandler) RunSessionTurnPayload(ctx context.Context, payload actors
 
 func (h *CommandHandler) submitGoalTask(ctx context.Context, locator baldasession.SessionLocator, objective string, transportUserID string) (bool, error) {
 	maxIterations := normalizeGoalMaxIterations(h.goalMaxIterations)
-	env, err := actors.GoalTaskEnvelope(locator, objective, transportUserID, maxIterations)
+	env, err := goalkeeper.GoalTaskEnvelope(locator, objective, transportUserID, maxIterations)
 	if err != nil {
 		return false, err
 	}

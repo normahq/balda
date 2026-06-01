@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/normahq/balda/internal/apps/balda/actors/goalkeeper"
+	"github.com/normahq/balda/internal/apps/balda/goalkeeperworkflow"
 	"github.com/normahq/norma/pkg/runtime/agentfactory"
 	adkagent "google.golang.org/adk/agent"
 	adksession "google.golang.org/adk/session"
@@ -104,7 +104,7 @@ func (b *Builder) BuildGoalWorkflow(ctx context.Context, cfg GoalBuildConfig) (a
 		return nil, err
 	}
 
-	workflow, err := goalkeeper.New(worker, validator, cfg.MaxIterations)
+	workflow, err := goalkeeperworkflow.New(worker, validator, cfg.MaxIterations)
 	if err != nil {
 		_ = closeRuntimeAgent(worker)
 		_ = closeRuntimeAgent(validator)

@@ -70,7 +70,7 @@ func SessionTurnEnvelope(payload SessionTurnPayload) (swarm.Envelope, error) {
 		priority = 50
 		namespace = swarm.NamespaceScheduleInbound
 	case strings.EqualFold(source, "agent"):
-		namespace = swarm.NamespaceGoalCommand
+		namespace = swarm.NamespaceGoalkeeperCommand
 	}
 	return swarm.Envelope{
 		ID:          uuid.NewString(),
@@ -111,7 +111,7 @@ func (e *sessionActorExecutor) Handle(ctx context.Context, envelope any) error {
 		return err
 	}
 	switch strings.TrimSpace(env.Namespace) {
-	case swarm.NamespaceHumanInbound, swarm.NamespaceWebhookInbound, swarm.NamespaceScheduleInbound, swarm.NamespaceGoalCommand, swarm.NamespaceTaskControl:
+	case swarm.NamespaceHumanInbound, swarm.NamespaceWebhookInbound, swarm.NamespaceScheduleInbound, swarm.NamespaceGoalkeeperCommand, swarm.NamespaceTaskControl:
 		return e.enqueueTurn(ctx, env)
 	default:
 		return swarm.PolicyError(fmt.Errorf("unsupported session namespace %q", env.Namespace))

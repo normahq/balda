@@ -6,13 +6,14 @@ import (
 )
 
 const (
-	SubjectCommandSession  = "balda.v1.cmd.session"
-	SubjectCommandTask     = "balda.v1.cmd.task"
-	SubjectCommandGoal     = "balda.v1.cmd.goal"
-	SubjectCommandDelivery = "balda.v1.cmd.delivery"
-	SubjectCommandMemory   = "balda.v1.cmd.memory"
-	SubjectCommandControl  = "balda.v1.cmd.control"
-	SubjectCommandAll      = "balda.v1.cmd.>"
+	SubjectCommandSession    = "balda.v1.cmd.session"
+	SubjectCommandTask       = "balda.v1.cmd.task"
+	SubjectCommandGoalkeeper = "balda.v1.cmd.goalkeeper"
+	SubjectCommandGoal       = SubjectCommandGoalkeeper
+	SubjectCommandDelivery   = "balda.v1.cmd.delivery"
+	SubjectCommandMemory     = "balda.v1.cmd.memory"
+	SubjectCommandControl    = "balda.v1.cmd.control"
+	SubjectCommandAll        = "balda.v1.cmd.>"
 
 	SubjectEventCommandAccepted     = "balda.v1.evt.command.accepted"
 	SubjectEventCommandRunning      = "balda.v1.evt.command.running"
@@ -54,7 +55,7 @@ func SubjectForEnvelope(env Envelope) string {
 		return SubjectCommandSession
 	case ActorTypeTask:
 		return SubjectCommandTask
-	case ActorTypeGoal:
+	case ActorTypeGoalkeeper:
 		return SubjectCommandGoal
 	case ActorTypeDelivery:
 		return SubjectCommandDelivery
@@ -62,7 +63,7 @@ func SubjectForEnvelope(env Envelope) string {
 		return SubjectCommandMemory
 	default:
 		switch strings.TrimSpace(env.Namespace) {
-		case NamespaceGoalCommand:
+		case NamespaceGoalkeeperCommand:
 			return SubjectCommandGoal
 		case NamespaceMemorySync:
 			return SubjectCommandMemory

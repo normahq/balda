@@ -16,34 +16,15 @@ import (
 )
 
 const (
-	taskPayloadKindGoal          = "goal"
 	taskPayloadKindScheduledTask = "scheduled_task"
 	taskPayloadKindSessionTurn   = "session_turn"
 	taskPayloadKindDelivery      = "delivery"
-
-	taskResultSchemaVersionV1          = "task_result.v1"
-	taskReviewableOutcomeSchemaVersion = "task_reviewable_outcome.v1"
-
-	taskMemoryScopeCompleted   = "task.completed"
-	taskMemoryOperationSummary = "task_summary"
-	taskMemoryOperationFacts   = "fact_extract"
-	taskMemoryOperationContext = "context_pack"
-	taskMemoryActorKeyGlobal   = "global"
 )
 
 type taskEnvelopePayload struct {
 	Kind          string                `json:"kind"`
-	Goal          *goalTaskPayload      `json:"goal,omitempty"`
 	ScheduledTask *scheduledTaskPayload `json:"scheduled_task,omitempty"`
 	SessionTurn   *SessionTurnPayload   `json:"session_turn,omitempty"`
-}
-
-type goalTaskPayload struct {
-	TaskID          string                      `json:"task_id,omitempty"`
-	Locator         baldasession.SessionLocator `json:"locator"`
-	Objective       string                      `json:"objective"`
-	TransportUserID string                      `json:"transport_user_id"`
-	MaxIterations   int                         `json:"max_iterations,omitempty"`
 }
 
 type scheduledTaskPayload struct {
@@ -60,51 +41,6 @@ type taskDeliveryPayload struct {
 	TaskID  string                      `json:"task_id"`
 	Locator baldasession.SessionLocator `json:"locator"`
 	Text    string                      `json:"text"`
-}
-
-type taskResultPayloadV1 struct {
-	SchemaVersion     string                  `json:"schema_version"`
-	GoalReached       bool                    `json:"goal_reached"`
-	Iterations        int                     `json:"iterations"`
-	PlannerOutput     string                  `json:"planner_output,omitempty"`
-	ExecutorOutput    string                  `json:"executor_output,omitempty"`
-	ReviewerOutput    string                  `json:"reviewer_output,omitempty"`
-	ReviewerNotes     string                  `json:"reviewer_feedback,omitempty"`
-	Artifacts         *taskArtifactResultV1   `json:"artifacts,omitempty"`
-	Export            *taskExportResultV1     `json:"export,omitempty"`
-	ReviewableOutcome taskReviewableOutcomeV1 `json:"reviewable_outcome"`
-}
-
-type taskArtifactResultV1 struct {
-	WorkspaceDir string   `json:"workspace_dir,omitempty"`
-	BranchName   string   `json:"branch_name,omitempty"`
-	Commit       string   `json:"commit,omitempty"`
-	ChangedFiles []string `json:"changed_files,omitempty"`
-	GitError     string   `json:"git_error,omitempty"`
-}
-
-type taskExportResultV1 struct {
-	Status        string `json:"status,omitempty"`
-	CommitMessage string `json:"commit_message,omitempty"`
-	BaseCommit    string `json:"base_commit,omitempty"`
-	Error         string `json:"error,omitempty"`
-}
-
-type taskReviewableOutcomeV1 struct {
-	SchemaVersion string `json:"schema_version"`
-	WhatWasDone   string `json:"what_was_done,omitempty"`
-	Validation    string `json:"validation_output,omitempty"`
-	Verified      string `json:"what_was_verified,omitempty"`
-	NotVerified   string `json:"what_was_not_verified,omitempty"`
-	NextAction    string `json:"next_action,omitempty"`
-}
-
-type taskMemorySyncPayload struct {
-	Operation string `json:"operation,omitempty"`
-	Scope     string `json:"scope,omitempty"`
-	TaskID    string `json:"task_id,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	Content   string `json:"content,omitempty"`
 }
 
 type taskActorExecutor struct {
@@ -233,7 +169,7 @@ func (e *taskActorExecutor) Handle(ctx context.Context, envelope any) error {
 		return swarm.PermanentError(fmt.Errorf("decode task payload: %w", err))
 	}
 	switch strings.TrimSpace(payload.Kind) {
-	case taskPayloadKindGoal:
+	case "goal":
 		return swarm.PolicyError(fmt.Errorf("goal tasks are handled by goal actor"))
 	case taskPayloadKindScheduledTask:
 		if payload.ScheduledTask == nil {
@@ -366,8 +302,4 @@ func (e *taskActorExecutor) startScheduledTaskTask(ctx context.Context, env swar
 		}
 	}
 	return nil
-}
-
-func reviewerPassed(text string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(text)), "verdict: pass")
 }

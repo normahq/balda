@@ -9,21 +9,23 @@ import (
 )
 
 const (
-	ActorTypeSystem   = "system"
-	ActorTypeSession  = "session"
-	ActorTypeTask     = "task"
-	ActorTypeGoal     = "goal"
-	ActorTypeDelivery = "delivery"
-	ActorTypeMemory   = "memory"
+	ActorTypeSystem     = "system"
+	ActorTypeSession    = "session"
+	ActorTypeTask       = "task"
+	ActorTypeGoalkeeper = "goalkeeper"
+	ActorTypeGoal       = ActorTypeGoalkeeper
+	ActorTypeDelivery   = "delivery"
+	ActorTypeMemory     = "memory"
 
-	NamespaceHumanInbound    = "human.inbound"
-	NamespaceWebhookInbound  = "webhook.inbound"
-	NamespaceScheduleInbound = "schedule.inbound"
-	NamespaceAgentResult     = "agent.result"
-	NamespaceGoalCommand     = "goal.command"
-	NamespaceTaskControl     = "task.control"
-	NamespaceMemorySync      = "memory.sync"
-	NamespaceTelemetry       = "telemetry"
+	NamespaceHumanInbound      = "human.inbound"
+	NamespaceWebhookInbound    = "webhook.inbound"
+	NamespaceScheduleInbound   = "schedule.inbound"
+	NamespaceAgentResult       = "agent.result"
+	NamespaceGoalkeeperCommand = "goalkeeper.command"
+	NamespaceGoalCommand       = NamespaceGoalkeeperCommand
+	NamespaceTaskControl       = "task.control"
+	NamespaceMemorySync        = "memory.sync"
+	NamespaceTelemetry         = "telemetry"
 
 	KindMessage       = "message"
 	KindWebhookEvent  = "webhook_event"
