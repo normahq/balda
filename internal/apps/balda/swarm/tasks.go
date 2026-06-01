@@ -90,7 +90,21 @@ func (s *TaskService) MarkStatus(ctx context.Context, taskID string, status stri
 	if err := s.store.UpdateTaskStatus(ctx, taskID, status, reason); err != nil {
 		return err
 	}
-	eventType := taskEventForStatus(status)
+	eventType := ""
+	switch strings.TrimSpace(status) {
+	case baldastate.SwarmTaskStatusQueued, baldastate.SwarmTaskStatusWaitingForAgent, baldastate.SwarmTaskStatusWaitingForUser:
+		eventType = TaskEventTaskAssigned
+	case baldastate.SwarmTaskStatusRunning:
+		eventType = TaskEventTaskStarted
+	case baldastate.SwarmTaskStatusValidating:
+		eventType = TaskEventTaskValidating
+	case baldastate.SwarmTaskStatusCompleted:
+		eventType = TaskEventTaskCompleted
+	case baldastate.SwarmTaskStatusFailed, baldastate.SwarmTaskStatusDeadLettered:
+		eventType = TaskEventTaskFailed
+	case baldastate.SwarmTaskStatusCanceled:
+		eventType = TaskEventTaskCanceled
+	}
 	if eventType == "" {
 		return nil
 	}
@@ -126,7 +140,22 @@ func (s *TaskService) SetResult(ctx context.Context, taskID string, result any, 
 	if err := s.store.SetTaskResult(ctx, taskID, data, status, reason); err != nil {
 		return err
 	}
-	return s.appendEventBestEffort(ctx, taskID, taskEventForStatus(status), actor, "", mergePayload(result, map[string]any{
+	eventType := ""
+	switch strings.TrimSpace(status) {
+	case baldastate.SwarmTaskStatusQueued, baldastate.SwarmTaskStatusWaitingForAgent, baldastate.SwarmTaskStatusWaitingForUser:
+		eventType = TaskEventTaskAssigned
+	case baldastate.SwarmTaskStatusRunning:
+		eventType = TaskEventTaskStarted
+	case baldastate.SwarmTaskStatusValidating:
+		eventType = TaskEventTaskValidating
+	case baldastate.SwarmTaskStatusCompleted:
+		eventType = TaskEventTaskCompleted
+	case baldastate.SwarmTaskStatusFailed, baldastate.SwarmTaskStatusDeadLettered:
+		eventType = TaskEventTaskFailed
+	case baldastate.SwarmTaskStatusCanceled:
+		eventType = TaskEventTaskCanceled
+	}
+	return s.appendEventBestEffort(ctx, taskID, eventType, actor, "", mergePayload(result, map[string]any{
 		"status": status,
 		"reason": reason,
 	}))
@@ -282,25 +311,6 @@ func (s *TaskService) FailAgentStep(ctx context.Context, stepKey string, resultJ
 		return nil
 	}
 	return s.store.FailAgentStep(ctx, stepKey, resultJSON, reason)
-}
-
-func taskEventForStatus(status string) string {
-	switch strings.TrimSpace(status) {
-	case baldastate.SwarmTaskStatusQueued, baldastate.SwarmTaskStatusWaitingForAgent, baldastate.SwarmTaskStatusWaitingForUser:
-		return TaskEventTaskAssigned
-	case baldastate.SwarmTaskStatusRunning:
-		return TaskEventTaskStarted
-	case baldastate.SwarmTaskStatusValidating:
-		return TaskEventTaskValidating
-	case baldastate.SwarmTaskStatusCompleted:
-		return TaskEventTaskCompleted
-	case baldastate.SwarmTaskStatusFailed, baldastate.SwarmTaskStatusDeadLettered:
-		return TaskEventTaskFailed
-	case baldastate.SwarmTaskStatusCanceled:
-		return TaskEventTaskCanceled
-	default:
-		return ""
-	}
 }
 
 func (s *TaskService) publishTaskEvent(ctx context.Context, event baldastate.SwarmTaskEventRecord) error {
