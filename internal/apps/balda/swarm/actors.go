@@ -47,9 +47,13 @@ func (a memoryActor) Handle(ctx context.Context, envelope any) error {
 	if err := json.Unmarshal([]byte(env.PayloadJSON), &payload); err != nil {
 		return DecodeError(fmt.Errorf("decode memory sync payload: %w", err))
 	}
-	switch normalizeMemoryOperation(payload.Operation, env.Kind) {
+	operation := strings.ToLower(strings.TrimSpace(payload.Operation))
+	if operation == "" {
+		operation = strings.ToLower(strings.TrimSpace(env.Kind))
+	}
+	switch operation {
 	case "", memoryOpTaskSummary, memoryOpSessionSummary, memoryOpFactExtract, memoryOpContextPack:
-		return a.handleOperation(ctx, normalizeMemoryOperation(payload.Operation, env.Kind), payload)
+		return a.handleOperation(ctx, operation, payload)
 	default:
 		// Unknown operations are treated as noop to keep memory sync idempotent.
 		return nil
@@ -134,12 +138,4 @@ func (a memoryActor) handleFactExtract(ctx context.Context, payload memorySyncPa
 		}
 	}
 	return nil
-}
-
-func normalizeMemoryOperation(op string, fallback string) string {
-	normalized := strings.ToLower(strings.TrimSpace(op))
-	if normalized != "" {
-		return normalized
-	}
-	return strings.ToLower(strings.TrimSpace(fallback))
 }
