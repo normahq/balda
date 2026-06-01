@@ -147,7 +147,8 @@ type inboundWebhookParams struct {
 	Logger     zerolog.Logger
 }
 
-// InboundWebhookReceiver receives inbound webhook events and dispatches them into bound session turns.
+// InboundWebhookReceiver receives inbound webhook events and dispatches them
+// into either direct session turns or durable webhook task commands.
 type InboundWebhookReceiver struct {
 	enabled    bool
 	listenAddr string
