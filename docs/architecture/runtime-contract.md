@@ -46,7 +46,7 @@ Status: active
 
 ## Related packages
 
-- `internal/apps/balda/app.go`
+- `internal/apps/balda`
 - `internal/apps/balda/actors`
 - `internal/apps/balda/handlers`
 - `internal/apps/balda/swarm`

@@ -20,7 +20,7 @@ Status: active
 
 - `internal/apps/balda/swarm`
 - `internal/apps/balda/state`
-- `internal/apps/balda/handlers/command_handler.go`
+- `internal/apps/balda/handlers`
 
 ## Update triggers
 
