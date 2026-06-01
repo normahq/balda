@@ -11,7 +11,7 @@ import (
 
 const testWorkspaceBranchContent = "branch\n"
 
-func TestWorkspaceImportDiscardsDirtyChangesAndSyncsToMaster(t *testing.T) {
+func TestWorkspaceImportDiscardsDirtyChangesAndSyncsToBaseBranch(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -32,9 +32,9 @@ func TestWorkspaceImportDiscardsDirtyChangesAndSyncsToMaster(t *testing.T) {
 	writeFile(t, filepath.Join(workspaceDir, "base.txt"), "dirty change\n")
 	writeFile(t, filepath.Join(workspaceDir, "scratch.txt"), "scratch\n")
 
-	writeFile(t, filepath.Join(workingDir, "master-only.txt"), "master-only\n")
-	runGit(t, ctx, workingDir, "add", "master-only.txt")
-	runGit(t, ctx, workingDir, "commit", "-m", "chore: update master")
+	writeFile(t, filepath.Join(workingDir, "base-branch-only.txt"), "base-branch-only\n")
+	runGit(t, ctx, workingDir, "add", "base-branch-only.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: update base branch")
 
 	m := NewWorkspaceManagerWithSessionsDir(workingDir, t.TempDir(), currentBranch(t, ctx, workingDir), "")
 	if err := m.Import(ctx, workspaceDir); err != nil {
@@ -53,8 +53,8 @@ func TestWorkspaceImportDiscardsDirtyChangesAndSyncsToMaster(t *testing.T) {
 	if got := readFile(t, filepath.Join(workspaceDir, "base.txt")); got != "base\n" {
 		t.Fatalf("base.txt mismatch: got %q", got)
 	}
-	if got := readFile(t, filepath.Join(workspaceDir, "master-only.txt")); got != "master-only\n" {
-		t.Fatalf("master-only.txt mismatch: got %q", got)
+	if got := readFile(t, filepath.Join(workspaceDir, "base-branch-only.txt")); got != "base-branch-only\n" {
+		t.Fatalf("base-branch-only.txt mismatch: got %q", got)
 	}
 }
 
@@ -80,9 +80,9 @@ func TestWorkspaceImportRebasesCleanBranch(t *testing.T) {
 	runGit(t, ctx, workspaceDir, "add", "branch.txt")
 	runGit(t, ctx, workspaceDir, "commit", "-m", "feat: branch change")
 
-	writeFile(t, filepath.Join(workingDir, "master.txt"), "master\n")
-	runGit(t, ctx, workingDir, "add", "master.txt")
-	runGit(t, ctx, workingDir, "commit", "-m", "chore: master change")
+	writeFile(t, filepath.Join(workingDir, "base-branch.txt"), "base-branch\n")
+	runGit(t, ctx, workingDir, "add", "base-branch.txt")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: base branch change")
 
 	m := NewWorkspaceManagerWithSessionsDir(workingDir, t.TempDir(), currentBranch(t, ctx, workingDir), "")
 	if err := m.Import(ctx, workspaceDir); err != nil {
@@ -97,8 +97,8 @@ func TestWorkspaceImportRebasesCleanBranch(t *testing.T) {
 	if got := readFile(t, filepath.Join(workspaceDir, "branch.txt")); got != testWorkspaceBranchContent {
 		t.Fatalf("branch.txt mismatch: got %q", got)
 	}
-	if got := readFile(t, filepath.Join(workspaceDir, "master.txt")); got != "master\n" {
-		t.Fatalf("master.txt mismatch: got %q", got)
+	if got := readFile(t, filepath.Join(workspaceDir, "base-branch.txt")); got != "base-branch\n" {
+		t.Fatalf("base-branch.txt mismatch: got %q", got)
 	}
 }
 
@@ -288,9 +288,9 @@ func TestWorkspaceImportAbortsRebaseOnConflict(t *testing.T) {
 	runGit(t, ctx, workspaceDir, "add", "conflict.txt")
 	runGit(t, ctx, workspaceDir, "commit", "-m", "feat: branch conflict")
 
-	writeFile(t, filepath.Join(workingDir, "conflict.txt"), "master\n")
+	writeFile(t, filepath.Join(workingDir, "conflict.txt"), "base-branch\n")
 	runGit(t, ctx, workingDir, "add", "conflict.txt")
-	runGit(t, ctx, workingDir, "commit", "-m", "chore: master conflict")
+	runGit(t, ctx, workingDir, "commit", "-m", "chore: base branch conflict")
 
 	m := NewWorkspaceManagerWithSessionsDir(workingDir, t.TempDir(), currentBranch(t, ctx, workingDir), "")
 	err := m.Import(ctx, workspaceDir)
