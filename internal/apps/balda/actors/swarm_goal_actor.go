@@ -155,11 +155,10 @@ func (a *goalActor) runGoal(ctx context.Context, env swarm.Envelope, payload goa
 		return swarm.TransientError(fmt.Errorf("goal runtime builder is required"))
 	}
 	runtime, err := a.runtimeBuilder.BuildGoalRuntime(ctx, baldaagent.GoalRuntimeConfig{
-		SessionID:     ts.GetAgentSessionID(),
-		UserID:        ts.GetUserID(),
-		BranchName:    ts.GetBranchName(),
-		WorkspaceDir:  ts.GetWorkspaceDir(),
-		MaxIterations: uint(maxIterations),
+		SourceSessionID: payload.Locator.SessionID,
+		TaskID:          taskID,
+		UserID:          ts.GetUserID(),
+		MaxIterations:   uint(maxIterations),
 	})
 	if err != nil {
 		return swarm.TransientError(err)
@@ -175,36 +174,65 @@ func (a *goalActor) runGoal(ctx context.Context, env swarm.Envelope, payload goa
 	defer a.taskRuns.Unregister(taskID, runID)
 	defer cancel()
 
-	result, err := a.runWorkflow(runCtx, runtime, ts.GetUserID(), ts.GetAgentSessionID(), payload)
+	result, err := a.runWorkflow(runCtx, runtime, ts.GetUserID(), runtime.SessionID, payload)
+	artifacts := snapshotGoalRuntimeArtifacts(ctx, runtime)
 	if err != nil {
 		if errors.Is(runCtx.Err(), context.Canceled) {
-			if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false), baldastate.SwarmTaskStatusCanceled, goalActorName, "goal run canceled"); setErr != nil {
+			if cleanupErr := runtime.CleanupResources(ctx); cleanupErr != nil {
+				a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup canceled goal runtime")
+			}
+			if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "canceled"}), baldastate.SwarmTaskStatusCanceled, goalActorName, "goal run canceled"); setErr != nil {
 				return swarm.TransientError(setErr)
 			}
 			return a.deliver(ctx, taskID, payload.Locator, "Goal run canceled.", "canceled")
 		}
 		reason := redactSecrets(err.Error())
-		if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false), baldastate.SwarmTaskStatusFailed, goalActorName, reason); setErr != nil {
+		if cleanupErr := runtime.CleanupResources(ctx); cleanupErr != nil {
+			a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup failed goal runtime")
+		}
+		if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "failed", Error: reason}), baldastate.SwarmTaskStatusFailed, goalActorName, reason); setErr != nil {
 			return swarm.TransientError(setErr)
 		}
 		return a.deliver(ctx, taskID, payload.Locator, "Goal run failed: "+reason, "failed")
 	}
 	passed := reviewerPassed(result.validatorOutput)
-	status := baldastate.SwarmTaskStatusCompleted
-	reason := ""
-	if !passed {
-		status = baldastate.SwarmTaskStatusFailed
-		reason = "max iterations reached"
-	}
-	taskResult := result.toTaskResult(passed)
-	if err := a.tasks.SetResult(ctx, taskID, taskResult, status, goalActorName, reason); err != nil {
-		return swarm.TransientError(err)
-	}
 	if passed {
+		commitMessage, commitErr := runtime.BuildCommitMessage(ctx, payload.Objective, result.workerOutput, result.validatorOutput)
+		if commitErr != nil {
+			a.logger.Warn().Err(commitErr).Str("task_id", taskID).Msg("failed to generate goal export commit message; using fallback")
+		}
+		exportSummary := &taskExportResultV1{
+			Status:        "pending",
+			CommitMessage: commitMessage,
+		}
+		if exportErr := runtime.ExportWorkspace(ctx, commitMessage); exportErr != nil {
+			exportSummary.Status = goalExportStatusFailed
+			exportSummary.Error = redactSecrets(exportErr.Error())
+			taskResult := result.toTaskResult(true, artifacts, exportSummary)
+			if setErr := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.SwarmTaskStatusFailed, goalActorName, exportSummary.Error); setErr != nil {
+				return swarm.TransientError(setErr)
+			}
+			return a.deliver(ctx, taskID, payload.Locator, a.renderTaskOutcome(ctx, taskID, "Goal validation passed, but export failed."), "export-failed")
+		}
+		exportSummary.Status = "exported"
+		taskResult := result.toTaskResult(true, artifacts, exportSummary)
+		if err := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.SwarmTaskStatusCompleted, goalActorName, ""); err != nil {
+			return swarm.TransientError(err)
+		}
 		if err := a.enqueueTaskCompletionMemorySync(ctx, payload, taskResult); err != nil {
 			return err
 		}
+		if cleanupErr := runtime.CleanupResources(ctx); cleanupErr != nil {
+			a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup completed goal runtime")
+		}
 		return a.deliver(ctx, taskID, payload.Locator, a.renderTaskOutcome(ctx, taskID, "Goal run completed."), "completed")
+	}
+	if cleanupErr := runtime.CleanupResources(ctx); cleanupErr != nil {
+		a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup max-iteration goal runtime")
+	}
+	taskResult := result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "not_exported"})
+	if err := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.SwarmTaskStatusFailed, goalActorName, "max iterations reached"); err != nil {
+		return swarm.TransientError(err)
 	}
 	return a.deliver(ctx, taskID, payload.Locator, a.renderTaskOutcome(ctx, taskID, "Goal run reached max iterations without passing validation."), "max-iterations")
 }
@@ -411,7 +439,7 @@ func (a *goalActor) recordStepCompleted(ctx context.Context, payload goalTaskPay
 	return nil
 }
 
-func (r goalRunResult) toTaskResult(goalReached bool) taskResultPayloadV1 {
+func (r goalRunResult) toTaskResult(goalReached bool, artifacts taskArtifactSnapshot, export *taskExportResultV1) taskResultPayloadV1 {
 	workerOutput := redactSecrets(strings.TrimSpace(r.workerOutput))
 	validatorOutput := redactSecrets(strings.TrimSpace(r.validatorOutput))
 	finalText := redactSecrets(strings.TrimSpace(r.finalText))
@@ -423,9 +451,19 @@ func (r goalRunResult) toTaskResult(goalReached bool) taskResultPayloadV1 {
 	}
 	nextAction := "Inspect events and decide whether to continue, cancel, or ask a human."
 	if goalReached {
-		nextAction = "Review workspace changes and run balda.workspace.export when ready."
+		nextAction = "Review the exported result and continue with follow-up work if needed."
+		if export != nil && strings.TrimSpace(export.Status) == goalExportStatusFailed {
+			nextAction = "Inspect the preserved goal workspace and retry export after resolving the base-branch issue."
+		}
 	} else if r.payload.MaxIterations > 0 && r.iterations >= r.payload.MaxIterations {
 		nextAction = "Review failure evidence and rerun /goal or assign a narrower follow-up task."
+	}
+	artifactResult := &taskArtifactResultV1{
+		WorkspaceDir: strings.TrimSpace(artifacts.WorkspaceDir),
+		BranchName:   strings.TrimSpace(artifacts.BranchName),
+		Commit:       strings.TrimSpace(artifacts.Commit),
+		ChangedFiles: append([]string(nil), artifacts.ChangedFiles...),
+		GitError:     strings.TrimSpace(artifacts.GitError),
 	}
 	return taskResultPayloadV1{
 		SchemaVersion:  taskResultSchemaVersionV1,
@@ -434,6 +472,8 @@ func (r goalRunResult) toTaskResult(goalReached bool) taskResultPayloadV1 {
 		ExecutorOutput: workerOutput,
 		ReviewerOutput: validatorOutput,
 		ReviewerNotes:  validatorOutput,
+		Artifacts:      artifactResult,
+		Export:         export,
 		ReviewableOutcome: taskReviewableOutcomeV1{
 			SchemaVersion: taskReviewableOutcomeSchemaVersion,
 			WhatWasDone:   whatWasDone,
@@ -443,6 +483,42 @@ func (r goalRunResult) toTaskResult(goalReached bool) taskResultPayloadV1 {
 			NextAction:    nextAction,
 		},
 	}
+}
+
+func snapshotGoalRuntimeArtifacts(ctx context.Context, runtime *baldaagent.GoalRuntime) taskArtifactSnapshot {
+	if runtime == nil {
+		return taskArtifactSnapshot{}
+	}
+	artifacts := taskArtifactSnapshot{
+		WorkspaceDir: strings.TrimSpace(runtime.WorkspaceDir),
+		BranchName:   strings.TrimSpace(runtime.BranchName),
+	}
+	if artifacts.WorkspaceDir == "" {
+		return artifacts
+	}
+	if !git.Available(ctx, artifacts.WorkspaceDir) {
+		artifacts.GitError = "workspace is not a git repository"
+		return artifacts
+	}
+	status, err := git.GitRunCmdOutput(ctx, artifacts.WorkspaceDir, "git", "status", "--short")
+	if err != nil {
+		artifacts.GitError = err.Error()
+	} else {
+		for _, line := range strings.Split(strings.TrimSpace(status), "\n") {
+			if trimmed := strings.TrimSpace(line); trimmed != "" {
+				artifacts.ChangedFiles = append(artifacts.ChangedFiles, trimmed)
+			}
+		}
+	}
+	commit, err := git.GitRunCmdOutput(ctx, artifacts.WorkspaceDir, "git", "rev-parse", "--short", "HEAD")
+	if err != nil {
+		if artifacts.GitError == "" {
+			artifacts.GitError = err.Error()
+		}
+	} else {
+		artifacts.Commit = strings.TrimSpace(commit)
+	}
+	return artifacts
 }
 
 func (a *goalActor) enqueueTaskCompletionMemorySync(ctx context.Context, payload goalTaskPayload, result taskResultPayloadV1) error {
@@ -532,6 +608,7 @@ func (a *goalActor) taskStatusIs(ctx context.Context, taskID string, statuses ..
 }
 
 func (a *goalActor) renderTaskOutcome(ctx context.Context, taskID string, fallback string) string {
+	_ = ctx
 	if a == nil || a.tasks == nil {
 		return fallback
 	}
@@ -539,39 +616,7 @@ func (a *goalActor) renderTaskOutcome(ctx context.Context, taskID string, fallba
 	if err != nil || !ok {
 		return fallback
 	}
-	artifacts := taskArtifactSnapshot{BranchName: strings.TrimSpace(task.AssignedActor)}
-	if a.sessions != nil && strings.TrimSpace(task.SessionID) != "" {
-		if info, err := a.sessions.GetSessionInfo(ctx, task.SessionID); err == nil {
-			artifacts.WorkspaceDir = strings.TrimSpace(info.WorkspaceDir)
-			if branchName := strings.TrimSpace(info.BranchName); branchName != "" {
-				artifacts.BranchName = branchName
-			}
-		}
-	}
-	if artifacts.WorkspaceDir != "" {
-		if !git.Available(ctx, artifacts.WorkspaceDir) {
-			artifacts.GitError = "workspace is not a git repository"
-		} else {
-			status, err := git.GitRunCmdOutput(ctx, artifacts.WorkspaceDir, "git", "status", "--short")
-			if err != nil {
-				artifacts.GitError = err.Error()
-			} else {
-				for _, line := range strings.Split(strings.TrimSpace(status), "\n") {
-					if trimmed := strings.TrimSpace(line); trimmed != "" {
-						artifacts.ChangedFiles = append(artifacts.ChangedFiles, trimmed)
-					}
-				}
-			}
-			commit, err := git.GitRunCmdOutput(ctx, artifacts.WorkspaceDir, "git", "rev-parse", "--short", "HEAD")
-			if err != nil {
-				if artifacts.GitError == "" {
-					artifacts.GitError = err.Error()
-				}
-			} else {
-				artifacts.Commit = strings.TrimSpace(commit)
-			}
-		}
-	}
+	artifacts := taskArtifactSnapshot{}
 	return renderReviewableOutcome(task, artifacts)
 }
 

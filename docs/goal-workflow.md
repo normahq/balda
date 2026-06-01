@@ -1,14 +1,21 @@
 # Goal Workflow
 
-Balda `/goal <objective>` starts goal work in the current session and workspace.
+Balda `/goal <objective>` starts goal work from the current session context in an isolated GoalKeeper runtime.
 
-The workflow uses the configured `balda.provider` and the same workspace, Balda MCP server set, and session context as the current chat session.
+The workflow uses the configured `balda.provider` and the Balda MCP server set, but it does not reuse the current chat runtime session, workspace, or state. Each `/goal` run gets:
+
+- a separate GoalKeeper ADK session/state
+- a separate goal workspace under Balda state
+- a goal branch created from `balda.workspace.base_branch`
+- automatic export back to the base branch when validation passes
+
+`/goal` requires `balda.workspace.mode` to resolve to an enabled git-worktree mode.
 
 ## Workflow
 
 The loop is fixed:
 
-- Balda performs work toward the goal in the current workspace
+- GoalKeeper performs work toward the goal in the isolated goal workspace
 - Balda then validates the result against the same goal using the latest visible work summary
 - if the validation final visible response starts with `verdict: pass`, the loop exits
 - otherwise work and validation repeat until `balda.goal.max_iterations` is exhausted
@@ -17,7 +24,7 @@ Balda sends:
 
 - a start message with the objective and max iteration count
 - step updates during work and validation
-- a final completion or max-iterations message
+- a final completion, export-failure, cancellation, or max-iterations message
 
 ## Prompt Contract
 
@@ -44,6 +51,18 @@ Thought parts are ignored when checking the validation verdict. Only visible fin
 
 ## Runtime Notes
 
-Balda records enough session state to continue the workflow across the work and validation loop.
+Balda records enough isolated goal session state to continue the workflow across the work and validation loop.
+
+When validation passes:
+
+- Balda generates a Conventional Commit message for export
+- Balda squash-merges the goal branch into `balda.workspace.base_branch`
+- Balda deletes the goal workspace and goal session state after successful export
+
+When validation passes but export fails:
+
+- the task is marked failed with `export_failed` metadata
+- the goal workspace and goal session state are preserved for recovery
+- the terminal task output includes the preserved workspace/branch details
 
 A passing validation is detected only when the validation phase's visible final response starts with `verdict: pass`. Malformed verdicts, missing verdicts, and `verdict: fail` do not pass validation.

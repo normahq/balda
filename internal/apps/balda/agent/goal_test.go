@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/normahq/norma/pkg/goalkeeper"
+	"github.com/normahq/balda/internal/apps/balda/actors/goalkeeper"
 	adkagent "google.golang.org/adk/agent"
 	adkrunner "google.golang.org/adk/runner"
 	adksession "google.golang.org/adk/session"
@@ -104,7 +104,7 @@ func TestGoalValidatorWrapperUsesLatestWorkerOutputEachInvocation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("wrapGoalValidatorWithWorkerOutput() error = %v", err)
 	}
-	workflow, err := goalkeeper.New(goalkeeper.NewOptions(worker, wrapped, goalkeeper.WithMaxIterations(2)))
+	workflow, err := goalkeeper.New(worker, wrapped, 2)
 	if err != nil {
 		t.Fatalf("goalkeeper.New() error = %v", err)
 	}
@@ -134,6 +134,29 @@ func TestGoalValidatorWrapperUsesLatestWorkerOutputEachInvocation(t *testing.T) 
 	}
 	if workerRuns != 2 || validatorRuns != 2 {
 		t.Fatalf("workerRuns, validatorRuns = %d, %d; want 2, 2", workerRuns, validatorRuns)
+	}
+}
+
+func TestBuildGoalWorkflow_UsesGoalKeeperRootName(t *testing.T) {
+	t.Parallel()
+
+	worker := mustNewGoalTestAgent(t, "worker", func(ctx adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+		return func(yield func(*adksession.Event, error) bool) {
+			yield(goalTestTextEvent(ctx.InvocationID(), "worker"), nil)
+		}
+	})
+	validator := mustNewGoalTestAgent(t, "validator", func(ctx adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+		return func(yield func(*adksession.Event, error) bool) {
+			yield(goalTestTextEvent(ctx.InvocationID(), "verdict: pass\nok"), nil)
+		}
+	})
+
+	workflow, err := goalkeeper.New(worker, validator, 1)
+	if err != nil {
+		t.Fatalf("goalkeeper.New() error = %v", err)
+	}
+	if got := workflow.Name(); got != goalkeeper.RootAgentName {
+		t.Fatalf("workflow.Name() = %q, want %q", got, goalkeeper.RootAgentName)
 	}
 }
 

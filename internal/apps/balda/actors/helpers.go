@@ -13,6 +13,7 @@ const (
 	ownerSessionLabel        = "balda"
 	defaultGoalMaxIterations = 25
 	maxTaskOutcomeTextRunes  = 1200
+	goalExportStatusFailed   = "export_failed"
 )
 
 var (
@@ -118,6 +119,33 @@ func renderReviewableOutcome(task baldastate.SwarmTaskRecord, artifacts taskArti
 	if !goalReached && task.Status != baldastate.SwarmTaskStatusCompleted && resultText("final_text") != "" {
 		whatWasDone = redactSecrets(resultText("final_text"))
 	}
+	if len(result) != 0 {
+		if artifactMap, ok := result["artifacts"].(map[string]any); ok {
+			artifacts.WorkspaceDir = firstNonEmpty(strings.TrimSpace(fmt.Sprint(artifactMap["workspace_dir"])), artifacts.WorkspaceDir)
+			artifacts.BranchName = firstNonEmpty(strings.TrimSpace(fmt.Sprint(artifactMap["branch_name"])), artifacts.BranchName)
+			artifacts.Commit = firstNonEmpty(strings.TrimSpace(fmt.Sprint(artifactMap["commit"])), artifacts.Commit)
+			if artifacts.GitError == "" {
+				artifacts.GitError = redactSecrets(strings.TrimSpace(fmt.Sprint(artifactMap["git_error"])))
+			}
+			if changed, ok := artifactMap["changed_files"].([]any); ok && len(artifacts.ChangedFiles) == 0 {
+				for _, item := range changed {
+					if trimmed := strings.TrimSpace(fmt.Sprint(item)); trimmed != "" {
+						artifacts.ChangedFiles = append(artifacts.ChangedFiles, trimmed)
+					}
+				}
+			}
+		}
+	}
+	exportStatus := ""
+	exportMessage := ""
+	exportError := ""
+	if len(result) != 0 {
+		if exportMap, ok := result["export"].(map[string]any); ok {
+			exportStatus = strings.TrimSpace(fmt.Sprint(exportMap["status"]))
+			exportMessage = strings.TrimSpace(fmt.Sprint(exportMap["commit_message"]))
+			exportError = redactSecrets(strings.TrimSpace(fmt.Sprint(exportMap["error"])))
+		}
+	}
 
 	var out strings.Builder
 	out.WriteString("Result\n")
@@ -135,10 +163,30 @@ func renderReviewableOutcome(task baldastate.SwarmTaskRecord, artifacts taskArti
 	out.WriteString("\n- Commit: ")
 	out.WriteString(firstNonEmpty(artifacts.Commit, "not available"))
 	out.WriteString("\n- Workspace export: ")
-	if len(artifacts.ChangedFiles) > 0 {
-		out.WriteString("pending review/export")
-	} else {
-		out.WriteString("no pending workspace changes detected")
+	switch exportStatus {
+	case "exported":
+		out.WriteString("exported to base branch")
+	case goalExportStatusFailed:
+		out.WriteString("failed; goal workspace preserved for recovery")
+	case "canceled", "failed", "not_exported":
+		out.WriteString("not exported")
+	case "pending":
+		out.WriteString("pending")
+	default:
+		if len(artifacts.ChangedFiles) > 0 {
+			out.WriteString("pending review/export")
+		} else {
+			out.WriteString("no pending workspace changes detected")
+		}
+	}
+	if exportMessage != "" {
+		out.WriteString(" (")
+		out.WriteString(oneLine(exportMessage))
+		out.WriteString(")")
+	}
+	if exportError != "" {
+		out.WriteString("; ")
+		out.WriteString(oneLine(exportError))
 	}
 	out.WriteString("\n- Validation output: ")
 	validationOutput := firstNonEmpty(reviewerOutput, "not available")
@@ -146,6 +194,10 @@ func renderReviewableOutcome(task baldastate.SwarmTaskRecord, artifacts taskArti
 		validationOutput = firstNonEmpty(parsedOutcome.Validation, validationOutput)
 	}
 	out.WriteString(limitRunes(oneLine(validationOutput), maxTaskOutcomeTextRunes))
+	if artifacts.GitError != "" {
+		out.WriteString("\n- Workspace note: ")
+		out.WriteString(limitRunes(oneLine(artifacts.GitError), maxTaskOutcomeTextRunes))
+	}
 
 	out.WriteString("\n\nConfidence")
 	out.WriteString("\n- What was verified: ")

@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"regexp"
 	"strings"
 	"sync"
 
-	"github.com/normahq/norma/pkg/goalkeeper"
+	"github.com/normahq/balda/internal/apps/balda/actors/goalkeeper"
 	"github.com/normahq/norma/pkg/runtime/agentfactory"
 	adkagent "google.golang.org/adk/agent"
 	adksession "google.golang.org/adk/session"
@@ -19,8 +20,11 @@ import (
 const (
 	goalWorkerName           = "GoalWorker"
 	goalValidatorName        = "GoalValidator"
+	goalCommitterName        = "GoalCommitter"
 	goalWorkerOutputStateKey = "goal_worker_output"
 )
+
+var conventionalCommitSubjectPattern = regexp.MustCompile(`^[a-z]+(?:\([^)]+\))?(?:!)?: .+`)
 
 // GoalBuildConfig configures Balda's /goal worker-validator workflow.
 type GoalBuildConfig struct {
@@ -100,11 +104,7 @@ func (b *Builder) BuildGoalWorkflow(ctx context.Context, cfg GoalBuildConfig) (a
 		return nil, err
 	}
 
-	workflow, err := goalkeeper.New(goalkeeper.NewOptions(
-		worker,
-		validator,
-		goalkeeper.WithMaxIterations(cfg.MaxIterations),
-	))
+	workflow, err := goalkeeper.New(worker, validator, cfg.MaxIterations)
 	if err != nil {
 		_ = closeRuntimeAgent(worker)
 		_ = closeRuntimeAgent(validator)
@@ -196,6 +196,101 @@ func goalValidatorInstruction() string {
 		"`verdict: fail` means the goal was not reached.",
 		"Then provide brief evidence and a concise final summary.",
 	}, "\n")
+}
+
+type goalCommitAgentConfig struct {
+	ProviderID        string
+	SessionID         string
+	SessionBranch     string
+	WorkspaceDir      string
+	RepoBranchAtStart string
+	MCPServerIDs      []string
+}
+
+func (b *Builder) buildGoalCommitAgent(ctx context.Context, cfg goalCommitAgentConfig) (adkagent.Agent, error) {
+	req := b.goalCommitBuildRequest(cfg)
+	ag, err := b.factory.Build(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("creating %s from provider %q: %w", goalCommitterName, cfg.ProviderID, err)
+	}
+	return ag, nil
+}
+
+func (b *Builder) goalCommitBuildRequest(cfg goalCommitAgentConfig) agentfactory.BuildRequest {
+	baseInstruction := b.buildBaldaInstruction(
+		cfg.SessionID,
+		"telegram",
+		cfg.ProviderID,
+		cfg.SessionBranch,
+		cfg.WorkspaceDir,
+		cfg.RepoBranchAtStart,
+	)
+	return agentfactory.BuildRequest{
+		AgentID:          cfg.ProviderID,
+		Name:             goalCommitterName,
+		Description:      "Goal export commit message generator",
+		WorkingDirectory: cfg.WorkspaceDir,
+		Instruction: strings.Join([]string{
+			strings.TrimSpace(baseInstruction),
+			goalCommitterInstruction(),
+		}, "\n\n"),
+		MCPServerIDs: cfg.MCPServerIDs,
+	}
+}
+
+func goalCommitterInstruction() string {
+	return strings.Join([]string{
+		"You generate a Conventional Commit subject for goal export.",
+		"Return exactly one line.",
+		"Do not wrap the result in quotes, bullets, markdown, or code fences.",
+		"Use a valid Conventional Commit subject like `feat: add retry logging` or `fix(goal): handle nil session`.",
+		"Keep it concise and specific to the actual workspace changes.",
+		"If the evidence is ambiguous, prefer `chore(goal): <summary>`.",
+	}, "\n")
+}
+
+func normalizeGoalCommitMessage(objective, raw string) string {
+	line := firstGoalCommitLine(raw)
+	if conventionalCommitSubjectPattern.MatchString(line) {
+		return line
+	}
+	return fallbackGoalCommitMessage(objective)
+}
+
+func fallbackGoalCommitMessage(objective string) string {
+	summary := strings.Join(strings.Fields(strings.TrimSpace(objective)), " ")
+	if summary == "" {
+		summary = "apply goal workspace changes"
+	}
+	const maxLen = 72
+	prefix := "chore(goal): "
+	if len(summary) > maxLen-len(prefix) {
+		summary = strings.TrimSpace(summary[:maxLen-len(prefix)])
+	}
+	return prefix + summary
+}
+
+func firstGoalCommitLine(raw string) string {
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		line = strings.TrimSpace(strings.Trim(line, "`"))
+		if line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+func visibleGoalEventText(ev *adksession.Event) string {
+	if ev == nil || ev.Content == nil {
+		return ""
+	}
+	var parts []string
+	for _, part := range ev.Content.Parts {
+		if part != nil && !part.Thought && strings.TrimSpace(part.Text) != "" {
+			parts = append(parts, strings.TrimSpace(part.Text))
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func wrapGoalValidatorWithWorkerOutput(inner adkagent.Agent, workerOutputStateKey string) (adkagent.Agent, error) {

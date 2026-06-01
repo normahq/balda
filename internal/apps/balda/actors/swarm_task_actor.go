@@ -70,7 +70,24 @@ type taskResultPayloadV1 struct {
 	ExecutorOutput    string                  `json:"executor_output,omitempty"`
 	ReviewerOutput    string                  `json:"reviewer_output,omitempty"`
 	ReviewerNotes     string                  `json:"reviewer_feedback,omitempty"`
+	Artifacts         *taskArtifactResultV1   `json:"artifacts,omitempty"`
+	Export            *taskExportResultV1     `json:"export,omitempty"`
 	ReviewableOutcome taskReviewableOutcomeV1 `json:"reviewable_outcome"`
+}
+
+type taskArtifactResultV1 struct {
+	WorkspaceDir string   `json:"workspace_dir,omitempty"`
+	BranchName   string   `json:"branch_name,omitempty"`
+	Commit       string   `json:"commit,omitempty"`
+	ChangedFiles []string `json:"changed_files,omitempty"`
+	GitError     string   `json:"git_error,omitempty"`
+}
+
+type taskExportResultV1 struct {
+	Status        string `json:"status,omitempty"`
+	CommitMessage string `json:"commit_message,omitempty"`
+	BaseCommit    string `json:"base_commit,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 type taskReviewableOutcomeV1 struct {

@@ -492,7 +492,8 @@ session-start snapshot. New or restored sessions read the latest file.
 - embedded NATS transport files live under `${balda.state_dir}/nats`
 - `balda.nats.max_memory` / `max_store`: embedded runtime resource caps (defaults `256mb` and `2gb`)
 - `balda.swarm`: optional advanced runtime tuning for command handling, retries, backpressure, and failure retention. Most installs should leave it at defaults.
-- `/goal` runs repeated work and validation passes in the current session and workspace until the goal passes validation or `balda.goal.max_iterations` is reached.
+- `/goal` runs repeated work and validation passes in an isolated GoalKeeper session/workspace until the goal passes validation or `balda.goal.max_iterations` is reached.
+  - `/goal` requires `balda.workspace.mode` to resolve to an enabled git-worktree mode.
 - internal durable memory uses `${balda.state_dir}/MEMORY.md` when `balda.memory.enabled=true`
   - `balda.memory.read` reads the file from MCP.
   - `balda.memory.remember` appends facts to the file from MCP.
@@ -576,7 +577,7 @@ Balda runs with a single provider per process (`balda.provider`).
 - `/topic <name>` (DM only, owner/collaborator): creates a new Telegram topic and a topic-bound session.
   - `<name>` is required.
   - `<name>` is a session label, not a provider selector.
-- `/goal <objective>` (owner/collaborator): starts goal work in the current session context/workspace. Started/validation/final updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See the [goal workflow doc](goal-workflow.md).
+- `/goal <objective>` (owner/collaborator): starts goal work from the current session context in an isolated GoalKeeper workspace/state. The goal workspace is created from `balda.workspace.base_branch`, exported back automatically on success, and preserved for recovery when export fails. `/goal` requires `balda.workspace.mode` to resolve to an enabled git-worktree mode. Started/validation/final updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See the [goal workflow doc](goal-workflow.md).
   - concurrent `/goal` runs in the same session are rejected.
 - `/close` (DM only, owner/collaborator): resets the current session history. In topic contexts, it also closes that topic.
 - `/cancel` (owner/collaborator): requests cancellation of active session work, including active `/goal` runs.
@@ -591,9 +592,10 @@ Assignable work is persisted in `swarm_tasks`; task history is published to
 `BALDA_EVENTS` and projected into `swarm_task_events`. Ingress publishes a
 durable command first; task records are created after command delivery.
 
-- `/goal` starts goal work for the current session. Balda restores or creates the
-  session, runs repeated work and validation passes, records the task result,
-  and sends progress/final messages.
+- `/goal` starts goal work for the current session context. Balda restores or creates the
+  chat session, allocates a separate GoalKeeper session and workspace for the task,
+  runs repeated work and validation passes, exports successful work back to the base
+  branch, records the task result, and sends progress/final messages.
 - Task statuses are `created`, `queued`, `running`, `waiting_for_agent`,
   `waiting_for_user`, `validating`, `completed`, `failed`, `canceled`, and
   `deadlettered`.
