@@ -997,7 +997,7 @@ Each configured task has `id`, `cron`, and an `envelope` with `target`, `key`,
 4. `/start owner=<token>` registers owner once; `/start invite=<token>` onboards collaborators; users who are neither owner nor collaborator are otherwise rejected.
 5. `/topic <name>` creates topic + Balda session and persists session metadata.
 6. `/topic` without name returns usage error.
-7. Restart clears active process sessions, but topic sessions are lazy-restored from persisted metadata.
+7. Restart clears active process sessions; persisted non-owner sessions are lazy-restored from metadata when addressed again, while the owner main-DM session is bootstrapped during startup.
 8. Polling mode resumes from persisted Telegram offset in balda state DB.
 9. Non-terminal provider progress sends throttled typing indicators in DM and public chats; thinking placeholders are DM-only.
 10. Final assistant response uses configured `balda.telegram.formatting_mode` with fallback retry without formatting on transport or formatting-validation errors.
