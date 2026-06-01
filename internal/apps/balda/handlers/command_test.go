@@ -12,6 +12,7 @@ import (
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	"github.com/normahq/balda/internal/apps/balda/session"
+	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
@@ -338,7 +339,7 @@ func TestCommandHandlerOnCommand_GoalStartsRun(t *testing.T) {
 		t.Fatalf("published commands = %d, want 1", len(bus.commands))
 	}
 	cmd := bus.commands[0]
-	if cmd.To.Target != swarm.ActorTypeGoal || cmd.Namespace != swarm.NamespaceGoalCommand || cmd.Kind != swarm.KindGoal {
+	if cmd.To.Target != swarm.ActorTypeGoalkeeper || cmd.Namespace != swarm.NamespaceGoalkeeperCommand || cmd.Kind != swarm.KindGoal {
 		t.Fatalf("published command = %+v, want goal command", cmd)
 	}
 	if len(tgClient.messages) != 0 {
@@ -388,7 +389,105 @@ func TestCommandHandlerOnCommand_GoalWithoutArgsShowsUsage(t *testing.T) {
 		t.Fatalf("onCommand() error = %v", err)
 	}
 
-	assertLastSentContains(t, tgClient, "Usage: /goal <objective>")
+	assertLastSentContains(t, tgClient, "Usage:")
+	assertLastSentContains(t, tgClient, "/goal <objective>")
+	assertLastSentContains(t, tgClient, "/goal clear")
+}
+
+func TestCommandHandlerOnCommand_GoalClearPublishesControlCommand(t *testing.T) {
+	handler, _, turns, tgClient := newCommandHandlerTestHarness(t)
+
+	err := handler.onCommand(context.Background(), newCommandEvent("goal", "clear", 101, 9001, nil))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
+	}
+	cmd := turns.commands[0]
+	if cmd.Namespace != swarm.NamespaceTaskControl || cmd.Kind != swarm.KindCancel {
+		t.Fatalf("published command = %+v, want task control command", cmd)
+	}
+	payload := decodeControlPayload(t, cmd.PayloadJSON)
+	if payload.Action != "clear_goal" {
+		t.Fatalf("control payload action = %q, want clear_goal", payload.Action)
+	}
+	if len(tgClient.messages) != 0 {
+		t.Fatalf("sent messages = %d, want 0", len(tgClient.messages))
+	}
+}
+
+func TestCommandHandlerOnCommand_GoalClearExtraStartsGoal(t *testing.T) {
+	handler, _, turns, tgClient := newCommandHandlerTestHarness(t)
+	bus := &recordingHandlerCommandBus{}
+	handler.actorDispatcher = bus
+
+	err := handler.onCommand(context.Background(), newCommandEvent("goal", "clear extra", 101, 9001, nil))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	if len(turns.commands) != 0 {
+		t.Fatalf("control commands = %d, want 0", len(turns.commands))
+	}
+	if len(bus.commands) != 1 {
+		t.Fatalf("goal commands = %d, want 1", len(bus.commands))
+	}
+	if len(tgClient.messages) != 0 {
+		t.Fatalf("sent messages = %d, want 0", len(tgClient.messages))
+	}
+}
+
+func TestCommandHandlerOnCommand_GoalRejectsWhenActiveGoalExists(t *testing.T) {
+	handler, _, _, tgClient := newCommandHandlerTestHarness(t)
+	handler.taskService = fakeGoalTaskService{
+		active: []baldastate.SwarmTaskRecord{{
+			ID:        "goal-1",
+			SessionID: "tg-9001-0",
+			Status:    baldastate.SwarmTaskStatusRunning,
+		}},
+	}
+
+	err := handler.onCommand(context.Background(), newCommandEvent("goal", "deploy release", 101, 9001, nil))
+	if err != nil {
+		t.Fatalf("onCommand() error = %v", err)
+	}
+
+	assertLastSentContains(t, tgClient, "A goal run is already active for this session.")
+}
+
+func TestCommandHandlerSubmitGoalTask_RejectsWhenActiveGoalExists(t *testing.T) {
+	ctx := context.Background()
+	locator := session.SessionLocator{
+		SessionID:   "tg-9001-99",
+		ChannelType: "telegram",
+		AddressKey:  "tg-9001-99",
+	}
+
+	bus := &recordingHandlerCommandBus{}
+	handler := &CommandHandler{
+		actorDispatcher:   bus,
+		goalMaxIterations: 7,
+		taskService: fakeGoalTaskService{
+			active: []baldastate.SwarmTaskRecord{{
+				ID:        "goal-active",
+				SessionID: locator.SessionID,
+				Status:    baldastate.SwarmTaskStatusRunning,
+			}},
+		},
+	}
+
+	started, err := handler.submitGoalTask(ctx, locator, "deploy release", testTelegramUserID101)
+	if err != nil {
+		t.Fatalf("submitGoalTask() error = %v", err)
+	}
+	if started {
+		t.Fatal("submitGoalTask() started = true, want false")
+	}
+	if len(bus.commands) != 0 {
+		t.Fatalf("published commands = %d, want 0", len(bus.commands))
+	}
 }
 
 func TestCommandHandlerOnCommand_CancelPublishesControlCommand(t *testing.T) {
@@ -408,6 +507,10 @@ func TestCommandHandlerOnCommand_CancelPublishesControlCommand(t *testing.T) {
 	}
 	if turns.commands[0].Namespace != swarm.NamespaceTaskControl || turns.commands[0].Kind != swarm.KindCancel {
 		t.Fatalf("published command = %+v, want task control cancel", turns.commands[0])
+	}
+	payload := decodeControlPayload(t, turns.commands[0].PayloadJSON)
+	if payload.Action != "cancel_turn" {
+		t.Fatalf("control payload action = %q, want cancel_turn", payload.Action)
 	}
 	assertLastSentContains(t, tgClient, "Cancel requested.")
 }
@@ -537,6 +640,24 @@ type resetSessionCall struct {
 type cancelSessionCall struct {
 	SessionID   string
 	ClearQueued bool
+}
+
+type fakeGoalTaskService struct {
+	active []baldastate.SwarmTaskRecord
+	err    error
+}
+
+func (f fakeGoalTaskService) ListActiveGoalTasksBySession(_ context.Context, sessionID string) ([]baldastate.SwarmTaskRecord, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	var out []baldastate.SwarmTaskRecord
+	for _, task := range f.active {
+		if task.SessionID == sessionID {
+			out = append(out, task)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeCommandSessionManager) CreateSession(_ context.Context, sessionCtx session.SessionContext, agentName string) error {
@@ -727,4 +848,18 @@ func newCommandEventWithChatType(command, args string, userID, chatID int64, top
 		Args:    args,
 		Message: msg,
 	}
+}
+
+func decodeControlPayload(t *testing.T, payloadJSON string) struct {
+	Action string `json:"action"`
+} {
+	t.Helper()
+
+	var payload struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
+		t.Fatalf("decode control payload: %v", err)
+	}
+	return payload
 }

@@ -2,6 +2,8 @@
 
 Balda `/goal <objective>` starts goal work from the current session context in an isolated GoalKeeper runtime.
 
+Use `/goal clear` to stop active goal work for the current session. `/cancel` does not stop GoalKeeper runs.
+
 The workflow uses the configured `balda.provider` and the Balda MCP server set, but it does not reuse the current chat runtime session, workspace, or state. Each `/goal` run gets:
 
 - a separate GoalKeeper ADK session/state
@@ -10,6 +12,8 @@ The workflow uses the configured `balda.provider` and the Balda MCP server set, 
 - automatic export back to the base branch when validation passes
 
 `/goal` requires `balda.workspace.mode` to resolve to an enabled git-worktree mode.
+
+Only one `/goal` run can be active per session. New `/goal <objective>` requests in the same session are rejected until the active run completes, fails, or is cleared.
 
 ## Workflow
 

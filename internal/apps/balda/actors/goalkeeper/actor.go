@@ -292,6 +292,13 @@ func (a *Actor) runGoal(ctx context.Context, env swarm.Envelope, payload goalTas
 	if err := a.ensureGoalTask(ctx, payload); err != nil {
 		return err
 	}
+	skip, err := a.ensureNoOtherActiveGoal(ctx, taskID, payload)
+	if err != nil {
+		return err
+	}
+	if skip {
+		return nil
+	}
 	ts, err := a.resolveSession(ctx, payload)
 	if err != nil {
 		return swarm.TransientError(err)
@@ -435,6 +442,33 @@ func (a *Actor) ensureGoalTask(ctx context.Context, payload goalTaskPayload) err
 	default:
 		return nil
 	}
+}
+
+func (a *Actor) ensureNoOtherActiveGoal(ctx context.Context, taskID string, payload goalTaskPayload) (bool, error) {
+	if a == nil || a.tasks == nil {
+		return false, swarm.TransientError(fmt.Errorf("task service is required"))
+	}
+	activeGoals, err := a.tasks.ListActiveGoalTasksBySession(ctx, payload.Locator.SessionID)
+	if err != nil {
+		return false, swarm.TransientError(fmt.Errorf("list active goal tasks: %w", err))
+	}
+	for _, task := range activeGoals {
+		if strings.TrimSpace(task.ID) == strings.TrimSpace(taskID) {
+			continue
+		}
+		reason := "another goal run is already active for this session"
+		if setErr := a.tasks.SetResult(ctx, taskID, goalRunResult{payload: payload}.toTaskResult(false, taskArtifactSnapshot{}, &taskExportResultV1{
+			Status: "canceled",
+			Error:  reason,
+		}), baldastate.SwarmTaskStatusCanceled, actorName, reason); setErr != nil {
+			return false, swarm.TransientError(setErr)
+		}
+		if err := a.deliver(ctx, taskID, payload.Locator, "A goal run is already active for this session.", "already-active"); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 func (a *Actor) resolveSession(ctx context.Context, payload goalTaskPayload) (*baldasession.TopicSession, error) {

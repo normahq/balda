@@ -73,6 +73,65 @@ func TestGoalKeeperActorCompletesPassingRun(t *testing.T) {
 	}
 }
 
+func TestGoalKeeperActorRejectsSecondActiveGoalInSession(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
+	ts := newBaldaTopicSession(t, locator.SessionID)
+	setUnexportedField(t, ts, "userID", "101")
+	setUnexportedField(t, ts, "agentSessionID", "adk-session-1")
+	setUnexportedField(t, ts, "workspaceDir", t.TempDir())
+	manager := newBaldaSessionManagerWithSession(t, locator, ts)
+	if _, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+		ID:            "goal-existing",
+		SessionID:     locator.SessionID,
+		Objective:     "existing goal",
+		Status:        baldastate.SwarmTaskStatusRunning,
+		OwnerActor:    swarm.ActorTypeGoalkeeper + ":goal-existing",
+		AssignedActor: swarm.ActorTypeGoalkeeper + ":goal-existing",
+	}, "test", nil); err != nil {
+		t.Fatalf("Create existing goal task: %v", err)
+	}
+	runtimeBuilder := &fakeGoalRuntimeBuilder{t: t}
+	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
+		TaskService:        tasks,
+		Dispatcher:         dispatcher,
+		SessionManager:     manager,
+		RuntimeBuilder:     runtimeBuilder,
+		TaskRuns:           NewTaskRunRegistry(),
+		MaxIterations:      3,
+		PlanUpdatesEnabled: false,
+		Logger:             zerolog.Nop(),
+	})
+	env, err := goalkeeper.GoalTaskEnvelope(locator, "run tests", "101", 3)
+	if err != nil {
+		t.Fatalf("GoalTaskEnvelope() error = %v", err)
+	}
+	if err := actor.Handle(ctx, env); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+
+	task, ok, err := tasks.Get(ctx, env.TaskID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("task %q not found", env.TaskID)
+	}
+	if task.Status != baldastate.SwarmTaskStatusCanceled {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusCanceled)
+	}
+	if runtimeBuilder.buildCalls != 0 {
+		t.Fatalf("buildCalls = %d, want 0", runtimeBuilder.buildCalls)
+	}
+	texts := deliveryTextsForTask(t, bus, env.TaskID)
+	if got := countMatches(texts, "A goal run is already active for this session."); got != 1 {
+		t.Fatalf("already-active deliveries = %d, want 1\n%v", got, texts)
+	}
+}
+
 func TestGoalKeeperActorDeliversWorkerProgressAndDedupesRepeatedOutput(t *testing.T) {
 	t.Parallel()
 
@@ -203,12 +262,14 @@ type fakeGoalRuntimeBuilder struct {
 	commitErr          error
 	exportErr          error
 	cleanupCalls       int
+	buildCalls         int
 	exportedMessage    string
 	events             []goalTestEvent
 }
 
 func (b *fakeGoalRuntimeBuilder) BuildGoalRuntime(ctx context.Context, cfg goalkeeper.GoalRuntimeConfig) (goalkeeper.GoalRuntime, error) {
 	b.t.Helper()
+	b.buildCalls++
 	if cfg.UserID == "" || cfg.SourceSessionID == "" || cfg.TaskID == "" {
 		b.t.Fatalf("BuildGoalRuntime() cfg = %+v, want user/source session/task", cfg)
 	}

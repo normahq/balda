@@ -159,6 +159,7 @@ var Module = fx.Module("balda_handlers",
 				channel:           params.Channel,
 				sessionManager:    params.SessionManager,
 				actorDispatcher:   params.ActorDispatcher,
+				taskService:       params.TaskService,
 				goalMaxIterations: normalizeGoalMaxIterations(params.MaxIterations),
 				userHandler:       params.UserHandler,
 			}

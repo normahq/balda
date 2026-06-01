@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/normahq/balda/internal/apps/balda/actors"
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/session"
+	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
 	"github.com/normahq/balda/internal/apps/balda/welcome"
@@ -24,6 +24,10 @@ type commandSessionManager interface {
 	ResetSession(ctx context.Context, locator session.SessionLocator) error
 }
 
+type goalTaskService interface {
+	ListActiveGoalTasksBySession(ctx context.Context, sessionID string) ([]baldastate.SwarmTaskRecord, error)
+}
+
 // CommandHandler handles Balda chat commands such as /topic, /goal, /close,
 // /cancel, and /user.
 type CommandHandler struct {
@@ -32,6 +36,7 @@ type CommandHandler struct {
 	channel           *baldatelegram.Adapter
 	sessionManager    commandSessionManager
 	actorDispatcher   swarm.ActorDispatcher
+	taskService       goalTaskService
 	goalMaxIterations int
 	userHandler       *userHandler
 }
@@ -44,7 +49,8 @@ type commandHandlerParams struct {
 	Channel           *baldatelegram.Adapter
 	SessionManager    *session.Manager
 	ActorDispatcher   swarm.ActorDispatcher
-	MaxIterations     int `name:"balda_goal_max_iterations"`
+	TaskService       *swarm.TaskService `optional:"true"`
+	MaxIterations     int                `name:"balda_goal_max_iterations"`
 	UserHandler       *userHandler
 }
 
@@ -86,8 +92,23 @@ func (h *CommandHandler) onGoalCommand(ctx context.Context, commandCtx baldatele
 
 	objective := strings.TrimSpace(commandCtx.Args)
 	if objective == "" {
-		if err := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Usage: /goal <objective>"); err != nil {
+		if err := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Usage:\n/goal <objective>\n/goal clear"); err != nil {
 			return err
+		}
+		return nil
+	}
+	if strings.EqualFold(objective, "clear") {
+		if h.actorDispatcher == nil {
+			if err := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Goal control is unavailable right now. Please try again."); err != nil {
+				return err
+			}
+			return nil
+		}
+		if err := submitGoalClearControl(ctx, h.actorDispatcher, commandCtx.Locator, baldatelegram.UserID(commandCtx.UserID), "goal cleared by user", true); err != nil {
+			log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to publish goal clear command")
+			if sendErr := h.channel.SendAgentReply(ctx, commandCtx.Locator, "Could not clear goal run."); sendErr != nil {
+				return sendErr
+			}
 		}
 		return nil
 	}
@@ -256,14 +277,7 @@ func (h *CommandHandler) onCancelCommand(ctx context.Context, commandCtx baldate
 		}
 		return nil
 	}
-	env, err := actors.ControlCancelEnvelope(commandCtx.Locator, "", baldatelegram.UserID(commandCtx.UserID), "session canceled by user")
-	if err != nil {
-		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, "Could not request cancel."); sendErr != nil {
-			return sendErr
-		}
-		return nil
-	}
-	if _, err := h.actorDispatcher.Dispatch(ctx, env); err != nil {
+	if err := submitSessionTurnCancelControl(ctx, h.actorDispatcher, commandCtx.Locator, baldatelegram.UserID(commandCtx.UserID), "session turn canceled by user", true); err != nil {
 		log.Warn().Err(err).Str("session_id", commandCtx.Locator.SessionID).Msg("failed to publish cancel command")
 		if sendErr := h.channel.SendPlain(ctx, commandCtx.Locator, "Could not request cancel."); sendErr != nil {
 			return sendErr

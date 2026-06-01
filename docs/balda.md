@@ -579,8 +579,9 @@ Balda runs with a single provider per process (`balda.provider`).
   - `<name>` is a session label, not a provider selector.
 - `/goal <objective>` (owner/collaborator): starts goal work from the current session context in an isolated GoalKeeper workspace/state. The goal workspace is created from `balda.workspace.base_branch`, exported back automatically on success, and preserved for recovery when export fails. `/goal` requires `balda.workspace.mode` to resolve to an enabled git-worktree mode. Started/validation/final updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See the [goal workflow doc](goal-workflow.md).
   - concurrent `/goal` runs in the same session are rejected.
+  - `/goal clear` stops active goal work for the current session only.
 - `/close` (DM only, owner/collaborator): resets the current session history. In topic contexts, it also closes that topic.
-- `/cancel` (owner/collaborator): requests cancellation of active session work, including active `/goal` runs.
+- `/cancel` (owner/collaborator): cancels the current session turn and drops queued turns for that session. It does not stop active `/goal` work.
 - `/user add` (owner only): generates a collaborator invite link for this bot.
 - `/user list` (owner only): lists collaborators and active invites.
 - `/user remove <user_id>` (owner only): removes a collaborator by ID.
@@ -605,10 +606,11 @@ durable command first; task records are created after command delivery.
   `agent.started`, `agent.progress`, `agent.result`, `task.validating`,
   `task.completed`, `task.failed`, `task.canceled`, `delivery.sent`, and
   `delivery.failed`.
-- Runtime deadletters mark the owning task `deadlettered`. Session cancel
+- Runtime deadletters mark the owning task `deadlettered`. Session control
   commands and internal control envelopes publish durable control work.
-  Cancellation marks matching task records `canceled` and stops any currently
-  running task agent turn.
+  `/cancel` stops the current session turn and clears queued turns for that
+  session. `/goal clear` marks active goal tasks `canceled` and stops any
+  currently running GoalKeeper task for that session.
 - Terminal task delivery stores and, when applicable, sends reviewable
   outcomes with:
   Result, Artifacts, Confidence, and Next action. Artifacts are best-effort

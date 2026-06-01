@@ -14,7 +14,11 @@ import (
 	"go.uber.org/fx"
 )
 
-const taskControlActionCancel = "cancel"
+const (
+	taskControlActionCancel     = "cancel"
+	taskControlActionCancelTurn = "cancel_turn"
+	taskControlActionClearGoal  = "clear_goal"
+)
 
 type taskControlPayload struct {
 	Action      string                      `json:"action"`
@@ -60,13 +64,19 @@ func (a *taskControlActor) Handle(ctx context.Context, envelope any) error {
 	if err := json.Unmarshal([]byte(env.PayloadJSON), &payload); err != nil {
 		return swarm.PermanentError(fmt.Errorf("decode control payload: %w", err))
 	}
-	if strings.TrimSpace(payload.Action) != taskControlActionCancel {
+	switch strings.TrimSpace(payload.Action) {
+	case taskControlActionCancel:
+		if strings.TrimSpace(payload.TaskID) != "" {
+			return a.cancelTask(ctx, env, payload)
+		}
+		return a.cancelSession(ctx, payload)
+	case taskControlActionCancelTurn:
+		return a.cancelSessionTurn(ctx, payload)
+	case taskControlActionClearGoal:
+		return a.clearGoal(ctx, payload)
+	default:
 		return swarm.PolicyError(fmt.Errorf("unsupported control action %q", payload.Action))
 	}
-	if strings.TrimSpace(payload.TaskID) != "" {
-		return a.cancelTask(ctx, env, payload)
-	}
-	return a.cancelSession(ctx, payload)
 }
 
 func (a *taskControlActor) cancelTask(ctx context.Context, env swarm.Envelope, payload taskControlPayload) error {
@@ -157,6 +167,68 @@ func (a *taskControlActor) cancelSession(ctx context.Context, payload taskContro
 	return nil
 }
 
+func (a *taskControlActor) cancelSessionTurn(ctx context.Context, payload taskControlPayload) error {
+	if strings.TrimSpace(payload.Locator.SessionID) == "" {
+		return swarm.PolicyError(fmt.Errorf("session id is required"))
+	}
+	hadInFlight := false
+	dropped := 0
+	if a.turnDispatcher != nil {
+		var err error
+		hadInFlight, dropped, err = a.turnDispatcher.CancelSession(payload.Locator, true)
+		if err != nil {
+			return swarm.TransientError(err)
+		}
+	}
+	if payload.Notify {
+		response := "Canceled current turn."
+		if !hadInFlight && dropped == 0 {
+			response = "No running or queued session work."
+		} else if !hadInFlight {
+			response = "No running turn to cancel."
+		}
+		if dropped > 0 {
+			response += fmt.Sprintf("\nDropped %d queued session message(s).", dropped)
+		}
+		a.sendControlMessage(ctx, payload.Locator, response)
+	}
+	return nil
+}
+
+func (a *taskControlActor) clearGoal(ctx context.Context, payload taskControlPayload) error {
+	if strings.TrimSpace(payload.Locator.SessionID) == "" {
+		return swarm.PolicyError(fmt.Errorf("session id is required"))
+	}
+	if a.tasks == nil {
+		return swarm.TransientError(fmt.Errorf("task service is required"))
+	}
+	tasks, err := a.tasks.ListActiveGoalTasksBySession(ctx, payload.Locator.SessionID)
+	if err != nil {
+		return swarm.TransientError(err)
+	}
+	cleared := 0
+	for _, task := range tasks {
+		if err := a.tasks.CancelTask(ctx, task.ID, "command.goal", firstNonEmpty(payload.Reason, "goal cleared by user")); err != nil {
+			return swarm.TransientError(err)
+		}
+		if a.taskRuns != nil {
+			a.taskRuns.Cancel(task.ID)
+		}
+		cleared++
+	}
+	if payload.Notify {
+		switch cleared {
+		case 0:
+			a.sendControlMessage(ctx, payload.Locator, "No active goal run.")
+		case 1:
+			a.sendControlMessage(ctx, payload.Locator, "Cleared active goal run.")
+		default:
+			a.sendControlMessage(ctx, payload.Locator, fmt.Sprintf("Cleared %d active goal runs.", cleared))
+		}
+	}
+	return nil
+}
+
 func (a *taskControlActor) sendControlMessage(ctx context.Context, locator baldasession.SessionLocator, text string) {
 	if a == nil || a.channel == nil || strings.TrimSpace(text) == "" {
 		return
@@ -171,8 +243,20 @@ func ControlCancelEnvelope(locator baldasession.SessionLocator, taskID string, r
 }
 
 func ControlCancelEnvelopeWithNotify(locator baldasession.SessionLocator, taskID string, requestedBy string, reason string, notify bool) (swarm.Envelope, error) {
+	return controlEnvelope(locator, taskControlActionCancel, taskID, requestedBy, reason, notify)
+}
+
+func ControlCancelTurnEnvelopeWithNotify(locator baldasession.SessionLocator, requestedBy string, reason string, notify bool) (swarm.Envelope, error) {
+	return controlEnvelope(locator, taskControlActionCancelTurn, "", requestedBy, reason, notify)
+}
+
+func ControlClearGoalEnvelopeWithNotify(locator baldasession.SessionLocator, requestedBy string, reason string, notify bool) (swarm.Envelope, error) {
+	return controlEnvelope(locator, taskControlActionClearGoal, "", requestedBy, reason, notify)
+}
+
+func controlEnvelope(locator baldasession.SessionLocator, action string, taskID string, requestedBy string, reason string, notify bool) (swarm.Envelope, error) {
 	payload := taskControlPayload{
-		Action:      taskControlActionCancel,
+		Action:      strings.TrimSpace(action),
 		TaskID:      strings.TrimSpace(taskID),
 		SessionID:   strings.TrimSpace(locator.SessionID),
 		Locator:     locator,
@@ -194,7 +278,7 @@ func ControlCancelEnvelopeWithNotify(locator baldasession.SessionLocator, taskID
 		SessionID:   locator.SessionID,
 		TaskID:      strings.TrimSpace(taskID),
 		Priority:    100,
-		DedupeKey:   "control:cancel:" + id,
+		DedupeKey:   "control:" + strings.TrimSpace(action) + ":" + id,
 		PayloadJSON: string(data),
 	}, nil
 }

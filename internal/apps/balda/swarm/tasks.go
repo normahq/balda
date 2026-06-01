@@ -82,6 +82,30 @@ func (s *TaskService) Get(ctx context.Context, taskID string) (baldastate.SwarmT
 	return s.store.GetTask(ctx, taskID)
 }
 
+func (s *TaskService) ListActiveTasksBySession(ctx context.Context, sessionID string) ([]baldastate.SwarmTaskRecord, error) {
+	if s == nil {
+		return nil, nil
+	}
+	return s.store.ListActiveTasksBySession(ctx, sessionID)
+}
+
+func (s *TaskService) ListActiveGoalTasksBySession(ctx context.Context, sessionID string) ([]baldastate.SwarmTaskRecord, error) {
+	if s == nil {
+		return nil, nil
+	}
+	tasks, err := s.store.ListActiveTasksBySession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]baldastate.SwarmTaskRecord, 0, len(tasks))
+	for _, task := range tasks {
+		if IsGoalTask(task) {
+			out = append(out, task)
+		}
+	}
+	return out, nil
+}
+
 func (s *TaskService) MarkStatus(ctx context.Context, taskID string, status string, actor string, messageID string, reason string, payload any) error {
 	if s == nil {
 		return nil
@@ -297,6 +321,17 @@ func (s *TaskService) FailAgentStep(ctx context.Context, stepKey string, resultJ
 		return nil
 	}
 	return s.store.FailAgentStep(ctx, stepKey, resultJSON, reason)
+}
+
+func IsGoalTask(task baldastate.SwarmTaskRecord) bool {
+	owner := strings.TrimSpace(task.OwnerActor)
+	assigned := strings.TrimSpace(task.AssignedActor)
+	for _, prefix := range []string{"goalkeeper:", "goal:"} {
+		if strings.HasPrefix(owner, prefix) || strings.HasPrefix(assigned, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *TaskService) publishTaskEvent(ctx context.Context, event baldastate.SwarmTaskEventRecord) error {
