@@ -89,16 +89,16 @@ func TestInitCommand_NonInteractiveAutoSelectsRootAndGeneratesDetectedAgents(t *
 	}
 	assertBaldaGlobalInstructionExample(t, baldaSection)
 
-	normaSection, ok := toStringAnyMap(doc["runtime"])
+	runtimeSection, ok := toStringAnyMap(doc["runtime"])
 	if !ok {
 		t.Fatal("runtime section missing in generated config")
 	}
-	assertMapHasOnlyKeys(t, normaSection, []string{"providers", "mcp_servers"})
-	providers, ok := toStringAnyMap(normaSection["providers"])
+	assertMapHasOnlyKeys(t, runtimeSection, []string{"providers", "mcp_servers"})
+	providers, ok := toStringAnyMap(runtimeSection["providers"])
 	if !ok {
 		t.Fatal("runtime.providers missing in generated config")
 	}
-	mcpServers, ok := toStringAnyMap(normaSection["mcp_servers"])
+	mcpServers, ok := toStringAnyMap(runtimeSection["mcp_servers"])
 	if !ok {
 		t.Fatal("runtime.mcp_servers missing in generated config")
 	}
@@ -780,11 +780,11 @@ func assertAgentModel(t *testing.T, providers map[string]any, id, typeName, want
 	t.Helper()
 	agent := mustMap(t, providers, id)
 	if got := agent["type"]; got != typeName {
-		t.Fatalf("norma.providers.%s.type = %#v, want %s", id, got, typeName)
+		t.Fatalf("runtime.providers.%s.type = %#v, want %s", id, got, typeName)
 	}
 	typeBlock := mustMap(t, agent, typeName)
 	if got := typeBlock["model"]; got != wantModel {
-		t.Fatalf("norma.providers.%s.%s.model = %#v, want %s", id, typeName, got, wantModel)
+		t.Fatalf("runtime.providers.%s.%s.model = %#v, want %s", id, typeName, got, wantModel)
 	}
 }
 
@@ -792,12 +792,12 @@ func readPoolMembers(t *testing.T, providers map[string]any) []string {
 	t.Helper()
 	poolAgent := mustMap(t, providers, "pool")
 	if got := poolAgent["type"]; got != "pool" {
-		t.Fatalf("norma.providers.pool.type = %#v, want pool", got)
+		t.Fatalf("runtime.providers.pool.type = %#v, want pool", got)
 	}
 	poolCfg := mustMap(t, poolAgent, "pool")
 	rawMembers, ok := poolCfg["members"].([]any)
 	if !ok {
-		t.Fatalf("norma.providers.pool.pool.members type = %T, want []any", poolCfg["members"])
+		t.Fatalf("runtime.providers.pool.pool.members type = %T, want []any", poolCfg["members"])
 	}
 	members := make([]string, 0, len(rawMembers))
 	for _, raw := range rawMembers {
