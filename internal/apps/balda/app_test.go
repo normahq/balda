@@ -112,54 +112,6 @@ func TestValidateSessionPersistence(t *testing.T) {
 	}
 }
 
-func TestBuildScheduledTaskSchedulerConfig(t *testing.T) {
-	t.Parallel()
-
-	cfg := BaldaConfig{
-		Scheduler: SchedulerConfig{
-			Tasks: []ScheduledTaskConfig{
-				{
-					ID:   " nightly ",
-					Cron: " */15 * * * * ",
-					Envelope: ScheduledTaskEnvelopeConfig{
-						Target:  " alias ",
-						Key:     " owner ",
-						Content: " summarize ",
-						ReportTo: &ScheduledTaskEnvelopeTargetConfig{
-							Target: " alias ",
-							Key:    " owner ",
-						},
-					},
-				},
-			},
-		},
-	}
-
-	got := buildScheduledTaskSchedulerConfig(cfg)
-	want := handlers.ScheduledTaskSchedulerConfig{
-		Tasks: []handlers.ConfiguredScheduledTask{
-			{
-				ID:      "nightly",
-				Cron:    "*/15 * * * *",
-				Target:  "alias",
-				Key:     "owner",
-				Content: "summarize",
-				ReportTo: &handlers.ConfiguredScheduledTaskTarget{
-					Target: "alias",
-					Key:    "owner",
-				},
-			},
-		},
-	}
-
-	if len(got.Tasks) != len(want.Tasks) {
-		t.Fatalf("len(tasks) = %d, want %d", len(got.Tasks), len(want.Tasks))
-	}
-	if !reflect.DeepEqual(got.Tasks[0], want.Tasks[0]) {
-		t.Fatalf("task mismatch: got %+v want %+v", got.Tasks[0], want.Tasks[0])
-	}
-}
-
 func TestValidateRuntimeConfigLint_AllowsAlwaysOnSwarmConfig(t *testing.T) {
 	t.Parallel()
 

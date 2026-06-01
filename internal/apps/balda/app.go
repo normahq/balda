@@ -115,7 +115,26 @@ func Module(
 	if err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}
-	scheduledTaskSchedulerConfig := buildScheduledTaskSchedulerConfig(cfg.Balda)
+	scheduledTaskSchedulerConfig := handlers.ScheduledTaskSchedulerConfig{
+		Tasks: make([]handlers.ConfiguredScheduledTask, 0, len(cfg.Balda.Scheduler.Tasks)),
+	}
+	for _, task := range cfg.Balda.Scheduler.Tasks {
+		var reportTo *handlers.ConfiguredScheduledTaskTarget
+		if task.Envelope.ReportTo != nil {
+			reportTo = &handlers.ConfiguredScheduledTaskTarget{
+				Target: strings.TrimSpace(task.Envelope.ReportTo.Target),
+				Key:    strings.TrimSpace(task.Envelope.ReportTo.Key),
+			}
+		}
+		scheduledTaskSchedulerConfig.Tasks = append(scheduledTaskSchedulerConfig.Tasks, handlers.ConfiguredScheduledTask{
+			ID:       strings.TrimSpace(task.ID),
+			Cron:     strings.TrimSpace(task.Cron),
+			Target:   strings.TrimSpace(task.Envelope.Target),
+			Key:      strings.TrimSpace(task.Envelope.Key),
+			Content:  strings.TrimSpace(task.Envelope.Content),
+			ReportTo: reportTo,
+		})
+	}
 	inboundWebhookConfig := buildInboundWebhookConfig(cfg.Balda)
 	swarmConfig := swarm.Config{
 		Commands: swarm.CommandConfig{
@@ -585,31 +604,6 @@ func validateIdentifierValue(field, value string) error {
 		return fmt.Errorf("%s must match %q", field, configIdentifierPattern.String())
 	}
 	return nil
-}
-
-func buildScheduledTaskSchedulerConfig(cfg BaldaConfig) handlers.ScheduledTaskSchedulerConfig {
-	tasks := make([]handlers.ConfiguredScheduledTask, 0, len(cfg.Scheduler.Tasks))
-	for _, task := range cfg.Scheduler.Tasks {
-		var reportTo *handlers.ConfiguredScheduledTaskTarget
-		if task.Envelope.ReportTo != nil {
-			reportTo = &handlers.ConfiguredScheduledTaskTarget{
-				Target: strings.TrimSpace(task.Envelope.ReportTo.Target),
-				Key:    strings.TrimSpace(task.Envelope.ReportTo.Key),
-			}
-		}
-		tasks = append(tasks, handlers.ConfiguredScheduledTask{
-			ID:       strings.TrimSpace(task.ID),
-			Cron:     strings.TrimSpace(task.Cron),
-			Target:   strings.TrimSpace(task.Envelope.Target),
-			Key:      strings.TrimSpace(task.Envelope.Key),
-			Content:  strings.TrimSpace(task.Envelope.Content),
-			ReportTo: reportTo,
-		})
-	}
-
-	return handlers.ScheduledTaskSchedulerConfig{
-		Tasks: tasks,
-	}
 }
 
 func buildInboundWebhookConfig(cfg BaldaConfig) handlers.InboundWebhookConfig {
