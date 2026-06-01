@@ -95,7 +95,10 @@ The Compose service bind-mounts the current directory as `/workspace`, so the
 container uses the same `.env`, `.config/balda/config.yaml`,
 `.config/balda/state.db`, and `.git` as host execution.
 
-## Package Dependencies
+## Key Internal Package Dependencies
+
+This is a high-level map of Balda-owned internal packages. It is intentionally
+selective rather than a full `go list` import dump.
 
 ```mermaid
 flowchart TB
@@ -105,9 +108,11 @@ flowchart TB
     auth["github.com/normahq/balda/internal/apps/balda/auth"]
     telegram["github.com/normahq/balda/internal/apps/balda/channel/telegram"]
     handlers["github.com/normahq/balda/internal/apps/balda/handlers"]
+    memory["github.com/normahq/balda/internal/apps/balda/memory"]
     messenger["github.com/normahq/balda/internal/apps/balda/messenger"]
     session["github.com/normahq/balda/internal/apps/balda/session"]
     state["github.com/normahq/balda/internal/apps/balda/state"]
+    swarm["github.com/normahq/balda/internal/apps/balda/swarm"]
     tgbotkit["github.com/normahq/balda/internal/apps/balda/tgbotkit"]
     welcome["github.com/normahq/balda/internal/apps/balda/welcome"]
 
@@ -115,22 +120,32 @@ flowchart TB
     balda_root --> actors
     balda_root --> auth
     balda_root --> handlers
+    balda_root --> memory
     balda_root --> state
+    balda_root --> swarm
     balda_root --> tgbotkit
 
     actors --> agent
     actors --> telegram
     actors --> session
     actors --> state
+    actors --> swarm
 
     telegram --> messenger
     telegram --> session
 
+    handlers --> agent
     handlers --> auth
     handlers --> telegram
     handlers --> messenger
     handlers --> session
+    handlers --> state
+    handlers --> swarm
+    handlers --> tgbotkit
     handlers --> welcome
+
+    swarm --> memory
+    swarm --> state
 
     session --> agent
     session --> state
@@ -140,15 +155,17 @@ flowchart TB
 
 | Package | Import Path | Description | Depends On |
 |---------|-------------|-------------|------------|
-| `balda` | `internal/apps/balda` | Root application module | actors, agent, auth, handlers, state, tgbotkit |
+| `balda` | `internal/apps/balda` | Root application module | actors, agent, auth, handlers, memory, state, swarm, tgbotkit |
 | `agent` | `internal/apps/balda/agent` | Agent builder & workspace manager | `internal/git`, `pkg/runtime/*` |
 | `actors` | `internal/apps/balda/actors` | Balda product actors and actor command contracts | agent, channel/telegram, session, state, swarm |
 | `auth` | `internal/apps/balda/auth` | Owner authentication store | state (interface) |
 | `channel/telegram` | `internal/apps/balda/channel/telegram` | Telegram message adapter | messenger, session |
-| `handlers` | `internal/apps/balda/handlers` | Telegram/webhook/scheduler ingress and command publishing | actors, auth, channel/telegram, messenger, session, welcome |
+| `handlers` | `internal/apps/balda/handlers` | Telegram/webhook/scheduler ingress and command publishing | actors, agent, auth, channel/telegram, messenger, session, state, swarm, tgbotkit, welcome |
+| `memory` | `internal/apps/balda/memory` | Structured memory store and recall helpers | (standalone) |
 | `messenger` | `internal/apps/balda/messenger` | Telegram message sending | `tgbotkit/client` |
 | `session` | `internal/apps/balda/session` | Session management | agent, state |
 | `state` | `internal/apps/balda/state` | SQLite state persistence | `modernc.org/sqlite`, `updatepoller` |
+| `swarm` | `internal/apps/balda/swarm` | Durable actor runtime, task services, and projections | memory, state, Norma actorlayer |
 | `tgbotkit` | `internal/apps/balda/tgbotkit` | Telegram bot runtime | `tgbotkit/*` |
 | `welcome` | `internal/apps/balda/welcome` | Welcome message builder | (standalone) |
 
