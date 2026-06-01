@@ -42,22 +42,6 @@ const (
 	internalMCPIdleTimeout       = 60 * time.Second
 )
 
-func bundledBaldaServerInstructions(workspaceEnabled, memoryEnabled bool) string {
-	instructions := `Use this bundled balda server for session-local balda tools.
-
-- balda.state stores persistent Balda session and app state in state.db.
-- balda config editing is not exposed through MCP; edit the balda config file directly.`
-	if memoryEnabled {
-		instructions += "\n- balda.memory stores durable facts in MEMORY.md; only call balda.memory.remember when the user explicitly asks you to remember or save a fact."
-	}
-	if workspaceEnabled {
-		instructions += "\n- balda.workspace is available and should be used for workspace import/export instead of manual branch landing."
-	} else {
-		instructions += "\n- balda.workspace is unavailable because balda workspace mode is disabled for this session."
-	}
-	return instructions
-}
-
 type internalMCPParams struct {
 	fx.In
 
@@ -131,13 +115,25 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context) error {
 	if m.stateStore == nil {
 		return fmt.Errorf("balda state store is required")
 	}
+	instructions := `Use this bundled balda server for session-local balda tools.
+
+- balda.state stores persistent Balda session and app state in state.db.
+- balda config editing is not exposed through MCP; edit the balda config file directly.`
+	if m.memoryStore.MemoryEnabled() {
+		instructions += "\n- balda.memory stores durable facts in MEMORY.md; only call balda.memory.remember when the user explicitly asks you to remember or save a fact."
+	}
+	if m.workspaceEnabled {
+		instructions += "\n- balda.workspace is available and should be used for workspace import/export instead of manual branch landing."
+	} else {
+		instructions += "\n- balda.workspace is unavailable because balda workspace mode is disabled for this session."
+	}
 
 	server := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "balda",
 			Version: "1.0.0",
 		},
-		&mcp.ServerOptions{Instructions: bundledBaldaServerInstructions(m.workspaceEnabled, m.memoryStore.MemoryEnabled())},
+		&mcp.ServerOptions{Instructions: instructions},
 	)
 
 	sessionmcp.RegisterTools(server, m.stateStore)
