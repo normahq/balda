@@ -268,7 +268,7 @@ func (a *Adapter) CreateTopicLocator(ctx context.Context, chatID int64, topicNam
 	return NewLocator(chatID, createTopicResp.JSON200.Result.MessageThreadId), nil
 }
 
-// Close closes a Telegram forum topic for the locator. Root locators are ignored.
+// Close removes a Telegram forum topic for the locator. Root locators are ignored.
 func (a *Adapter) Close(ctx context.Context, locator baldasession.SessionLocator) error {
 	chatID, topicID, err := telegramTuple(locator)
 	if err != nil {
@@ -278,15 +278,15 @@ func (a *Adapter) Close(ctx context.Context, locator baldasession.SessionLocator
 		return nil
 	}
 
-	closeResp, err := a.tgClient.CloseForumTopicWithResponse(ctx, client.CloseForumTopicJSONRequestBody{
+	closeResp, err := a.tgClient.DeleteForumTopicWithResponse(ctx, client.DeleteForumTopicJSONRequestBody{
 		ChatId:          chatID,
 		MessageThreadId: topicID,
 	})
 	if err != nil {
-		return fmt.Errorf("closing forum topic: %w", err)
+		return fmt.Errorf("removing forum topic: %w", err)
 	}
 	if closeResp.JSON200 == nil {
-		return fmt.Errorf("failed to close forum topic: %s", closeResp.Status())
+		return fmt.Errorf("failed to remove forum topic: %s", closeResp.Status())
 	}
 	return nil
 }

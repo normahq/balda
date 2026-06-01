@@ -150,15 +150,15 @@ func (c *fakeTelegramClient) CreateForumTopicWithResponse(_ context.Context, bod
 	}, nil
 }
 
-func (c *fakeTelegramClient) CloseForumTopicWithResponse(_ context.Context, body client.CloseForumTopicJSONRequestBody, _ ...client.RequestEditorFn) (*client.CloseForumTopicResponse, error) {
+func (c *fakeTelegramClient) DeleteForumTopicWithResponse(_ context.Context, body client.DeleteForumTopicJSONRequestBody, _ ...client.RequestEditorFn) (*client.DeleteForumTopicResponse, error) {
 	c.closedTopicIDs = append(c.closedTopicIDs, body.MessageThreadId)
 	if c.closeTopicErr != nil {
 		return nil, c.closeTopicErr
 	}
-	return &client.CloseForumTopicResponse{
+	return &client.DeleteForumTopicResponse{
 		HTTPResponse: &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
 		JSON200: &struct {
-			Ok     client.CloseForumTopic200Ok `json:"ok"`
+			Ok     client.DeleteForumTopic200Ok `json:"ok"`
 			Result bool                        `json:"result"`
 		}{
 			Ok:     true,
