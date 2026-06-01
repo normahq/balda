@@ -141,14 +141,20 @@ func TestResetSession_DeletesRuntimeHistoryAndPreservesMetadata(t *testing.T) {
 	}
 }
 
-func TestMergeUniqueStringIDs(t *testing.T) {
-	base := []string{"balda", "shared"}
-	extra := []string{" custom.one ", "shared", "", "custom.two"}
+func TestGetAgentMetadata_MergesUniqueMCPServers(t *testing.T) {
+	m := &Manager{
+		agentBuilder: &fakeAgentBuilder{
+			agentMetadata: baldaagent.AgentMetadata{
+				MCPServers: []string{"balda", "shared"},
+			},
+		},
+		baldaMCPServerIDs: []string{" custom.one ", "shared", "", "custom.two"},
+	}
 
-	got := mergeUniqueStringIDs(base, extra)
+	got := m.GetAgentMetadata("ignored").MCPServers
 	want := []string{"balda", "shared", "custom.one", "custom.two"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("mergeUniqueStringIDs(%#v, %#v) = %#v, want %#v", base, extra, got, want)
+		t.Fatalf("GetAgentMetadata().MCPServers = %#v, want %#v", got, want)
 	}
 }
 
@@ -213,6 +219,7 @@ func TestGetSessionInfo_ReturnsActiveTransportUserID(t *testing.T) {
 }
 
 type fakeAgentBuilder struct {
+	agentMetadata                     baldaagent.AgentMetadata
 	createRuntimeSessionAgentNames    []string
 	createRuntimeSessionUserIDs       []string
 	createRuntimeSessionSessionIDs    []string
@@ -237,7 +244,7 @@ func (f *fakeAgentBuilder) CreateRuntimeSession(
 }
 
 func (f *fakeAgentBuilder) GetAgentMetadata(string) baldaagent.AgentMetadata {
-	return baldaagent.AgentMetadata{}
+	return f.agentMetadata
 }
 
 type fakeBaldaRuntimeManager struct {

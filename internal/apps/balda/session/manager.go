@@ -130,7 +130,29 @@ func (m *Manager) GetAgentMetadata(agentName string) AgentMetadata {
 		return AgentMetadata{}
 	}
 	meta := builder.GetAgentMetadata(agentName)
-	meta.MCPServers = mergeUniqueStringIDs(meta.MCPServers, baldaMCPServerIDs)
+	if len(baldaMCPServerIDs) == 0 {
+		return meta
+	}
+	out := make([]string, 0, len(meta.MCPServers)+len(baldaMCPServerIDs))
+	seen := make(map[string]struct{}, len(meta.MCPServers)+len(baldaMCPServerIDs))
+	appendUnique := func(raw string) {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			return
+		}
+		if _, exists := seen[id]; exists {
+			return
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	for _, id := range meta.MCPServers {
+		appendUnique(id)
+	}
+	for _, id := range baldaMCPServerIDs {
+		appendUnique(id)
+	}
+	meta.MCPServers = out
 	return meta
 }
 
