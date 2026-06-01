@@ -46,7 +46,7 @@ type baldaRuntimeManager interface {
 
 type AgentMetadata = baldaagent.AgentMetadata
 
-// Manager manages balda provider sessions and persists session metadata.
+// Manager manages Balda sessions backed by the configured runtime and persists session metadata.
 type Manager struct {
 	agentBuilder       agentBuilder
 	runtimeManager     baldaRuntimeManager

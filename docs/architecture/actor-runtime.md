@@ -11,7 +11,7 @@ Status: active
 - Command settlement happens after actor side effects complete.
 - Retry/permanent failure handling is explicit and classified.
 - Product actors own Balda behavior: session turns, webhook/scheduled work routing, `/goal` execution, outbound delivery, cancellation, and durable memory sync.
-- `/goal` uses Norma's reusable goal workflow runtime.
+- `/goal` uses Balda's goal workflow wrapper built on Norma's reusable goal loop runtime.
 - Task progress/results and projected task-event payload summaries redact common secret/token patterns before persistence and delivery.
 - The execution core does not depend on Balda, Telegram, MCP, transport, or provider SDK APIs.
 
