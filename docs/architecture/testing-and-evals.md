@@ -23,7 +23,7 @@ Status: active
 - `internal/apps/balda/eventbus/nats`
 - `internal/apps/balda/swarm`
 - `internal/apps/balda/handlers`
-- `internal/apps/balda/architecture_contract_test.go`
+- `internal/apps/balda`
 
 ## Update triggers
 
