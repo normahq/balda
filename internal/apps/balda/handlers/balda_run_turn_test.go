@@ -2,18 +2,25 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"iter"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/normahq/balda/internal/apps/balda/actors"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
+	baldastate "github.com/normahq/balda/internal/apps/balda/state"
+	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
+	"go.uber.org/fx"
+	"go.uber.org/fx/fxtest"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	adksession "google.golang.org/adk/session"
@@ -45,7 +52,7 @@ func (h *BaldaHandler) runTurn(
 	messageID int,
 	progressPolicy baldachannel.ProgressPolicy,
 ) error {
-	return h.runTurnWithDelivery(ctx, text, r, userID, sessionID, agentSessionID, locator, messageID, progressPolicy, true)
+	return h.runTurnWithDelivery(ctx, text, r, userID, sessionID, "", agentSessionID, locator, messageID, progressPolicy, true)
 }
 
 func (c *baldaRunTurnTelegramClient) SendMessageWithResponse(
@@ -342,6 +349,127 @@ func TestRunTurn_SendsPlanUpdateMessagesInPublicChat(t *testing.T) {
 	}
 	if tgClient.messages[0].ParseMode != nil || tgClient.messages[1].ParseMode != nil {
 		t.Fatal("plan update messages must be plain text without parse_mode")
+	}
+}
+
+func TestRunTurn_TaskBackedProgressUsesDeliveryActor(t *testing.T) {
+	t.Parallel()
+
+	h, tgClient, bus, tasks := newBaldaRunTurnTaskTestHandler(t)
+	h.planUpdatesEnabled = true
+	if _, err := tasks.Create(context.Background(), baldastate.SwarmTaskRecord{
+		ID:        "task-1",
+		SessionID: "session-1",
+		Objective: "run turn",
+		Status:    baldastate.SwarmTaskStatusRunning,
+	}, "test", nil); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
+		plan := adksession.NewEvent(invocationID)
+		plan.Partial = true
+		plan.CustomMetadata = map[string]any{
+			"acp_update_kind": "plan",
+			"acp_plan":        newBaldaPlanSnapshot(map[string]any{"content": "Run tests", "status": "in_progress"}),
+		}
+
+		partial := adksession.NewEvent(invocationID)
+		partial.Partial = true
+		partial.Content = genai.NewContentFromText("draft answer", genai.RoleModel)
+
+		done := adksession.NewEvent(invocationID)
+		done.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
+		done.TurnComplete = true
+
+		return []*adksession.Event{plan, partial, done}
+	})
+	locator := baldatelegram.NewLocator(9001, 77)
+	if err := h.runTurnWithDelivery(context.Background(), "hello", adkRunner, "tg-101", sessionID, "task-1", sessionID, locator, 41, baldachannel.ProgressPolicy{Typing: true, Thinking: true}, true); err != nil {
+		t.Fatalf("runTurnWithDelivery() error = %v", err)
+	}
+
+	if len(tgClient.drafts) != 0 || len(tgClient.chatActions) != 0 || len(tgClient.messages) != 0 {
+		t.Fatalf("telegram direct sends = drafts:%d typing:%d messages:%d, want 0", len(tgClient.drafts), len(tgClient.chatActions), len(tgClient.messages))
+	}
+	gotTexts := deliveryTextsFromCommands(t, bus.commands)
+	wantTexts := []string{
+		"Plan update\n- [in progress] Run tests",
+		"draft answer",
+		baldaRunTurnFinalAnswerText,
+	}
+	if strings.Join(gotTexts, "\n---\n") != strings.Join(wantTexts, "\n---\n") {
+		t.Fatalf("delivery texts = %#v, want %#v", gotTexts, wantTexts)
+	}
+	agentEvents := taskEventsOfType(bus.eventEnvs, swarm.TaskEventAgentProgress, swarm.TaskEventAgentResult)
+	if len(agentEvents) != 3 {
+		t.Fatalf("agent task events = %d, want 3", len(agentEvents))
+	}
+	if got := agentEvents[0].Meta["event_type"]; got != swarm.TaskEventAgentProgress {
+		t.Fatalf("event[0] type = %q, want %q", got, swarm.TaskEventAgentProgress)
+	}
+	if got := agentEvents[2].Meta["event_type"]; got != swarm.TaskEventAgentResult {
+		t.Fatalf("event[2] type = %q, want %q", got, swarm.TaskEventAgentResult)
+	}
+}
+
+func TestRunTurn_TaskBackedOutputProgressCoalescesDeltas(t *testing.T) {
+	t.Parallel()
+
+	h, _, bus, tasks := newBaldaRunTurnTaskTestHandler(t)
+	baseTime := time.Date(2026, 6, 2, 8, 0, 0, 0, time.UTC)
+	times := []time.Time{
+		baseTime,
+		baseTime.Add(time.Second),
+		baseTime.Add(telegramProgressThrottleInterval),
+		baseTime.Add(2 * telegramProgressThrottleInterval),
+	}
+	timeIdx := 0
+	h.now = func() time.Time {
+		if timeIdx >= len(times) {
+			return times[len(times)-1]
+		}
+		current := times[timeIdx]
+		timeIdx++
+		return current
+	}
+	if _, err := tasks.Create(context.Background(), baldastate.SwarmTaskRecord{
+		ID:        "task-2",
+		SessionID: "session-1",
+		Objective: "run turn",
+		Status:    baldastate.SwarmTaskStatusRunning,
+	}, "test", nil); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
+		partialOne := adksession.NewEvent(invocationID)
+		partialOne.Partial = true
+		partialOne.Content = genai.NewContentFromText("Hello", genai.RoleModel)
+
+		partialTwo := adksession.NewEvent(invocationID)
+		partialTwo.Partial = true
+		partialTwo.Content = genai.NewContentFromText("Hello there", genai.RoleModel)
+
+		partialThree := adksession.NewEvent(invocationID)
+		partialThree.Partial = true
+		partialThree.Content = genai.NewContentFromText("Hello there friend", genai.RoleModel)
+
+		done := adksession.NewEvent(invocationID)
+		done.Content = genai.NewContentFromText("Hello there friend!", genai.RoleModel)
+		done.TurnComplete = true
+
+		return []*adksession.Event{partialOne, partialTwo, partialThree, done}
+	})
+	locator := baldatelegram.NewLocator(9001, 77)
+	if err := h.runTurnWithDelivery(context.Background(), "hello", adkRunner, "tg-101", sessionID, "task-2", sessionID, locator, 41, baldachannel.ProgressPolicy{}, true); err != nil {
+		t.Fatalf("runTurnWithDelivery() error = %v", err)
+	}
+
+	gotTexts := deliveryTextsFromCommands(t, bus.commands)
+	wantTexts := []string{"Hello", "there friend", "Hello there friend!"}
+	if strings.Join(gotTexts, "\n---\n") != strings.Join(wantTexts, "\n---\n") {
+		t.Fatalf("delivery texts = %#v, want %#v", gotTexts, wantTexts)
 	}
 }
 
@@ -1335,6 +1463,77 @@ func newBaldaRunTurnTestHandler(t *testing.T, agentReplyFormattingNone bool) (*B
 		channel: channel,
 		logger:  zerolog.Nop(),
 	}, tgClient
+}
+
+func newBaldaRunTurnTaskTestHandler(t *testing.T) (*BaldaHandler, *baldaRunTurnTelegramClient, *recordingHandlerCommandBus, *swarm.TaskService) {
+	t.Helper()
+
+	ctx := context.Background()
+	provider, err := baldastate.NewSQLiteProvider(ctx, filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteProvider() error = %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	bus := &recordingHandlerCommandBus{}
+	var tasks *swarm.TaskService
+	app := fxtest.New(t,
+		fx.Supply(
+			fx.Annotate(provider, fx.As(new(baldastate.Provider))),
+		),
+		fx.Provide(func() swarm.ActorDispatcher { return bus }),
+		fx.Provide(func() swarm.EventPublisher { return bus }),
+		fx.Provide(swarm.NewTaskService),
+		fx.Populate(&tasks),
+	)
+	app.RequireStart()
+	t.Cleanup(func() { app.RequireStop() })
+
+	tgClient := &baldaRunTurnTelegramClient{}
+	msg := messenger.NewMessenger(tgClient, zerolog.Nop())
+	channel := baldatelegram.NewAdapter(baldatelegram.AdapterParams{
+		Messenger: msg,
+		TGClient:  tgClient,
+		Logger:    zerolog.Nop(),
+	})
+
+	return &BaldaHandler{
+		channel:         channel,
+		actorDispatcher: bus,
+		taskService:     tasks,
+		logger:          zerolog.Nop(),
+	}, tgClient, bus, tasks
+}
+
+func deliveryTextsFromCommands(t *testing.T, commands []swarm.Envelope) []string {
+	t.Helper()
+
+	texts := make([]string, 0, len(commands))
+	for _, env := range commands {
+		if env.To.Target != swarm.ActorTypeDelivery {
+			continue
+		}
+		var payload actors.DeliveryPayload
+		if err := json.Unmarshal([]byte(env.PayloadJSON), &payload); err != nil {
+			t.Fatalf("decode delivery payload: %v", err)
+		}
+		texts = append(texts, payload.Text)
+	}
+	return texts
+}
+
+func taskEventsOfType(events []swarm.Envelope, types ...string) []swarm.Envelope {
+	out := make([]swarm.Envelope, 0, len(events))
+	for _, env := range events {
+		eventType := env.Meta["event_type"]
+		for _, want := range types {
+			if eventType == want {
+				out = append(out, env)
+				break
+			}
+		}
+	}
+	return out
 }
 
 func newBaldaRunTurnTestRunnerWithEvents(

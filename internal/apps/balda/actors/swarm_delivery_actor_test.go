@@ -139,10 +139,10 @@ func newTaskDeliveryActorForTest(t *testing.T, ctx context.Context) (*taskDelive
 	}, tasks, tgClient, bus
 }
 
-func deliveryEnvelopeForTest(t *testing.T, id string, dedupeKey string, text string) (swarm.Envelope, taskDeliveryPayload) {
+func deliveryEnvelopeForTest(t *testing.T, id string, dedupeKey string, text string) (swarm.Envelope, DeliveryPayload) {
 	t.Helper()
 	locator := baldatelegram.NewLocator(9001, 99)
-	payload := taskDeliveryPayload{TaskID: "task-1", Locator: locator, Text: text}
+	payload := DeliveryPayload{TaskID: "task-1", Locator: locator, Text: text}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -160,7 +160,7 @@ func deliveryEnvelopeForTest(t *testing.T, id string, dedupeKey string, text str
 	}, payload
 }
 
-func deliveryRecordForTest(env swarm.Envelope, payload taskDeliveryPayload, status string) baldastate.SwarmDeliveryRecord {
+func deliveryRecordForTest(env swarm.Envelope, payload DeliveryPayload, status string) baldastate.SwarmDeliveryRecord {
 	deliveryKey := strings.TrimSpace(env.DedupeKey)
 	if deliveryKey == "" {
 		deliveryKey = strings.TrimSpace(env.ID)

@@ -23,6 +23,21 @@ func (h *BaldaHandler) submitSessionTurn(ctx context.Context, payload actors.Ses
 	return h.actorDispatcher.Dispatch(ctx, env)
 }
 
+func (h *BaldaHandler) submitPromptTurnTask(ctx context.Context, payload actors.SessionTurnPayload) (*swarm.DispatchReceipt, error) {
+	if !payload.Deliver {
+		return h.submitSessionTurn(ctx, payload)
+	}
+	if h.actorDispatcher == nil {
+		return nil, fmt.Errorf("swarm runtime is unavailable")
+	}
+	env, taskID, err := actors.PromptTurnTaskEnvelope(payload)
+	if err != nil {
+		return nil, err
+	}
+	payload.TaskID = taskID
+	return h.actorDispatcher.Dispatch(ctx, env)
+}
+
 func (h *BaldaHandler) submitWebhookTask(ctx context.Context, payload actors.SessionTurnPayload, routeName string, requestID string) (*swarm.DispatchReceipt, string, error) {
 	if h.actorDispatcher == nil {
 		return nil, "", fmt.Errorf("swarm runtime is unavailable")
@@ -84,6 +99,7 @@ func (h *BaldaHandler) RunSessionTurnPayload(ctx context.Context, payload actors
 		ts.GetRunner(),
 		userID,
 		ts.GetSessionID(),
+		payload.TaskID,
 		agentSessionID,
 		deliveryLocator,
 		payload.MessageID,

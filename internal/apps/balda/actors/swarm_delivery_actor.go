@@ -45,7 +45,7 @@ func (a *taskDeliveryActor) Handle(ctx context.Context, envelope any) error {
 	if strings.TrimSpace(env.Kind) != taskPayloadKindDelivery {
 		return swarm.PolicyError(fmt.Errorf("unsupported delivery kind %q", env.Kind))
 	}
-	var payload taskDeliveryPayload
+	var payload DeliveryPayload
 	if err := json.Unmarshal([]byte(env.PayloadJSON), &payload); err != nil {
 		return swarm.PermanentError(fmt.Errorf("decode task delivery payload: %w", err))
 	}

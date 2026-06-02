@@ -58,6 +58,49 @@ func TestTaskActorDispatchesWebhookSessionTurn(t *testing.T) {
 	}
 }
 
+func TestTaskActorDispatchesPromptSessionTurn(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	exec := &taskActorExecutor{tasks: tasks, dispatcher: dispatcher}
+	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
+	env, taskID, err := PromptTurnTaskEnvelope(SessionTurnPayload{
+		Text:      "repeat the review",
+		Locator:   locator,
+		UserID:    "101",
+		MessageID: 42,
+		Deliver:   true,
+		Source:    sessionTurnSourceTelegram,
+	})
+	if err != nil {
+		t.Fatalf("PromptTurnTaskEnvelope() error = %v", err)
+	}
+	if err := exec.Handle(ctx, env); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	published := lastPublishedCommandTo(t, bus, swarm.ActorTypeSession, locator.SessionID)
+	if published.TaskID != taskID {
+		t.Fatalf("published task id = %q, want %q", published.TaskID, taskID)
+	}
+	if got, want := published.Namespace, swarm.NamespaceHumanInbound; got != want {
+		t.Fatalf("published namespace = %q, want %q", got, want)
+	}
+	task, ok, err := tasks.Get(ctx, taskID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("task %q not found", taskID)
+	}
+	if task.Title != "Prompt turn" {
+		t.Fatalf("task title = %q, want Prompt turn", task.Title)
+	}
+	if task.Status != baldastate.SwarmTaskStatusRunning {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusRunning)
+	}
+}
+
 func TestScheduledTaskEnvelopeDispatchesSessionTurn(t *testing.T) {
 	t.Parallel()
 

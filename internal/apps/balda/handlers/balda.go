@@ -13,6 +13,7 @@ import (
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
+	"github.com/normahq/balda/internal/apps/balda/progress"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
@@ -44,6 +45,7 @@ type BaldaHandler struct {
 	sessionManager     *baldasession.Manager
 	turnDispatcher     actors.TurnQueue
 	actorDispatcher    swarm.ActorDispatcher
+	taskService        *swarm.TaskService
 	messenger          *messenger.Messenger
 	tgClient           client.ClientWithResponsesInterface
 	authToken          string
@@ -69,6 +71,7 @@ type baldaHandlerDeps struct {
 	SessionManager     *baldasession.Manager
 	TurnDispatcher     *actors.TurnDispatcher
 	ActorDispatcher    swarm.ActorDispatcher
+	TaskService        *swarm.TaskService `optional:"true"`
 	Messenger          *messenger.Messenger
 	TGClient           client.ClientWithResponsesInterface
 	AuthToken          string `name:"balda_auth_token"`
@@ -241,7 +244,7 @@ func (h *BaldaHandler) enqueueTurn(
 		return fmt.Errorf("topic session is required")
 	}
 
-	_, err := h.submitSessionTurn(ctx, actors.SessionTurnPayload{
+	_, err := h.submitPromptTurnTask(ctx, actors.SessionTurnPayload{
 		Text:           text,
 		Locator:        locator,
 		UserID:         ts.GetUserID(),
@@ -264,6 +267,7 @@ func (h *BaldaHandler) runTurnTaskWithDelivery(
 	r *runner.Runner,
 	userID string,
 	sessionID string,
+	taskID string,
 	agentSessionID string,
 	locator baldasession.SessionLocator,
 	messageID int,
@@ -274,7 +278,7 @@ func (h *BaldaHandler) runTurnTaskWithDelivery(
 	if !deliver {
 		progressPolicy = baldachannel.ProgressPolicy{}
 	}
-	err := h.runTurnWithDelivery(ctx, text, r, userID, sessionID, agentSessionID, locator, messageID, progressPolicy, deliver)
+	err := h.runTurnWithDelivery(ctx, text, r, userID, sessionID, taskID, agentSessionID, locator, messageID, progressPolicy, deliver)
 	if err == nil {
 		return nil
 	}
@@ -283,7 +287,7 @@ func (h *BaldaHandler) runTurnTaskWithDelivery(
 			Str("session_id", sessionID).
 			Int("topic_id", topicID).
 			Msg("balda turn canceled")
-		return nil
+		return err
 	}
 	if _, getErr := h.sessionManager.GetSession(locator); getErr != nil {
 		h.logger.Debug().
@@ -382,6 +386,7 @@ func (h *BaldaHandler) runTurnWithDelivery(
 	r *runner.Runner,
 	userID string,
 	sessionID string,
+	taskID string,
 	agentSessionID string,
 	locator baldasession.SessionLocator,
 	messageID int,
@@ -404,11 +409,13 @@ func (h *BaldaHandler) runTurnWithDelivery(
 	topicID := address.TopicID
 	userContent := genai.NewContentFromText(text, genai.RoleUser)
 	draftID := messageID + 1
+	taskBackedDelivery := deliver && strings.TrimSpace(taskID) != "" && h.actorDispatcher != nil
 
 	runCtx := zerolog.Ctx(ctx).With().
 		Int64("chat_id", chatID).
 		Int("topic_id", topicID).
 		Str("session_id", sessionID).
+		Str("task_id", strings.TrimSpace(taskID)).
 		Str("agent_session_id", agentSessionID).
 		Str("transport_user_id", userID).
 		Logger().
@@ -423,8 +430,34 @@ func (h *BaldaHandler) runTurnWithDelivery(
 	thinkingIdx := 0
 	typingThrottle := throttle.New(telegramProgressThrottleInterval, throttle.WithClock(h.currentTime))
 	thinkingThrottle := throttle.New(telegramProgressThrottleInterval, throttle.WithClock(h.currentTime))
+	outputThrottle := throttle.New(telegramProgressThrottleInterval, throttle.WithClock(h.currentTime))
 	lastPlanProgressText := ""
 	planDraftActive := false
+	lastVisibleText := ""
+	lastDeliveredOutput := ""
+	deliverySeq := 0
+
+	flushTaskOutputProgress := func() error {
+		if !taskBackedDelivery {
+			return nil
+		}
+		delta := visibleTextDelta(lastDeliveredOutput, lastVisibleText)
+		if strings.TrimSpace(delta) == "" {
+			return nil
+		}
+		deliverySeq++
+		if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, delta, fmt.Sprintf("progress:output:%03d", deliverySeq)); err != nil {
+			return err
+		}
+		if err := h.appendTaskEvent(ctx, taskID, swarm.TaskEventAgentProgress, "session.actor", "", map[string]any{
+			"kind": "output",
+			"text": strings.TrimSpace(delta),
+		}); err != nil {
+			return err
+		}
+		lastDeliveredOutput = lastVisibleText
+		return nil
+	}
 
 	for ev, err := range r.Run(runCtx, userID, agentSessionID, userContent, agent.RunConfig{}) {
 		if err != nil {
@@ -448,14 +481,28 @@ func (h *BaldaHandler) runTurnWithDelivery(
 			planProgressText, hasPlanUpdate = baldaPlanProgressText(ev)
 		}
 		if !ev.TurnComplete {
-			if progressPolicy.Typing {
+			if taskBackedDelivery {
+				if hasPlanUpdate && planProgressText != "" && planProgressText != lastPlanProgressText {
+					deliverySeq++
+					if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, planProgressText, fmt.Sprintf("progress:plan:%03d", deliverySeq)); err != nil {
+						return err
+					}
+					if err := h.appendTaskEvent(ctx, taskID, swarm.TaskEventAgentProgress, "session.actor", "", map[string]any{
+						"kind": "plan",
+						"text": strings.TrimSpace(planProgressText),
+					}); err != nil {
+						return err
+					}
+					lastPlanProgressText = planProgressText
+				}
+			} else if progressPolicy.Typing {
 				typingThrottle.Do(func() {
 					if sendErr := h.channel.SendTyping(ctx, locator); sendErr != nil {
 						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send typing chat action")
 					}
 				})
 			}
-			if hasPlanUpdate && planProgressText != "" && planProgressText != lastPlanProgressText {
+			if !taskBackedDelivery && hasPlanUpdate && planProgressText != "" && planProgressText != lastPlanProgressText {
 				switch {
 				case progressPolicy.Thinking:
 					if sendErr := h.channel.SendDraftPlain(ctx, locator, draftID, planProgressText); sendErr != nil {
@@ -472,7 +519,7 @@ func (h *BaldaHandler) runTurnWithDelivery(
 					}
 				}
 			}
-			if progressPolicy.Thinking && !planDraftActive {
+			if !taskBackedDelivery && progressPolicy.Thinking && !planDraftActive {
 				thinkingThrottle.Do(func() {
 					if sendErr := h.channel.SendDraftPlain(ctx, locator, draftID, thinkingStages[thinkingIdx%len(thinkingStages)]); sendErr != nil {
 						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send thinking placeholder")
@@ -530,6 +577,22 @@ func (h *BaldaHandler) runTurnWithDelivery(
 			}
 		}
 		eventText := eventTextBuilder.String()
+		visibleText := progress.VisibleText(ev)
+		if taskBackedDelivery && !ev.TurnComplete {
+			merged := mergeVisibleText(lastVisibleText, visibleText)
+			if merged != lastVisibleText {
+				lastVisibleText = merged
+				if err := func() error {
+					var flushErr error
+					outputThrottle.Do(func() {
+						flushErr = flushTaskOutputProgress()
+					})
+					return flushErr
+				}(); err != nil {
+					return err
+				}
+			}
+		}
 		if eventText != "" && ev.IsFinalResponse() {
 			currentText := streamedText.String()
 			if eventText != currentText {
@@ -582,52 +645,46 @@ func (h *BaldaHandler) runTurnWithDelivery(
 			case !deliver:
 				responseSource = "fire_and_forget"
 			case strings.TrimSpace(responseText) != "":
-				if sendErr := h.channel.SendAgentReply(ctx, locator, responseText); sendErr != nil {
+				if taskBackedDelivery {
+					if err := flushTaskOutputProgress(); err != nil {
+						return err
+					}
+					if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, responseText, "final"); err != nil {
+						return err
+					}
+					if err := h.appendTaskEvent(ctx, taskID, swarm.TaskEventAgentResult, "session.actor", "", map[string]any{
+						"text": strings.TrimSpace(responseText),
+					}); err != nil {
+						return err
+					}
+					responseEmitted = true
+					responseSource = "streamed_text"
+				} else if sendErr := h.channel.SendAgentReply(ctx, locator, responseText); sendErr != nil {
 					log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send balda response")
 				} else {
 					responseEmitted = true
 					responseSource = "streamed_text"
 				}
 			default:
-				terminalMessage := ""
-				switch terminalFinishReason {
-				case genai.FinishReasonMaxTokens:
-					terminalMessage = "The provider hit the output limit before producing a visible reply. Ask for a shorter answer or split the request."
-				case genai.FinishReasonSafety:
-					terminalMessage = "The provider blocked this turn for safety reasons. Please rephrase and try again."
-				case genai.FinishReasonRecitation:
-					terminalMessage = "The provider blocked this turn because it may reproduce protected source material. Please rephrase and try again."
-				case genai.FinishReasonLanguage:
-					terminalMessage = "The provider could not answer because the request used an unsupported language. Please rephrase in a supported language and try again."
-				case genai.FinishReasonBlocklist:
-					terminalMessage = "The provider blocked this turn because it matched restricted terms. Please rephrase and try again."
-				case genai.FinishReasonProhibitedContent:
-					terminalMessage = "The provider rejected this turn as prohibited content. Please rephrase and try again."
-				case genai.FinishReasonSPII:
-					terminalMessage = "The provider blocked this turn because it may contain sensitive personal information. Please remove that information and try again."
-				case genai.FinishReasonMalformedFunctionCall:
-					terminalMessage = "The provider ended the turn with an invalid function call. Please try again."
-				case genai.FinishReasonUnexpectedToolCall:
-					terminalMessage = "The provider ended the turn with an unexpected tool call. Please try again."
-				case genai.FinishReasonImageSafety:
-					terminalMessage = "The provider blocked image generation for safety reasons. Please try a different request."
-				case genai.FinishReasonImageProhibitedContent:
-					terminalMessage = "The provider rejected image generation as prohibited content. Please try a different request."
-				case genai.FinishReasonNoImage:
-					terminalMessage = "The provider completed the turn without returning an image. Please try a different request."
-				case genai.FinishReasonImageRecitation:
-					terminalMessage = "The provider blocked image generation because it may reproduce protected source material. Please try a different request."
-				case genai.FinishReasonImageOther:
-					terminalMessage = "The provider ended image generation without a usable result. Please try again."
-				case genai.FinishReasonStop,
-					genai.FinishReasonOther,
-					genai.FinishReasonUnspecified:
-					terminalMessage = "The provider ended the turn without a usable reply. Please try again."
-				default:
-					terminalMessage = "The provider ended the turn without a usable reply. Please try again."
-				}
+				terminalMessage := terminalTurnMessage(terminalFinishReason)
 				if terminalMessage != "" {
-					if sendErr := h.channel.SendPlain(ctx, locator, terminalMessage); sendErr != nil {
+					if taskBackedDelivery {
+						if err := flushTaskOutputProgress(); err != nil {
+							return err
+						}
+						if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, terminalMessage, "terminal"); err != nil {
+							return err
+						}
+						if err := h.appendTaskEvent(ctx, taskID, swarm.TaskEventAgentResult, "session.actor", "", map[string]any{
+							"text":          strings.TrimSpace(terminalMessage),
+							"finish_reason": strings.TrimSpace(string(terminalFinishReason)),
+						}); err != nil {
+							return err
+						}
+						responseEmitted = true
+						responseSource = "finish_reason"
+						handledEmptyTerminalReason = true
+					} else if sendErr := h.channel.SendPlain(ctx, locator, terminalMessage); sendErr != nil {
 						log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send balda terminal finish reason message")
 					} else {
 						responseEmitted = true
@@ -654,4 +711,108 @@ func (h *BaldaHandler) runTurnWithDelivery(
 	}
 
 	return nil
+}
+
+func terminalTurnMessage(reason genai.FinishReason) string {
+	switch reason {
+	case genai.FinishReasonMaxTokens:
+		return "The provider hit the output limit before producing a visible reply. Ask for a shorter answer or split the request."
+	case genai.FinishReasonSafety:
+		return "The provider blocked this turn for safety reasons. Please rephrase and try again."
+	case genai.FinishReasonRecitation:
+		return "The provider blocked this turn because it may reproduce protected source material. Please rephrase and try again."
+	case genai.FinishReasonLanguage:
+		return "The provider could not answer because the request used an unsupported language. Please rephrase in a supported language and try again."
+	case genai.FinishReasonBlocklist:
+		return "The provider blocked this turn because it matched restricted terms. Please rephrase and try again."
+	case genai.FinishReasonProhibitedContent:
+		return "The provider rejected this turn as prohibited content. Please rephrase and try again."
+	case genai.FinishReasonSPII:
+		return "The provider blocked this turn because it may contain sensitive personal information. Please remove that information and try again."
+	case genai.FinishReasonMalformedFunctionCall:
+		return "The provider ended the turn with an invalid function call. Please try again."
+	case genai.FinishReasonUnexpectedToolCall:
+		return "The provider ended the turn with an unexpected tool call. Please try again."
+	case genai.FinishReasonImageSafety:
+		return "The provider blocked image generation for safety reasons. Please try a different request."
+	case genai.FinishReasonImageProhibitedContent:
+		return "The provider rejected image generation as prohibited content. Please try a different request."
+	case genai.FinishReasonNoImage:
+		return "The provider completed the turn without returning an image. Please try a different request."
+	case genai.FinishReasonImageRecitation:
+		return "The provider blocked image generation because it may reproduce protected source material. Please try a different request."
+	case genai.FinishReasonImageOther:
+		return "The provider ended image generation without a usable result. Please try again."
+	case genai.FinishReasonStop, genai.FinishReasonOther, genai.FinishReasonUnspecified:
+		return "The provider ended the turn without a usable reply. Please try again."
+	default:
+		return "The provider ended the turn without a usable reply. Please try again."
+	}
+}
+
+func mergeVisibleText(existing string, next string) string {
+	existing = strings.TrimSpace(existing)
+	next = strings.TrimSpace(next)
+	switch {
+	case next == "":
+		return existing
+	case existing == "":
+		return next
+	case next == existing:
+		return existing
+	case strings.HasPrefix(next, existing):
+		return next
+	case strings.Contains(existing, next):
+		return existing
+	default:
+		return existing + "\n\n" + next
+	}
+}
+
+func visibleTextDelta(previous string, current string) string {
+	previous = strings.TrimSpace(previous)
+	current = strings.TrimSpace(current)
+	switch {
+	case current == "", current == previous:
+		return ""
+	case previous == "":
+		return current
+	case strings.HasPrefix(current, previous):
+		return strings.TrimSpace(strings.TrimPrefix(current, previous))
+	default:
+		return current
+	}
+}
+
+func (h *BaldaHandler) dispatchTaskDelivery(
+	ctx context.Context,
+	taskID string,
+	locator baldasession.SessionLocator,
+	sessionID string,
+	text string,
+	dedupeSuffix string,
+) error {
+	if h == nil || h.actorDispatcher == nil {
+		return fmt.Errorf("swarm runtime is unavailable")
+	}
+	env, err := actors.DeliveryEnvelope(taskID, swarm.ActorAddress{Target: swarm.ActorTypeSession, Key: sessionID}, locator, text, dedupeSuffix)
+	if err != nil {
+		return err
+	}
+	_, err = h.actorDispatcher.Dispatch(ctx, env)
+	return err
+}
+
+func (h *BaldaHandler) appendTaskEvent(
+	ctx context.Context,
+	taskID string,
+	eventType string,
+	actor string,
+	messageID string,
+	payload any,
+) error {
+	if h == nil || h.taskService == nil || strings.TrimSpace(taskID) == "" {
+		return nil
+	}
+	return h.taskService.AppendEvent(ctx, taskID, eventType, actor, messageID, payload)
 }

@@ -489,6 +489,49 @@ func TestBaldaHandlerOnMessage_TopicReplyToBotBypassesMentionGate(t *testing.T) 
 	}
 }
 
+func TestBaldaHandlerOnMessage_PublishesPromptTurnTask(t *testing.T) {
+	handler, turns, locator := newBaldaMessageHandlerHarness(t, 0)
+
+	text := "run tests"
+	event := &events.MessageEvent{
+		Type: messagetype.Text,
+		Message: &client.Message{
+			Chat: client.Chat{
+				Id:   9001,
+				Type: "private",
+			},
+			Text: &text,
+			From: &client.User{Id: 101},
+		},
+	}
+
+	if err := handler.onMessage(context.Background(), event); err != nil {
+		t.Fatalf("onMessage() error = %v", err)
+	}
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
+	}
+	if turns.commands[0].To.Target != swarm.ActorTypeTask {
+		t.Fatalf("command target = %q, want %q", turns.commands[0].To.Target, swarm.ActorTypeTask)
+	}
+	if turns.commands[0].SessionID != locator.SessionID {
+		t.Fatalf("command session = %q, want %q", turns.commands[0].SessionID, locator.SessionID)
+	}
+	var wrapped struct {
+		Kind        string                     `json:"kind"`
+		SessionTurn *actors.SessionTurnPayload `json:"session_turn,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(turns.commands[0].PayloadJSON), &wrapped); err != nil {
+		t.Fatalf("decode task envelope payload: %v", err)
+	}
+	if wrapped.Kind != "session_turn" || wrapped.SessionTurn == nil {
+		t.Fatalf("wrapped payload = %+v, want session_turn", wrapped)
+	}
+	if wrapped.SessionTurn.Source != "telegram" || !wrapped.SessionTurn.Deliver {
+		t.Fatalf("session turn payload = %+v, want telegram deliver=true", wrapped.SessionTurn)
+	}
+}
+
 func TestBaldaHandlerOnMessage_ChannelReplyToDifferentBotIgnored(t *testing.T) {
 	handler, turns, _ := newBaldaMessageHandlerHarness(t, 0)
 
@@ -578,8 +621,18 @@ func assertPublishedTurnIncludesReplyContext(t *testing.T, commands []swarm.Enve
 		t.Fatalf("published commands = %d, want 1", len(commands))
 	}
 	var payload actors.SessionTurnPayload
-	if err := json.Unmarshal([]byte(commands[0].PayloadJSON), &payload); err != nil {
-		t.Fatalf("decode session turn payload: %v", err)
+	if err := json.Unmarshal([]byte(commands[0].PayloadJSON), &payload); err != nil || strings.TrimSpace(payload.Text) == "" {
+		var wrapped struct {
+			Kind        string                     `json:"kind"`
+			SessionTurn *actors.SessionTurnPayload `json:"session_turn,omitempty"`
+		}
+		if wrapErr := json.Unmarshal([]byte(commands[0].PayloadJSON), &wrapped); wrapErr != nil {
+			t.Fatalf("decode session turn payload: %v", err)
+		}
+		if wrapped.SessionTurn == nil {
+			t.Fatalf("wrapped session turn payload missing: %+v", wrapped)
+		}
+		payload = *wrapped.SessionTurn
 	}
 	if !strings.Contains(payload.Text, "Reply context:\n"+replyText) {
 		t.Fatalf("payload text = %q, want reply context block", payload.Text)

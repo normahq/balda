@@ -103,6 +103,48 @@ func TestSessionActorSettleSessionTurnResultMarksTaskFailedWithoutRetry(t *testi
 	}
 }
 
+func TestSessionActorSettleSessionTurnResultMarksTaskCanceledWithoutRetry(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	_ = provider
+	_ = bus
+	_ = dispatcher
+	_ = allocator
+	created, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+		ID:        "task-session-canceled",
+		SessionID: "tg-9001-77",
+		Objective: "run session task",
+		Status:    baldastate.SwarmTaskStatusRunning,
+	}, "test", nil)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if !created {
+		t.Fatal("Create() created = false, want true")
+	}
+
+	exec := &sessionActorExecutor{tasks: tasks}
+	env := testSessionTurnEnvelope(t, nil)
+	env.TaskID = "task-session-canceled"
+
+	if err := exec.settleSessionTurnResult(ctx, env, SessionTurnPayload{}, context.Canceled); err != nil {
+		t.Fatalf("settleSessionTurnResult() error = %v, want nil after recording task cancellation", err)
+	}
+
+	task, ok, err := tasks.Get(ctx, env.TaskID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("Get() found = false for task %q", env.TaskID)
+	}
+	if task.Status != baldastate.SwarmTaskStatusCanceled {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusCanceled)
+	}
+}
+
 func TestSessionActorSettleSessionTurnResultKeepsNonTaskErrorsRetryable(t *testing.T) {
 	t.Parallel()
 

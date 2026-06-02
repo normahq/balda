@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -37,7 +38,7 @@ type scheduledTaskPayload struct {
 	TopicID      int                          `json:"topic_id,omitempty"`
 }
 
-type taskDeliveryPayload struct {
+type DeliveryPayload struct {
 	TaskID  string                      `json:"task_id"`
 	Locator baldasession.SessionLocator `json:"locator"`
 	Text    string                      `json:"text"`
@@ -112,6 +113,34 @@ func WebhookTaskEnvelope(payload SessionTurnPayload, routeName string, requestID
 	}, taskID, nil
 }
 
+func PromptTurnTaskEnvelope(payload SessionTurnPayload) (swarm.Envelope, string, error) {
+	dedupeBase := promptTurnDedupeBase(payload)
+	if dedupeBase == "" {
+		return swarm.Envelope{}, "", fmt.Errorf("prompt turn dedupe key is required")
+	}
+	taskID := "turn-" + shortTaskHash(dedupeBase)
+	payload.DedupeKey = dedupeBase + ":session"
+	data, err := json.Marshal(taskEnvelopePayload{
+		Kind:        taskPayloadKindSessionTurn,
+		SessionTurn: &payload,
+	})
+	if err != nil {
+		return swarm.Envelope{}, "", fmt.Errorf("encode prompt turn task payload: %w", err)
+	}
+	return swarm.Envelope{
+		ID:          uuid.NewString(),
+		Namespace:   swarm.NamespaceHumanInbound,
+		Kind:        swarm.KindMessage,
+		From:        swarm.ActorAddress{Target: firstNonEmpty(payload.Source, sessionTurnSourceTelegram), Key: firstNonEmpty(payload.UserID, payload.Locator.AddressKey, "unknown")},
+		To:          swarm.ActorAddress{Target: swarm.ActorTypeTask, Key: taskID},
+		SessionID:   payload.Locator.SessionID,
+		TaskID:      taskID,
+		Priority:    90,
+		DedupeKey:   dedupeBase + ":task",
+		PayloadJSON: string(data),
+	}, taskID, nil
+}
+
 func ScheduledTaskEnvelope(
 	scheduledTaskID string,
 	content string,
@@ -153,6 +182,22 @@ func ScheduledTaskEnvelope(
 func shortTaskHash(value string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(value)))
 	return hex.EncodeToString(sum[:])[:16]
+}
+
+func promptTurnDedupeBase(payload SessionTurnPayload) string {
+	base := strings.TrimSpace(payload.DedupeKey)
+	base = strings.TrimSuffix(base, ":task")
+	base = strings.TrimSuffix(base, ":session")
+	if base != "" {
+		return base
+	}
+	parts := []string{
+		firstNonEmpty(payload.Source, sessionTurnSourceTelegram),
+		strings.TrimSpace(payload.Locator.SessionID),
+		strconv.Itoa(payload.MessageID),
+		strings.TrimSpace(payload.Text),
+	}
+	return shortTaskHash(strings.Join(parts, "\x00"))
 }
 
 func (e *taskActorExecutor) Address() string {
@@ -198,12 +243,12 @@ func (e *taskActorExecutor) dispatchSessionTurn(ctx context.Context, env swarm.E
 			ID:            taskID,
 			SessionID:     strings.TrimSpace(payload.Locator.SessionID),
 			ParentTaskID:  strings.TrimSpace(payload.ParentTaskID),
-			Title:         "Webhook task",
+			Title:         sessionTurnTaskTitle(payload),
 			Objective:     strings.TrimSpace(payload.Text),
 			Status:        baldastate.SwarmTaskStatusCreated,
 			OwnerActor:    swarm.ActorTypeTask + ":" + taskID,
 			AssignedActor: swarm.ActorTypeSession + ":" + payload.Locator.SessionID,
-			Priority:      80,
+			Priority:      sessionTurnTaskPriority(payload),
 			CreatedBy:     strings.TrimSpace(payload.UserID),
 		}, "task.actor", payload)
 		if err != nil {
@@ -213,6 +258,7 @@ func (e *taskActorExecutor) dispatchSessionTurn(ctx context.Context, env swarm.E
 			return nil
 		}
 	}
+	payload.TaskID = taskID
 	sessionEnv, err := SessionTurnEnvelope(payload)
 	if err != nil {
 		return swarm.PermanentError(err)
@@ -232,6 +278,30 @@ func (e *taskActorExecutor) dispatchSessionTurn(ctx context.Context, env swarm.E
 		}
 	}
 	return nil
+}
+
+func sessionTurnTaskTitle(payload SessionTurnPayload) string {
+	switch strings.ToLower(strings.TrimSpace(payload.Source)) {
+	case sessionTurnSourceWebhook:
+		return "Webhook task"
+	case sessionTurnSourceSchedule:
+		return "Scheduled task"
+	case "agent":
+		return "Agent task"
+	default:
+		return "Prompt turn"
+	}
+}
+
+func sessionTurnTaskPriority(payload SessionTurnPayload) int {
+	switch strings.ToLower(strings.TrimSpace(payload.Source)) {
+	case sessionTurnSourceWebhook:
+		return 80
+	case sessionTurnSourceSchedule:
+		return 50
+	default:
+		return 90
+	}
 }
 
 func (e *taskActorExecutor) startScheduledTaskTask(ctx context.Context, env swarm.Envelope, payload scheduledTaskPayload) error {

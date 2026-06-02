@@ -22,6 +22,7 @@ const (
 )
 
 type SessionTurnPayload struct {
+	TaskID          string                       `json:"task_id,omitempty"`
 	Text            string                       `json:"text"`
 	Locator         baldasession.SessionLocator  `json:"locator"`
 	ReportTo        *baldasession.SessionLocator `json:"report_to,omitempty"`
@@ -79,6 +80,7 @@ func SessionTurnEnvelope(payload SessionTurnPayload) (swarm.Envelope, error) {
 		From:        swarm.ActorAddress{Target: source, Key: firstNonEmpty(payload.UserID, payload.Locator.AddressKey, "unknown")},
 		To:          swarm.ActorAddress{Target: swarm.ActorTypeSession, Key: payload.Locator.SessionID},
 		SessionID:   payload.Locator.SessionID,
+		TaskID:      strings.TrimSpace(payload.TaskID),
 		Priority:    priority,
 		DedupeKey:   strings.TrimSpace(payload.DedupeKey),
 		PayloadJSON: string(data),
@@ -171,6 +173,9 @@ func (e *sessionActorExecutor) settleSessionTurnResult(ctx context.Context, env 
 	if recordErr := e.recordSessionTaskResult(ctx, env, payload, runErr); recordErr != nil {
 		return swarm.TransientError(recordErr)
 	}
+	if errors.Is(runErr, context.Canceled) {
+		return nil
+	}
 	if runErr == nil {
 		return nil
 	}
@@ -208,6 +213,15 @@ func (e *sessionActorExecutor) recordSessionTaskResult(ctx context.Context, env 
 		}
 	}
 	if e.tasks == nil || strings.TrimSpace(env.TaskID) == "" {
+		return nil
+	}
+	if errors.Is(runErr, context.Canceled) {
+		if err := e.tasks.MarkStatus(ctx, env.TaskID, baldastate.SwarmTaskStatusCanceled, "session.actor", env.ID, runErr.Error(), map[string]any{
+			"namespace": env.Namespace,
+			"kind":      env.Kind,
+		}); err != nil {
+			return fmt.Errorf("mark session task %q canceled: %w", env.TaskID, err)
+		}
 		return nil
 	}
 	if runErr == nil {
