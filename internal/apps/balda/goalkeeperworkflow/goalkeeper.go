@@ -12,9 +12,17 @@ import (
 )
 
 const (
-	RootAgentName    = "GoalKeeper"
-	MetadataEventKey = "norma.goal.event"
-	MetadataStepKey  = "norma.goal.step"
+	RootAgentName                 = "GoalKeeper"
+	MetadataEventKey              = "norma.goal.event"
+	MetadataStepKey               = "norma.goal.step"
+	MetadataAgentKey              = "norma.goal.agent"
+	MetadataStepIDKey             = "norma.goal.step_id"
+	MetadataEventCountKey         = "event_count"
+	MetadataFinalResponseCountKey = "final_response_count"
+	MetadataVisibleTextLenKey     = "visible_text_len"
+	MetadataDurationMSKey         = "duration_ms"
+	MetadataEscalatedKey          = "escalated"
+	MetadataErrorKey              = "error"
 
 	StepStarted   = "step_started"
 	StepCompleted = "step_completed"
@@ -23,6 +31,11 @@ const (
 	WorkerStep    = "worker"
 	ValidatorStep = "validator"
 )
+
+type stepSpec struct {
+	name string
+	id   int
+}
 
 func New(worker, validator adkagent.Agent, maxIterations uint) (adkagent.Agent, error) {
 	if worker == nil {
@@ -39,11 +52,11 @@ func New(worker, validator adkagent.Agent, maxIterations uint) (adkagent.Agent, 
 	if err != nil {
 		return nil, err
 	}
-	workerWithEvents, err := newStepEventAgent(worker, WorkerStep)
+	workerWithEvents, err := newStepEventAgent(worker, stepSpec{name: WorkerStep, id: 1})
 	if err != nil {
 		return nil, err
 	}
-	validatorWithEvents, err := newStepEventAgent(validatorWithVerdict, ValidatorStep)
+	validatorWithEvents, err := newStepEventAgent(validatorWithVerdict, stepSpec{name: ValidatorStep, id: 2})
 	if err != nil {
 		return nil, err
 	}
@@ -57,44 +70,100 @@ func New(worker, validator adkagent.Agent, maxIterations uint) (adkagent.Agent, 
 	})
 }
 
-func newStepEventAgent(inner adkagent.Agent, step string) (adkagent.Agent, error) {
+func newStepEventAgent(inner adkagent.Agent, spec stepSpec) (adkagent.Agent, error) {
 	return adkagent.New(adkagent.Config{
 		Name:        inner.Name(),
 		Description: inner.Description(),
 		SubAgents:   inner.SubAgents(),
 		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
-			return func(yield func(*adksession.Event, error) bool) {
-				startedAt := time.Now()
-				if !yield(newStepEvent(ctx.InvocationID(), step, StepStarted), nil) {
-					return
-				}
-				for ev, err := range inner.Run(ctx) {
-					if err != nil {
-						failed := newStepEvent(ctx.InvocationID(), step, StepFailed)
-						failed.CustomMetadata["duration_ms"] = time.Since(startedAt).Milliseconds()
-						if !yield(failed, nil) {
-							return
-						}
-						yield(ev, err)
-						return
-					}
-					if !yield(ev, nil) {
-						return
-					}
-				}
-				completed := newStepEvent(ctx.InvocationID(), step, StepCompleted)
-				completed.CustomMetadata["duration_ms"] = time.Since(startedAt).Milliseconds()
-				yield(completed, nil)
-			}
+			return runStepWithEvents(ctx, inner, spec)
 		},
 	})
 }
 
-func newStepEvent(invocationID, step, eventType string) *adksession.Event {
+func runStepWithEvents(
+	ctx adkagent.InvocationContext,
+	inner adkagent.Agent,
+	spec stepSpec,
+) iter.Seq2[*adksession.Event, error] {
+	return func(yield func(*adksession.Event, error) bool) {
+		startedAt := time.Now()
+		if !yield(newStepEvent(ctx.InvocationID(), inner, spec, StepStarted, stepStats{}), nil) {
+			return
+		}
+
+		stats := stepStats{}
+		for ev, err := range inner.Run(ctx) {
+			if err != nil {
+				stats.err = err
+				stats.duration = time.Since(startedAt)
+				if !yield(newStepEvent(ctx.InvocationID(), inner, spec, StepFailed, stats), nil) {
+					return
+				}
+				yield(ev, err)
+				return
+			}
+			stats.record(ev)
+			if ev != nil {
+				ev.Author = RootAgentName
+			}
+			if !yield(ev, nil) {
+				return
+			}
+		}
+		stats.duration = time.Since(startedAt)
+		yield(newStepEvent(ctx.InvocationID(), inner, spec, StepCompleted, stats), nil)
+	}
+}
+
+type stepStats struct {
+	eventCount         int
+	finalResponseCount int
+	visibleTextLen     int
+	duration           time.Duration
+	escalated          bool
+	err                error
+}
+
+func (s *stepStats) record(ev *adksession.Event) {
+	if ev == nil {
+		return
+	}
+	s.eventCount++
+	text := visibleText(ev)
+	s.visibleTextLen += len(text)
+	if ev.IsFinalResponse() {
+		s.finalResponseCount++
+	}
+	if ev.Actions.Escalate {
+		s.escalated = true
+	}
+}
+
+func newStepEvent(
+	invocationID string,
+	inner adkagent.Agent,
+	spec stepSpec,
+	eventType string,
+	stats stepStats,
+) *adksession.Event {
 	ev := adksession.NewEvent(invocationID)
+	ev.Author = RootAgentName
 	ev.CustomMetadata = map[string]any{
-		MetadataEventKey: eventType,
-		MetadataStepKey:  step,
+		MetadataEventKey:  eventType,
+		MetadataStepKey:   spec.name,
+		MetadataStepIDKey: spec.id,
+		MetadataAgentKey:  inner.Name(),
+	}
+	if eventType == StepCompleted || eventType == StepFailed {
+		ev.CustomMetadata[MetadataEventCountKey] = stats.eventCount
+		ev.CustomMetadata[MetadataFinalResponseCountKey] = stats.finalResponseCount
+		ev.CustomMetadata[MetadataVisibleTextLenKey] = stats.visibleTextLen
+		ev.CustomMetadata[MetadataDurationMSKey] = stats.duration.Milliseconds()
+		ev.CustomMetadata[MetadataEscalatedKey] = stats.escalated
+	}
+	if stats.err != nil {
+		ev.CustomMetadata[MetadataErrorKey] = stats.err.Error()
 	}
 	return ev
 }
