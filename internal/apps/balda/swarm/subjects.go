@@ -11,7 +11,6 @@ const (
 	SubjectCommandGoalkeeper = "balda.v1.cmd.goalkeeper"
 	SubjectCommandGoal       = SubjectCommandGoalkeeper
 	SubjectCommandDelivery   = "balda.v1.cmd.delivery"
-	SubjectCommandMemory     = "balda.v1.cmd.memory"
 	SubjectCommandControl    = "balda.v1.cmd.control"
 	SubjectCommandAll        = "balda.v1.cmd.>"
 
@@ -59,14 +58,10 @@ func SubjectForEnvelope(env Envelope) string {
 		return SubjectCommandGoal
 	case ActorTypeDelivery:
 		return SubjectCommandDelivery
-	case ActorTypeMemory:
-		return SubjectCommandMemory
 	default:
 		switch strings.TrimSpace(env.Namespace) {
 		case NamespaceGoalkeeperCommand:
 			return SubjectCommandGoal
-		case NamespaceMemorySync:
-			return SubjectCommandMemory
 		case NamespaceTaskControl:
 			return SubjectCommandControl
 		case NamespaceWebhookInbound, NamespaceScheduleInbound:

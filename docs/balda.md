@@ -731,8 +731,8 @@ session/task/goal/delivery/memory"]
 
 - Stable subjects:
   - Commands: `balda.v1.cmd.session`, `balda.v1.cmd.task`,
-    `balda.v1.cmd.goal`, `balda.v1.cmd.memory`,
-    `balda.v1.cmd.delivery`, `balda.v1.cmd.control`.
+    `balda.v1.cmd.goal`, `balda.v1.cmd.delivery`,
+    `balda.v1.cmd.control`.
   - Events: `balda.v1.evt.command.accepted`,
     `balda.v1.evt.command.running`, `balda.v1.evt.command.in_progress`,
     `balda.v1.evt.command.acked`, `balda.v1.evt.command.retrying`,
@@ -755,7 +755,6 @@ All commands use the common envelope schema:
 | `balda.v1.cmd.session` | `to.target=session` or namespace fallback | `human.inbound` | `session_id` for existing sessions | session-turn payload (prompt/content + locator/user metadata) |
 | `balda.v1.cmd.task` | `to.target=task` or namespace fallback | `webhook.inbound`, `schedule.inbound` | `task_id` for existing task mutations; optional on task creation commands | webhook task or scheduled task payload |
 | `balda.v1.cmd.goal` | `to.target=goal` | `goal.command` | `task_id` for goal runs | goal objective/session payload |
-| `balda.v1.cmd.memory` | `to.target=memory` | `memory.sync` | optional `task_id`/`session_id` scope | memory operation payload (`task_summary`, `session_summary`, `fact_extract`, `context_pack`) |
 | `balda.v1.cmd.delivery` | `to.target=delivery` | `agent.result` / delivery work namespaces | delivery address in `to.key`; `task_id` when task-owned | outbound delivery payload (channel message/terminal update) |
 | `balda.v1.cmd.control` | `namespace=task.control` (forced) | `task.control` | `task_id` and/or `session_id` | cancel/control payload (`reason`, actor/user origin) |
 

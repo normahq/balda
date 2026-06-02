@@ -10,7 +10,7 @@ Status: active
 - Runtime execution uses Norma `actorlayer/engine.DispatchRuntime`; Balda adapts durable command transport into actorlayer deliveries and supplies only Balda-specific delivery wrapping.
 - Command settlement happens after actor side effects complete.
 - Retry/permanent failure handling is explicit and classified.
-- Product actors own Balda behavior: session turns, webhook/scheduled work routing, `/goal` execution, outbound delivery, cancellation, and durable memory sync.
+- Product actors own Balda behavior: session turns, webhook/scheduled work routing, `/goal` execution, outbound delivery, and cancellation.
 - `/goal` uses Balda's goal workflow wrapper built on Norma's reusable goal loop runtime.
 - Task progress/results and projected task-event payload summaries redact common secret/token patterns before persistence and delivery.
 - The execution core does not depend on Balda, Telegram, MCP, transport, or provider SDK APIs.
@@ -54,7 +54,7 @@ Status: active
 - Actorlayer owns:
   - generic actor mechanics: registration, addressing, deterministic lane execution, lifecycle state transitions, and delivery hooks.
 - Balda product actor code owns:
-  - product actor implementations in `internal/apps/balda/actors` for session, task, goal, delivery, control, and memory behavior,
+  - product actor implementations in `internal/apps/balda/actors` for session, task, goal, delivery, and control behavior,
   - product command payloads/envelope builders consumed by ingress,
   - provider runtime invocation details (session execution, tools, model/runtime context),
   - task/session/delivery state transitions and user-visible outcomes.

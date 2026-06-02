@@ -18,7 +18,6 @@ func TestSubjectForEnvelope_UsesStableCommandSubjects(t *testing.T) {
 		{name: "task", env: subjectTestEnvelope(ActorAddress{Target: ActorTypeTask, Key: subjectTestTaskID}), want: SubjectCommandTask},
 		{name: "goal", env: subjectTestEnvelope(ActorAddress{Target: ActorTypeGoal, Key: "goal-1"}), want: SubjectCommandGoal},
 		{name: "delivery", env: subjectTestEnvelope(ActorAddress{Target: ActorTypeDelivery, Key: "tg-1"}), want: SubjectCommandDelivery},
-		{name: "memory", env: subjectTestEnvelope(ActorAddress{Target: ActorTypeMemory, Key: "global"}), want: SubjectCommandMemory},
 		{name: "control", env: controlTestEnvelope(), want: SubjectCommandControl},
 	}
 	for _, tt := range tests {
@@ -38,7 +37,6 @@ func TestCommandSubjects_UseCommandNamespacePrefix(t *testing.T) {
 		SubjectCommandTask,
 		SubjectCommandGoal,
 		SubjectCommandDelivery,
-		SubjectCommandMemory,
 		SubjectCommandControl,
 		SubjectCommandAll,
 	}

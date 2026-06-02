@@ -15,7 +15,6 @@ const (
 	ActorTypeGoalkeeper = "goalkeeper"
 	ActorTypeGoal       = ActorTypeGoalkeeper
 	ActorTypeDelivery   = "delivery"
-	ActorTypeMemory     = "memory"
 
 	NamespaceHumanInbound      = "human.inbound"
 	NamespaceWebhookInbound    = "webhook.inbound"
@@ -24,7 +23,6 @@ const (
 	NamespaceGoalkeeperCommand = "goalkeeper.command"
 	NamespaceGoalCommand       = NamespaceGoalkeeperCommand
 	NamespaceTaskControl       = "task.control"
-	NamespaceMemorySync        = "memory.sync"
 	NamespaceTelemetry         = "telemetry"
 
 	KindMessage       = "message"
