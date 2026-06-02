@@ -224,6 +224,7 @@ type fakeAgentBuilder struct {
 	createRuntimeSessionUserIDs       []string
 	createRuntimeSessionSessionIDs    []string
 	createRuntimeSessionWorkspaceDirs []string
+	createRuntimeSessionContexts      []baldaagent.RuntimeSessionContext
 	createRuntimeSessionErr           error
 }
 
@@ -232,11 +233,13 @@ func (f *fakeAgentBuilder) CreateRuntimeSession(
 	_ *baldaagent.BuiltRuntime,
 	agentName string,
 	userID, sessionID, workspaceDir string,
+	sessionCtx baldaagent.RuntimeSessionContext,
 ) (adksession.Session, error) {
 	f.createRuntimeSessionAgentNames = append(f.createRuntimeSessionAgentNames, agentName)
 	f.createRuntimeSessionUserIDs = append(f.createRuntimeSessionUserIDs, userID)
 	f.createRuntimeSessionSessionIDs = append(f.createRuntimeSessionSessionIDs, sessionID)
 	f.createRuntimeSessionWorkspaceDirs = append(f.createRuntimeSessionWorkspaceDirs, workspaceDir)
+	f.createRuntimeSessionContexts = append(f.createRuntimeSessionContexts, sessionCtx)
 	if f.createRuntimeSessionErr != nil {
 		return nil, f.createRuntimeSessionErr
 	}
@@ -304,6 +307,9 @@ func TestCreateSession_ReusesSingleRuntimeAndMapsAgentSessions(t *testing.T) {
 	if got := len(builder.createRuntimeSessionSessionIDs); got != 2 {
 		t.Fatalf("CreateRuntimeSession calls = %d, want 2", got)
 	}
+	if got := len(builder.createRuntimeSessionContexts); got != 2 {
+		t.Fatalf("CreateRuntimeSession contexts = %d, want 2", got)
+	}
 
 	firstSessionID := builder.createRuntimeSessionSessionIDs[0]
 	secondSessionID := builder.createRuntimeSessionSessionIDs[1]
@@ -315,6 +321,12 @@ func TestCreateSession_ReusesSingleRuntimeAndMapsAgentSessions(t *testing.T) {
 	}
 	if !strings.HasPrefix(secondSessionID, second.Locator.SessionID+"-a") {
 		t.Fatalf("second agent session id = %q, want prefix %q", secondSessionID, second.Locator.SessionID+"-a")
+	}
+	if got := builder.createRuntimeSessionContexts[0].BaldaSessionID; got != first.Locator.SessionID {
+		t.Fatalf("first BaldaSessionID = %q, want %q", got, first.Locator.SessionID)
+	}
+	if got := builder.createRuntimeSessionContexts[1].BaldaSessionID; got != second.Locator.SessionID {
+		t.Fatalf("second BaldaSessionID = %q, want %q", got, second.Locator.SessionID)
 	}
 }
 
@@ -342,6 +354,9 @@ func TestCreateSession_PersistentModeUsesStableAgentSessionID(t *testing.T) {
 
 	if got := builder.createRuntimeSessionSessionIDs[0]; got != locator.SessionID {
 		t.Fatalf("CreateRuntimeSession sessionID = %q, want stable balda session ID %q", got, locator.SessionID)
+	}
+	if got := builder.createRuntimeSessionContexts[0].BaldaSessionID; got != locator.SessionID {
+		t.Fatalf("CreateRuntimeSession BaldaSessionID = %q, want %q", got, locator.SessionID)
 	}
 }
 

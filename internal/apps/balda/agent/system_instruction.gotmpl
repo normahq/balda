@@ -35,6 +35,8 @@ Workspace settings:
 Git workspace guidance:
 - Use `balda.workspace.import` before major edits (or after long idle) to rebase your workspace onto the base branch.
 - Use `balda.workspace.export` with a Conventional Commit message to squash-merge your workspace branch into the base branch.
+- When calling `balda.workspace.import` or `balda.workspace.export`, pass `session_id` equal to the current Session ID shown above.
+- Do not ask the user for a session ID unless the tool reports that the current session is missing.
 - Do not perform branch/merge landing via raw git when these MCP tools are available.
 - If export reports a base-branch mismatch, ask the user to switch the main repository back to the configured base branch.
 {{else}}

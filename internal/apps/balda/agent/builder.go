@@ -31,6 +31,14 @@ var baldaInstructionTmpl string
 const (
 	workspaceBranchUnknown = "unknown"
 	workspaceBranchNA      = "n/a"
+
+	BaldaSessionIDStateKey         = "balda_session_id"
+	BaldaSessionBranchStateKey     = "balda_session_branch"
+	BaldaRepoBranchAtStartStateKey = "balda_repo_branch_at_start"
+
+	baldaSessionIDPlaceholder         = "{" + BaldaSessionIDStateKey + "}"
+	baldaSessionBranchPlaceholder     = "{" + BaldaSessionBranchStateKey + "}"
+	baldaRepoBranchAtStartPlaceholder = "{" + BaldaRepoBranchAtStartStateKey + "}"
 )
 
 type Builder struct {
@@ -43,6 +51,11 @@ type Builder struct {
 	telegramFormattingMode string
 	sessionSvc             adksession.Service
 	memoryStore            *memory.Store
+}
+
+type RuntimeSessionContext struct {
+	BaldaSessionID string
+	SessionBranch  string
 }
 
 type sessionStateFactory interface {
@@ -188,7 +201,7 @@ func (b *Builder) BuildRuntimeWithMCPServerIDs(
 		Name:             agentName,
 		Description:      b.buildAgentDescription(agentName),
 		WorkingDirectory: workspaceDir,
-		Instruction:      b.buildBaldaInstruction("balda-runtime", "telegram", agentName, "norma/balda/balda-runtime", workspaceDir, b.currentRepoBranch(ctx)),
+		Instruction:      b.buildRootRuntimeInstruction(agentName, workspaceDir),
 		MCPServerIDs:     b.buildAgentMCPServerIDs(agentName, bundledMCPServerIDs, extraMCPServerIDs),
 	}
 
@@ -228,6 +241,7 @@ func (b *Builder) CreateRuntimeSession(
 	userID string,
 	sessionID string,
 	workspaceDir string,
+	sessionCtx RuntimeSessionContext,
 ) (adksession.Session, error) {
 	if runtime == nil {
 		return nil, fmt.Errorf("runtime is required")
@@ -247,7 +261,7 @@ func (b *Builder) CreateRuntimeSession(
 	if strings.TrimSpace(workspaceDir) == "" {
 		return nil, fmt.Errorf("workspace dir is required")
 	}
-	state, err := b.buildSessionState(ctx, agentName, workspaceDir)
+	state, err := b.buildSessionState(ctx, agentName, workspaceDir, sessionCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -395,39 +409,78 @@ func mergeMCPServerIDsWithBase(base, explicit, extra []string) []string {
 	return out
 }
 
-func (b *Builder) buildSessionState(ctx context.Context, agentName, workspaceDir string) (map[string]any, error) {
+func (b *Builder) buildSessionState(ctx context.Context, agentName, workspaceDir string, sessionCtx RuntimeSessionContext) (map[string]any, error) {
 	if strings.TrimSpace(agentName) == "" {
 		return nil, fmt.Errorf("agent name is required")
 	}
 	if strings.TrimSpace(workspaceDir) == "" {
 		return nil, fmt.Errorf("workspace dir is required")
 	}
+	absCWD, err := resolveSessionWorkspaceDir(workspaceDir)
+	if err != nil {
+		return nil, err
+	}
+	baldaSessionID := strings.TrimSpace(sessionCtx.BaldaSessionID)
+	if baldaSessionID == "" {
+		return nil, fmt.Errorf("balda session id is required")
+	}
+	sessionBranch := strings.TrimSpace(sessionCtx.SessionBranch)
+	if sessionBranch == "" {
+		if b.workspaceEnabled {
+			sessionBranch = workspaceBranchUnknown
+		} else {
+			sessionBranch = workspaceBranchNA
+		}
+	}
+	repoBranchAtStart := b.currentRepoBranch(ctx)
+
+	var state map[string]any
 	if stateFactory, ok := any(b.factory).(sessionStateFactory); ok {
-		state, err := stateFactory.BuildSessionState(agentName, workspaceDir)
+		state, err = stateFactory.BuildSessionState(agentName, workspaceDir)
 		if err != nil {
 			return nil, err
 		}
-		return b.addMemorySnapshot(ctx, state)
+	} else {
+		state = make(map[string]any, 4)
 	}
+	if state == nil {
+		state = make(map[string]any, 4)
+	}
+	state[sessionstate.CWDKey] = absCWD
+	state[BaldaSessionIDStateKey] = baldaSessionID
+	state[BaldaSessionBranchStateKey] = sessionBranch
+	state[BaldaRepoBranchAtStartStateKey] = repoBranchAtStart
+	return b.addMemorySnapshot(ctx, state)
+}
+
+func (b *Builder) buildRootRuntimeInstruction(agentName, workspaceDir string) string {
+	return b.buildBaldaInstruction(
+		baldaSessionIDPlaceholder,
+		"telegram",
+		agentName,
+		baldaSessionBranchPlaceholder,
+		"{"+sessionstate.CWDKey+"}",
+		baldaRepoBranchAtStartPlaceholder,
+	)
+}
+
+func resolveSessionWorkspaceDir(workspaceDir string) (string, error) {
 	cwd := strings.TrimSpace(workspaceDir)
 	if cwd == "" {
-		return nil, fmt.Errorf("session cwd is empty")
+		return "", fmt.Errorf("session cwd is empty")
 	}
 	absCWD, err := filepath.Abs(cwd)
 	if err != nil {
-		return nil, fmt.Errorf("resolve session cwd %q: %w", cwd, err)
+		return "", fmt.Errorf("resolve session cwd %q: %w", cwd, err)
 	}
 	info, err := os.Stat(absCWD)
 	if err != nil {
-		return nil, fmt.Errorf("stat session cwd %q: %w", absCWD, err)
+		return "", fmt.Errorf("stat session cwd %q: %w", absCWD, err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("session cwd %q is not a directory", absCWD)
+		return "", fmt.Errorf("session cwd %q is not a directory", absCWD)
 	}
-	state := map[string]any{
-		sessionstate.CWDKey: absCWD,
-	}
-	return b.addMemorySnapshot(ctx, state)
+	return absCWD, nil
 }
 
 func (b *Builder) addMemorySnapshot(ctx context.Context, state map[string]any) (map[string]any, error) {

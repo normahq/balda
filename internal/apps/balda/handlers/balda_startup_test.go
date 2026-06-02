@@ -406,6 +406,7 @@ func (f *fakeBaldaStartupFailBuilder) CreateRuntimeSession(
 	string,
 	string,
 	string,
+	baldaagent.RuntimeSessionContext,
 ) (adksession.Session, error) {
 	return nil, f.err
 }

@@ -35,6 +35,7 @@ type agentBuilder interface {
 		userID string,
 		sessionID string,
 		workspaceDir string,
+		sessionCtx baldaagent.RuntimeSessionContext,
 	) (adksession.Session, error)
 	GetAgentMetadata(agentName string) baldaagent.AgentMetadata
 }
@@ -265,6 +266,10 @@ func (m *Manager) createSession(ctx context.Context, sessionCtx SessionContext, 
 		userID,
 		agentSessionID,
 		workspaceDir,
+		baldaagent.RuntimeSessionContext{
+			BaldaSessionID: sessionID,
+			SessionBranch:  branchName,
+		},
 	)
 	if err != nil {
 		m.logger.Error().

@@ -247,6 +247,10 @@ func (m *RuntimeManager) BuildGoalRuntime(
 		userID,
 		goalSessionID,
 		workspaceDir,
+		RuntimeSessionContext{
+			BaldaSessionID: goalSessionID,
+			SessionBranch:  branchName,
+		},
 	); err != nil {
 		_ = m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
 		return nil, fmt.Errorf("create goal runtime session: %w", err)
@@ -401,6 +405,10 @@ func (b childRuntimeBase) buildGoalCommitMessage(
 		userID,
 		commitSessionID,
 		workspaceDir,
+		RuntimeSessionContext{
+			BaldaSessionID: goalSessionID,
+			SessionBranch:  branchName,
+		},
 	); err != nil {
 		return "", fmt.Errorf("create goal commit session: %w", err)
 	}

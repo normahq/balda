@@ -540,6 +540,7 @@ func (f *fakeBaldaRestoreAgentBuilder) CreateRuntimeSession(
 	string,
 	string,
 	string,
+	baldaagent.RuntimeSessionContext,
 ) (adksession.Session, error) {
 	if f.createErr != nil {
 		return nil, f.createErr

@@ -158,6 +158,7 @@ func TestBuildBaldaInstruction_IncludesGitWorkspaceContext(t *testing.T) {
 		"Session branch: norma/balda/tg-1-2",
 		"Main repo branch at start: develop",
 		"Git workspace guidance:",
+		"When calling `balda.workspace.import` or `balda.workspace.export`, pass `session_id` equal to the current Session ID shown above.",
 	}
 	for _, snippet := range wantSnippets {
 		if !strings.Contains(got, snippet) {
@@ -284,6 +285,34 @@ func TestBuildBaldaInstruction_IncludesFormattingGuidance_HTML(t *testing.T) {
 	}
 }
 
+func TestBuildRootRuntimeInstruction_UsesPerSessionPlaceholders(t *testing.T) {
+	t.Parallel()
+
+	builder := &Builder{
+		workspaceEnabled:    true,
+		workspaceBaseBranch: "main",
+		workingDir:          "/repo",
+	}
+
+	got := builder.buildRootRuntimeInstruction("alpha", "/tmp/work")
+
+	for _, snippet := range []string{
+		"ID: {balda_session_id}",
+		"Path: {cwd}",
+		"Session branch: {balda_session_branch}",
+		"Main repo branch at start: {balda_repo_branch_at_start}",
+	} {
+		if !strings.Contains(got, snippet) {
+			t.Fatalf("buildRootRuntimeInstruction() missing snippet %q in output:\n%s", snippet, got)
+		}
+	}
+	for _, forbidden := range []string{"balda-runtime", "norma/balda/balda-runtime"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("buildRootRuntimeInstruction() unexpectedly contained %q:\n%s", forbidden, got)
+		}
+	}
+}
+
 func TestCreateRuntimeSession_IncludesCanonicalCWDState(t *testing.T) {
 	t.Parallel()
 
@@ -300,7 +329,10 @@ func TestCreateRuntimeSession_IncludesCanonicalCWDState(t *testing.T) {
 	}
 
 	workspaceDir := t.TempDir()
-	sess, err := builder.CreateRuntimeSession(context.Background(), runtime, "alpha", "user-1", "s-1", workspaceDir)
+	sess, err := builder.CreateRuntimeSession(context.Background(), runtime, "alpha", "user-1", "s-1", workspaceDir, RuntimeSessionContext{
+		BaldaSessionID: "tg-1-2",
+		SessionBranch:  "norma/balda/tg-1-2",
+	})
 	if err != nil {
 		t.Fatalf("CreateRuntimeSession() error = %v", err)
 	}
@@ -310,6 +342,27 @@ func TestCreateRuntimeSession_IncludesCanonicalCWDState(t *testing.T) {
 	}
 	if gotCWD != workspaceDir {
 		t.Fatalf("session state %q = %v, want %q", sessionstate.CWDKey, gotCWD, workspaceDir)
+	}
+	gotBaldaSessionID, err := sess.State().Get(BaldaSessionIDStateKey)
+	if err != nil {
+		t.Fatalf("session state get %q error = %v", BaldaSessionIDStateKey, err)
+	}
+	if gotBaldaSessionID != "tg-1-2" {
+		t.Fatalf("session state %q = %v, want %q", BaldaSessionIDStateKey, gotBaldaSessionID, "tg-1-2")
+	}
+	gotSessionBranch, err := sess.State().Get(BaldaSessionBranchStateKey)
+	if err != nil {
+		t.Fatalf("session state get %q error = %v", BaldaSessionBranchStateKey, err)
+	}
+	if gotSessionBranch != "norma/balda/tg-1-2" {
+		t.Fatalf("session state %q = %v, want %q", BaldaSessionBranchStateKey, gotSessionBranch, "norma/balda/tg-1-2")
+	}
+	gotRepoBranch, err := sess.State().Get(BaldaRepoBranchAtStartStateKey)
+	if err != nil {
+		t.Fatalf("session state get %q error = %v", BaldaRepoBranchAtStartStateKey, err)
+	}
+	if gotRepoBranch != workspaceBranchNA {
+		t.Fatalf("session state %q = %v, want %q", BaldaRepoBranchAtStartStateKey, gotRepoBranch, workspaceBranchNA)
 	}
 }
 
@@ -359,7 +412,9 @@ func createRuntimeSessionWithMemory(t *testing.T, memoryEnabled bool) adksession
 		AppName:    "norma-balda",
 	}
 
-	sess, err := builder.CreateRuntimeSession(context.Background(), runtime, "alpha", "user-1", "s-1", t.TempDir())
+	sess, err := builder.CreateRuntimeSession(context.Background(), runtime, "alpha", "user-1", "s-1", t.TempDir(), RuntimeSessionContext{
+		BaldaSessionID: "tg-1-2",
+	})
 	if err != nil {
 		t.Fatalf("CreateRuntimeSession() error = %v", err)
 	}
@@ -381,12 +436,38 @@ func TestCreateRuntimeSession_InvalidCWD_FailsBeforeCreate(t *testing.T) {
 		AppName:    "norma-balda",
 	}
 
-	_, err := builder.CreateRuntimeSession(context.Background(), runtime, "alpha", "user-1", "s-1", t.TempDir()+"/missing")
+	_, err := builder.CreateRuntimeSession(context.Background(), runtime, "alpha", "user-1", "s-1", t.TempDir()+"/missing", RuntimeSessionContext{
+		BaldaSessionID: "tg-1-2",
+	})
 	if err == nil {
 		t.Fatal("CreateRuntimeSession() error = nil, want invalid cwd error")
 	}
 	if !strings.Contains(err.Error(), "stat session cwd") {
 		t.Fatalf("CreateRuntimeSession() error = %q, want stat session cwd", err)
+	}
+}
+
+func TestCreateRuntimeSession_RequiresBaldaSessionIDState(t *testing.T) {
+	t.Parallel()
+
+	providers := map[string]agentconfig.Config{
+		"alpha": {Type: "llm"},
+	}
+	builder := &Builder{
+		factory:  agentfactory.New(providers, mcpregistry.New(nil)),
+		normaCfg: runtimeconfig.RuntimeConfig{Providers: providers},
+	}
+	runtime := &BuiltRuntime{
+		SessionSvc: adksession.InMemoryService(),
+		AppName:    "norma-balda",
+	}
+
+	_, err := builder.CreateRuntimeSession(context.Background(), runtime, "alpha", "user-1", "s-1", t.TempDir(), RuntimeSessionContext{})
+	if err == nil {
+		t.Fatal("CreateRuntimeSession() error = nil, want missing balda session id error")
+	}
+	if !strings.Contains(err.Error(), "balda session id is required") {
+		t.Fatalf("CreateRuntimeSession() error = %q, want missing balda session id", err)
 	}
 }
 
