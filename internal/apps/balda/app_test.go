@@ -347,7 +347,7 @@ func TestResolveWorkspaceBaseBranch_FallbackToHeadWhenConfiguredMissing(t *testi
 
 func TestResolveWorkspaceBaseBranch_EnabledRequiresResolvableBranch(t *testing.T) {
 	ctx := context.Background()
-	workingDir := t.TempDir()
+	workingDir := mustMakeExternalTempDir(t)
 
 	if _, _, err := resolveWorkspaceBaseBranch(ctx, workingDir, "", true); err == nil {
 		t.Fatal("resolveWorkspaceBaseBranch returned nil error for non-git workspace-enabled config")
@@ -424,6 +424,19 @@ func initGitRepoForBalda(t *testing.T, ctx context.Context, dir string) {
 	}
 	runGitForBalda(t, ctx, dir, "add", "seed.txt")
 	runGitForBalda(t, ctx, dir, "commit", "-m", "chore: seed")
+}
+
+func mustMakeExternalTempDir(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.MkdirTemp("", "balda-test-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	return dir
 }
 
 func runGitForBalda(t *testing.T, ctx context.Context, dir string, args ...string) string {

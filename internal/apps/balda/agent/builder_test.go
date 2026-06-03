@@ -491,7 +491,7 @@ func TestCurrentRepoBranch_Fallbacks(t *testing.T) {
 		},
 		{
 			name:    "non_git_working_dir",
-			builder: Builder{workspaceEnabled: true, workingDir: t.TempDir()},
+			builder: Builder{workspaceEnabled: true, workingDir: mustMakeExternalTempDirForAgentTest(t)},
 			want:    "unknown",
 		},
 	}
@@ -504,4 +504,17 @@ func TestCurrentRepoBranch_Fallbacks(t *testing.T) {
 			}
 		})
 	}
+}
+
+func mustMakeExternalTempDirForAgentTest(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.MkdirTemp("", "balda-agent-test-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.RemoveAll(dir)
+	})
+	return dir
 }
