@@ -1,0 +1,65 @@
+ARG GO_IMAGE=golang:1.26.3-bookworm
+ARG NODE_IMAGE=node:24-bookworm-slim
+
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS builder
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
+    go build -trimpath \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${BUILD_DATE}" \
+      -o /out/balda ./cmd/balda
+
+FROM ${NODE_IMAGE}
+
+ARG CODEX_NPM_PACKAGE=@openai/codex
+ARG OPENCODE_NPM_PACKAGE=opencode-ai
+ARG GEMINI_NPM_PACKAGE=@google/gemini-cli
+ARG CLAUDE_CODE_NPM_PACKAGE=@anthropic-ai/claude-code
+ARG COPILOT_NPM_PACKAGE=@github/copilot
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      git \
+      openssh-client \
+      ripgrep \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g \
+      "${CODEX_NPM_PACKAGE}" \
+      "${OPENCODE_NPM_PACKAGE}" \
+      "${GEMINI_NPM_PACKAGE}" \
+      "${CLAUDE_CODE_NPM_PACKAGE}" \
+      "${COPILOT_NPM_PACKAGE}" \
+ && npm cache clean --force
+
+COPY --from=builder /out/balda /usr/local/bin/balda
+
+RUN command -v balda \
+ && command -v codex \
+ && command -v opencode \
+ && command -v gemini \
+ && command -v claude \
+ && command -v copilot \
+ && ! command -v claudecode \
+ && node --version \
+ && npm --version \
+ && git --version \
+ && rg --version
+
+USER node
+
+WORKDIR /workspace
+ENTRYPOINT ["balda"]

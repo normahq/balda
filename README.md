@@ -139,6 +139,29 @@ environment variables or provider login commands run through Compose.
 Polling mode is the default and does not require publishing a port. Webhook
 setup and image details are documented in [`docs/balda.md`](docs/balda.md).
 
+## Published Container Image
+
+Balda also publishes an official container image to
+`ghcr.io/normahq/balda:latest`.
+
+This image is built from the tagged source tree with a separate
+[`Dockerfile.release`](Dockerfile.release). It keeps the same `balda` entrypoint
+and bundles the currently documented provider CLIs: `codex`, `opencode`,
+`copilot`, `gemini`, and `claude`.
+
+For a host checkout, mount the repository into `/workspace` and persist
+`/home/node` if you want provider login state to survive container recreation:
+
+```bash
+docker run --rm \
+  -v "$PWD:/workspace" \
+  -v balda-home:/home/node \
+  ghcr.io/normahq/balda:latest init
+```
+
+Provider credentials are still external to the image. Pass them through env
+vars or run provider login commands inside the container.
+
 ## Configure Any Provider Runtime
 
 Balda has built-in provider types for common CLIs and a generic provider

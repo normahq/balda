@@ -262,9 +262,9 @@ profiles:
 ### Docker Compose Runtime
 
 Balda ships a maintained root `Dockerfile` and `compose.yaml` for local Docker
-Compose runtime. This image is a local runtime convenience, not the canonical
-OSS release artifact. The Compose service builds a local image and mounts the
-current project directory as the runtime workspace.
+Compose runtime. This path is the local workspace-oriented runtime: Compose
+builds the image from the root Dockerfile and mounts the current project
+directory as the runtime workspace.
 
 The `Dockerfile` uses a Node Bookworm runtime with the common tools Balda needs:
 
@@ -344,6 +344,39 @@ to a digest or concrete supported Bookworm tag, and pin the Dockerfile package
 build args to exact npm versions: `BALDA_NPM_PACKAGE`, `CODEX_NPM_PACKAGE`,
 `OPENCODE_NPM_PACKAGE`, `GEMINI_NPM_PACKAGE`, `CLAUDE_CODE_NPM_PACKAGE`, and
 `COPILOT_NPM_PACKAGE`.
+
+### Published GHCR Image
+
+Balda also publishes an official container image at
+`ghcr.io/normahq/balda:latest`. Unlike the local Compose Dockerfile, the
+published image is built from the tagged source tree with
+`Dockerfile.release`, so the Balda binary comes from the release commit rather
+than from the npm package.
+
+The published image keeps the same operational contract:
+
+- entrypoint: `balda`
+- working directory: `/workspace`
+- runtime user: `node`
+- bundled provider CLIs: `codex`, `opencode`, `copilot`, `gemini`, `claude`
+
+Typical host-checkout usage looks like:
+
+```bash
+docker run --rm \
+  -v "$PWD:/workspace" \
+  -v balda-home:/home/node \
+  ghcr.io/normahq/balda:latest init
+```
+
+With a mounted project checkout, Balda still resolves `.env`,
+`.config/balda/config.yaml`, `.config/balda/state.db`, `.git`, and workspace
+mode state from `/workspace`. The named `balda-home` volume remains the place
+to persist provider CLI auth/config written under `/home/node`.
+
+The published image is released from Git tags through `release.yaml` and is
+currently tagged only as `latest`. OCI labels still record the release tag,
+commit SHA, source repository, and build timestamp.
 
 Polling mode is the default and does not require a published port. Webhook mode
 requires `balda.telegram.webhook.enabled=true`,
