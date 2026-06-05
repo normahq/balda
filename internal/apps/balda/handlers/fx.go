@@ -8,7 +8,10 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	"github.com/normahq/balda/internal/apps/balda/agent"
+	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
+	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
+	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
@@ -36,6 +39,14 @@ var Module = fx.Module("balda_handlers",
 			fx.ParamTags(``, ``, `name:"balda_telegram_formatting_mode"`),
 		),
 		baldatelegram.NewAdapter,
+		baldazulip.NewAdapter,
+		func(tg *baldatelegram.Adapter, zu *baldazulip.Adapter) *baldachannel.Router {
+			return baldachannel.NewRouter(map[string]baldachannel.ChannelAdapter{
+				baldastate.ChannelTypeTelegram: tg,
+				baldastate.ChannelTypeZulip:    zu,
+			})
+		},
+		NewZulipBaldaHandler,
 		func(params scheduledTaskSchedulerParams) (*ScheduledTaskScheduler, error) {
 			if params.StateProvider == nil {
 				return nil, fmt.Errorf("balda state provider is required")
@@ -148,7 +159,15 @@ var Module = fx.Module("balda_handlers",
 			return h, nil
 		},
 		fx.Annotate(
-			func(h *BaldaHandler) actors.SessionTurnRunner { return h },
+			func(balda *BaldaHandler, zulip *ZulipBaldaHandler) actors.SessionTurnRunner {
+				return NewDispatchingSessionTurnRunner(
+					map[string]actors.SessionTurnRunner{
+						baldastate.ChannelTypeTelegram: balda,
+						baldastate.ChannelTypeZulip:    zulip,
+					},
+					balda,
+				)
+			},
 		),
 		fx.Annotate(
 			func(s *ScheduledTaskScheduler) actors.ScheduledTaskRecorder { return s },
@@ -197,5 +216,6 @@ var Module = fx.Module("balda_handlers",
 		},
 		func(*ScheduledTaskScheduler) {},
 		func(*InboundWebhookReceiver) {},
+		func(*ZulipBaldaHandler) {},
 	),
 )

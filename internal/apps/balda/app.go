@@ -14,6 +14,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	baldaagent "github.com/normahq/balda/internal/apps/balda/agent"
 	"github.com/normahq/balda/internal/apps/balda/auth"
+	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
 	natsbus "github.com/normahq/balda/internal/apps/balda/eventbus/nats"
 	"github.com/normahq/balda/internal/apps/balda/handlers"
 	"github.com/normahq/balda/internal/apps/balda/memory"
@@ -350,6 +351,38 @@ func Module(
 					return cfg.Balda.Provider
 				},
 				fx.ResultTags(`name:"balda_provider"`),
+			),
+		),
+		// Zulip transport
+		fx.Provide(func() *baldazulip.Client {
+			return baldazulip.NewClient(
+				cfg.Balda.Zulip.ServerURL,
+				cfg.Balda.Zulip.BotEmail,
+				cfg.Balda.Zulip.APIKey,
+			)
+		}),
+		fx.Provide(
+			fx.Annotate(
+				func() bool { return cfg.Balda.Zulip.Webhook.Enabled },
+				fx.ResultTags(`name:"balda_zulip_webhook_enabled"`),
+			),
+		),
+		fx.Provide(
+			fx.Annotate(
+				func() string { return strings.TrimSpace(cfg.Balda.Zulip.Webhook.ListenAddr) },
+				fx.ResultTags(`name:"balda_zulip_listen_addr"`),
+			),
+		),
+		fx.Provide(
+			fx.Annotate(
+				func() string { return strings.TrimSpace(cfg.Balda.Zulip.Webhook.Path) },
+				fx.ResultTags(`name:"balda_zulip_webhook_path"`),
+			),
+		),
+		fx.Provide(
+			fx.Annotate(
+				func() string { return strings.TrimSpace(cfg.Balda.Zulip.WebhookToken) },
+				fx.ResultTags(`name:"balda_zulip_webhook_token"`),
 			),
 		),
 		fx.Provide(func(provider baldastate.Provider) (*auth.OwnerStore, error) {

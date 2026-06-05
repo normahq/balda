@@ -10,7 +10,11 @@ import (
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 )
 
-const telegramSessionIDPrefix = "tg"
+const (
+	telegramSessionIDPrefix = "tg"
+	// ChannelType is the channel type string for the Telegram transport.
+	ChannelType = "telegram"
+)
 
 // LocatorAddress is the Telegram-specific transport address payload.
 type LocatorAddress struct {

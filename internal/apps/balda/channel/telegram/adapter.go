@@ -15,6 +15,9 @@ import (
 	"go.uber.org/fx"
 )
 
+// Compile-time check: *Adapter must implement channel.ChannelAdapter.
+var _ baldachannel.ChannelAdapter = (*Adapter)(nil)
+
 const chatTypePrivate = "private"
 
 // Adapter maps Telegram runtime events and operations to balda session locators.
