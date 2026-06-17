@@ -3,6 +3,7 @@ package zulip
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,7 +30,23 @@ type Client struct {
 type sendMessageResult struct {
 	Result string `json:"result"`
 	Msg    string `json:"msg"`
+	Code   string `json:"code"`
 	ID     int    `json:"id"`
+}
+
+// APIError describes a Zulip API response that rejected the request.
+type APIError struct {
+	Path       string
+	StatusCode int
+	Code       string
+	Message    string
+}
+
+func (e *APIError) Error() string {
+	if e.Code == "" {
+		return fmt.Sprintf("zulip %s returned HTTP %d: %s", e.Path, e.StatusCode, e.Message)
+	}
+	return fmt.Sprintf("zulip %s returned HTTP %d (%s): %s", e.Path, e.StatusCode, e.Code, e.Message)
 }
 
 // NewClient creates a new Zulip API client.
@@ -136,7 +153,12 @@ func (c *Client) postMessage(ctx context.Context, form url.Values) (int, error) 
 		return 0, fmt.Errorf("decode zulip send message response: %w", err)
 	}
 	if result.Result != "success" {
-		return 0, fmt.Errorf("zulip send message failed: %s", result.Msg)
+		return 0, &APIError{
+			Path:       "/api/v1/messages",
+			StatusCode: http.StatusOK,
+			Code:       result.Code,
+			Message:    result.Msg,
+		}
 	}
 	return result.ID, nil
 }
@@ -173,12 +195,24 @@ func (c *Client) post(
 		return nil, fmt.Errorf("read zulip response body: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf(
-			"zulip %s returned HTTP %d: %s",
-			path, resp.StatusCode, responseBodySnippet(body),
-		)
+		return nil, &APIError{
+			Path:       path,
+			StatusCode: resp.StatusCode,
+			Message:    responseBodySnippet(body),
+		}
 	}
 	return body, nil
+}
+
+func isContentRejectedError(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	if apiErr.StatusCode == http.StatusBadRequest {
+		return true
+	}
+	return apiErr.StatusCode == http.StatusOK && strings.EqualFold(apiErr.Code, "BAD_REQUEST")
 }
 
 func readLimitedResponseBody(body io.Reader) ([]byte, error) {

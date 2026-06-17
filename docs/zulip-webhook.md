@@ -160,6 +160,9 @@ Set `balda.zulip.webhook.listen_addr` to change the bind address.
 - **Bot posts trigger new webhook events**: Balda ignores webhook payloads where
   `message.sender_email` matches Zulip's `bot_email`, so API replies do not
   recurse into new turns.
+- **Zulip rejects rendered content**: Balda retries agent/Markdown replies once
+  as plain text when Zulip returns a client-side content rejection. Transient
+  Zulip API failures are left to the durable delivery retry path.
 - **Bot ignores first message in a new topic**: this was a bug where the HTTP
   request context was cancelled before the goroutine finished processing.
   Fixed in `zulip_handler.go` by using `context.WithoutCancel`.

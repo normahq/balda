@@ -3,10 +3,17 @@ package zulip
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
+	"strings"
 
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/rs/zerolog"
+)
+
+var (
+	markdownImagePattern = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
+	markdownLinkPattern  = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 )
 
 // Adapter implements channel.ChannelAdapter for the Zulip transport.
@@ -39,7 +46,7 @@ func (a *Adapter) SendMarkdown(
 	locator baldasession.SessionLocator,
 	text string,
 ) error {
-	_, err := a.send(ctx, locator, text)
+	_, err := a.sendWithPlainFallback(ctx, locator, text)
 	return err
 }
 
@@ -49,7 +56,7 @@ func (a *Adapter) SendAgentReply(
 	locator baldasession.SessionLocator,
 	text string,
 ) error {
-	_, err := a.send(ctx, locator, text)
+	_, err := a.sendWithPlainFallback(ctx, locator, text)
 	return err
 }
 
@@ -60,7 +67,7 @@ func (a *Adapter) SendAgentReplyWithProviderMessageID(
 	locator baldasession.SessionLocator,
 	text string,
 ) (string, error) {
-	msgID, err := a.send(ctx, locator, text)
+	msgID, err := a.sendWithPlainFallback(ctx, locator, text)
 	if err != nil {
 		return "", err
 	}
@@ -122,4 +129,37 @@ func (a *Adapter) send(
 	default:
 		return 0, fmt.Errorf("unsupported zulip address type %q", address.Type)
 	}
+}
+
+func (a *Adapter) sendWithPlainFallback(
+	ctx context.Context,
+	locator baldasession.SessionLocator,
+	text string,
+) (int, error) {
+	msgID, err := a.send(ctx, locator, text)
+	if err == nil {
+		return msgID, nil
+	}
+	if !isContentRejectedError(err) {
+		return 0, err
+	}
+	fallback := plainTextFallback(text)
+	if strings.TrimSpace(fallback) == "" || fallback == text {
+		return 0, err
+	}
+	a.logger.Warn().Err(err).Str("session_id", locator.SessionID).Msg("zulip rejected markdown content, retrying as plain text")
+	msgID, fallbackErr := a.send(ctx, locator, fallback)
+	if fallbackErr != nil {
+		return 0, fmt.Errorf("send zulip plain text fallback after content rejection: %w", fallbackErr)
+	}
+	return msgID, nil
+}
+
+func plainTextFallback(text string) string {
+	fallback := markdownImagePattern.ReplaceAllString(text, "$1: $2")
+	fallback = markdownLinkPattern.ReplaceAllString(fallback, "$1 ($2)")
+	fallback = strings.ReplaceAll(fallback, "**", "")
+	fallback = strings.ReplaceAll(fallback, "__", "")
+	fallback = strings.ReplaceAll(fallback, "`", "")
+	return strings.TrimSpace(fallback)
 }
