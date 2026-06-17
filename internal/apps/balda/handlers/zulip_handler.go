@@ -624,7 +624,7 @@ func (h *ZulipBaldaHandler) handleInviteStart(
 	}
 	invite, err := h.inviteStore.GetInvite(ctx, token)
 	if err != nil {
-		h.logger.Warn().Err(err).Str("token", token).Msg("zulip: failed to get invite")
+		h.logger.Warn().Err(err).Str("user_id", userIDStr).Msg("zulip: failed to get invite")
 		_ = h.sendPlain(ctx, locator, "Failed to process invite. Please try again.")
 		return
 	}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -613,6 +614,32 @@ func TestZulipBaldaHandlerStartIsDirectMessageOnly(t *testing.T) {
 	}
 }
 
+func TestZulipBaldaHandlerInviteLookupErrorDoesNotLogToken(t *testing.T) {
+	ownerStore, err := auth.NewOwnerStore(&fakeOwnerKVStore{})
+	if err != nil {
+		t.Fatalf("NewOwnerStore() error = %v", err)
+	}
+	inviteStore, err := auth.NewInviteStore(errorInviteKVStore{err: errors.New("backend unavailable")})
+	if err != nil {
+		t.Fatalf("NewInviteStore() error = %v", err)
+	}
+	collaboratorStore := auth.NewCollaboratorStore(&fakeCollaboratorBackingStore{})
+	var logs bytes.Buffer
+	handler := &ZulipBaldaHandler{
+		ownerStore:        ownerStore,
+		inviteStore:       inviteStore,
+		collaboratorStore: collaboratorStore,
+		actorDispatcher:   &recordingZulipDispatcher{},
+		logger:            zerolog.New(&logs),
+	}
+
+	handler.handleInviteStart(context.Background(), baldazulip.NewDMLocator(202), 202, "secret-invite-token")
+
+	if got := logs.String(); strings.Contains(got, "secret-invite-token") {
+		t.Fatalf("invite lookup log leaked raw token: %s", got)
+	}
+}
+
 func TestZulipBaldaHandlerCloseIsDirectMessageOnly(t *testing.T) {
 	locator := baldazulip.NewStreamLocator(42, "ops")
 	manager := &fakeZulipSessionManager{baldaProvider: "balda"}
@@ -740,6 +767,26 @@ func TestZulipBaldaHandlerReturnsDeliveryError(t *testing.T) {
 	if got := err.Error(); !strings.Contains(got, "deliver zulip response") || !strings.Contains(got, "HTTP 502") {
 		t.Fatalf("deliverZulipAgentReply() error = %q, want wrapped HTTP 502 delivery error", got)
 	}
+}
+
+type errorInviteKVStore struct {
+	err error
+}
+
+func (s errorInviteKVStore) GetJSON(context.Context, string) (any, bool, error) {
+	return nil, false, s.err
+}
+
+func (errorInviteKVStore) SetWithTTL(context.Context, string, any, time.Duration) error {
+	return nil
+}
+
+func (errorInviteKVStore) Delete(context.Context, string) error {
+	return nil
+}
+
+func (errorInviteKVStore) List(context.Context, string) ([]string, error) {
+	return nil, nil
 }
 
 type fakeZulipSessionManager struct {
