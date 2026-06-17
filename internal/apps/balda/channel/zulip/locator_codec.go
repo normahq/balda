@@ -92,6 +92,9 @@ func DecodeLocator(locator baldasession.SessionLocator) (LocatorAddress, bool, e
 	if err := json.Unmarshal([]byte(locator.AddressJSON), &address); err != nil {
 		return LocatorAddress{}, true, fmt.Errorf("decode zulip address: %w", err)
 	}
+	if err := validateLocatorAddress(address); err != nil {
+		return LocatorAddress{}, true, err
+	}
 	return address, true, nil
 }
 
@@ -130,6 +133,9 @@ func streamLocatorFromAddressKey(addressKey string) (baldasession.SessionLocator
 			addressKey, err,
 		)
 	}
+	if streamID <= 0 {
+		return baldasession.SessionLocator{}, fmt.Errorf("zulip stream_id from %q must be positive", addressKey)
+	}
 	topic, err := url.PathUnescape(escapedTopic)
 	if err != nil {
 		return baldasession.SessionLocator{}, fmt.Errorf(
@@ -149,7 +155,26 @@ func dmLocatorFromAddressKey(addressKey string) (baldasession.SessionLocator, er
 			addressKey, err,
 		)
 	}
+	if userID <= 0 {
+		return baldasession.SessionLocator{}, fmt.Errorf("zulip user_id from %q must be positive", addressKey)
+	}
 	return NewDMLocator(userID), nil
+}
+
+func validateLocatorAddress(address LocatorAddress) error {
+	switch strings.TrimSpace(address.Type) {
+	case addressTypeStream:
+		if address.StreamID <= 0 {
+			return fmt.Errorf("zulip stream locator requires positive stream_id")
+		}
+	case addressTypeDM:
+		if address.UserID <= 0 {
+			return fmt.Errorf("zulip dm locator requires positive user_id")
+		}
+	default:
+		return fmt.Errorf("unsupported zulip address type %q", address.Type)
+	}
+	return nil
 }
 
 // StreamIDFromLocator extracts the stream ID from a Zulip stream locator.

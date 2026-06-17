@@ -170,6 +170,9 @@ starting with `/`, for example `/zulip/webhook`.
 - **Zulip API delivery fails**: queued turns return delivery errors to the actor
   runtime, so transient failures can be retried and persistent failures surface
   through the runtime's failure handling instead of being silently acknowledged.
+- **Invalid locator in scheduler/webhook config**: Zulip stream and DM locators
+  reject nonpositive `stream_id` or `user_id` values before calling Zulip's REST
+  API.
 - **Bot ignores first message in a new topic**: this was a bug where the HTTP
   request context was cancelled before the goroutine finished processing.
   Fixed in `zulip_handler.go` by using `context.WithoutCancel`.
