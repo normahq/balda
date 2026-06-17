@@ -227,6 +227,8 @@ func (m *RuntimeManager) PrepareGoalRun(
 		return nil, fmt.Errorf("source session id is required")
 	}
 	goalSessionID := taskID
+	workerSessionID := goalSessionID + "-worker"
+	validatorSessionID := goalSessionID + "-validator"
 	branchName := ""
 	workspaceDir := base.workingDir
 	cleanupWorkspace := false
@@ -303,17 +305,60 @@ func (m *RuntimeManager) PrepareGoalRun(
 		}
 		return nil, fmt.Errorf("create goal runtime session: %w", err)
 	}
+	if _, err := base.builder.CreateRuntimeSession(
+		ctx,
+		base.runtime,
+		base.providerID,
+		userID,
+		workerSessionID,
+		workspaceDir,
+		RuntimeSessionContext{
+			BaldaSessionID: goalSessionID,
+			SessionBranch:  branchName,
+		},
+	); err != nil {
+		_ = base.deleteRuntimeSession(ctx, userID, goalSessionID)
+		if cleanupWorkspace {
+			_ = m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
+		}
+		return nil, fmt.Errorf("create goal worker runtime session: %w", err)
+	}
+	if _, err := base.builder.CreateRuntimeSession(
+		ctx,
+		base.runtime,
+		base.providerID,
+		userID,
+		validatorSessionID,
+		workspaceDir,
+		RuntimeSessionContext{
+			BaldaSessionID: goalSessionID,
+			SessionBranch:  branchName,
+		},
+	); err != nil {
+		_ = base.deleteRuntimeSession(ctx, userID, workerSessionID)
+		_ = base.deleteRuntimeSession(ctx, userID, goalSessionID)
+		if cleanupWorkspace {
+			_ = m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
+		}
+		return nil, fmt.Errorf("create goal validator runtime session: %w", err)
+	}
 
 	workflow, err := base.builder.BuildGoalWorkflow(ctx, GoalBuildConfig{
-		BaseAgent:         base.runtime.Agent,
-		ProviderID:        base.providerID,
-		SessionID:         sourceSessionID,
-		BranchName:        branchName,
-		WorkspaceDir:      workspaceDir,
-		MaxIterations:     cfg.MaxIterations,
-		ExtraMCPServerIDs: base.extraMCPServerIDs,
+		BaseAgent:          base.runtime.Agent,
+		ProviderID:         base.providerID,
+		SessionID:          sourceSessionID,
+		WorkerSessionID:    workerSessionID,
+		ValidatorSessionID: validatorSessionID,
+		BranchName:         branchName,
+		WorkspaceDir:       workspaceDir,
+		MaxIterations:      cfg.MaxIterations,
+		AppName:            base.runtime.AppName,
+		SessionService:     base.runtime.SessionSvc,
+		ExtraMCPServerIDs:  base.extraMCPServerIDs,
 	})
 	if err != nil {
+		_ = base.deleteRuntimeSession(ctx, userID, validatorSessionID)
+		_ = base.deleteRuntimeSession(ctx, userID, workerSessionID)
 		_ = base.deleteRuntimeSession(ctx, userID, goalSessionID)
 		if cleanupWorkspace {
 			_ = m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
@@ -323,6 +368,8 @@ func (m *RuntimeManager) PrepareGoalRun(
 	r, err := base.runner(workflow, "goal")
 	if err != nil {
 		_ = closeRuntimeAgent(workflow)
+		_ = base.deleteRuntimeSession(ctx, userID, validatorSessionID)
+		_ = base.deleteRuntimeSession(ctx, userID, workerSessionID)
 		_ = base.deleteRuntimeSession(ctx, userID, goalSessionID)
 		if cleanupWorkspace {
 			_ = m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
@@ -345,11 +392,13 @@ func (m *RuntimeManager) PrepareGoalRun(
 		},
 		CleanupResourcesFn: func(ctx context.Context) error {
 			sessionErr := base.deleteRuntimeSession(ctx, userID, goalSessionID)
+			workerSessionErr := base.deleteRuntimeSession(ctx, userID, workerSessionID)
+			validatorSessionErr := base.deleteRuntimeSession(ctx, userID, validatorSessionID)
 			var workspaceErr error
 			if cleanupWorkspace {
 				workspaceErr = m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
 			}
-			return errors.Join(sessionErr, workspaceErr)
+			return errors.Join(sessionErr, workerSessionErr, validatorSessionErr, workspaceErr)
 		},
 	}, nil
 }
@@ -400,7 +449,7 @@ func (b childRuntimeBase) deleteRuntimeSession(ctx context.Context, userID, sess
 	}
 	appName := strings.TrimSpace(b.runtime.AppName)
 	if appName == "" {
-		appName = "norma-balda"
+		appName = defaultRuntimeAppName
 	}
 	if err := b.runtime.SessionSvc.Delete(ctx, &adksession.DeleteRequest{
 		AppName:   appName,

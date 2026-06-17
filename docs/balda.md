@@ -173,7 +173,7 @@ flowchart TB
 
 Balda treats `actorlayer` as the reusable actor library boundary and never as product policy.
 
-- `balda.provider` selects one app-scoped provider runtime for all Balda sessions and `/goal` worker-validator runs in the process. `/goal` still creates isolated goal session/workspace state, but it reuses the same provider runtime/client ownership as normal session turns.
+- `balda.provider` selects one app-scoped provider runtime for all Balda sessions and `/goal` worker-validator runs in the process. `/goal` still creates isolated worker/validator ADK sessions and workspace state, but it reuses the same provider runtime/client ownership as normal session turns.
 - Actorlayer owns generic actor mechanics: registration, addressing, envelopes, retry/error helpers, lane execution, lifecycle state, and transport-facing contracts.
 - Balda owns product actors and product behavior implemented as actors: session turns, task routing, goal execution, delivery, control, and memory.
 - Balda exposes its durable transport to product/runtime code only as actorlayer source, delivery, and dispatch abstractions; the concrete transport stays inside the NATS adapter.
@@ -563,7 +563,7 @@ session-start snapshot. New or restored sessions read the latest file.
 - embedded NATS transport files live under `${balda.state_dir}/nats`
 - `balda.nats.max_memory` / `max_store`: embedded runtime resource caps (defaults `256mb` and `2gb`)
 - `balda.swarm`: optional advanced runtime tuning for command handling, retries, backpressure, and failure retention. Most installs should leave it at defaults.
-- `/goal` runs repeated work and validation passes in isolated GoalKeeper ADK session/state until the goal passes validation or `balda.goal.max_iterations` is reached.
+- `/goal` runs repeated work and validation passes in isolated GoalKeeper worker/validator ADK sessions until the goal passes validation or `balda.goal.max_iterations` is reached.
   - with workspace mode enabled, `/goal` uses a separate goal worktree and exports passing work to `balda.workspace.base_branch`.
   - with workspace mode disabled, `/goal` works directly in `balda.working_dir` and records `not_exported` on passing runs.
 - internal durable memory uses `${balda.state_dir}/MEMORY.md` when `balda.memory.enabled=true`
@@ -651,7 +651,7 @@ Balda runs with a single provider per process (`balda.provider`).
 - `/topic <name>` (DM only, owner/collaborator): creates a new Telegram topic and a topic-bound session.
   - `<name>` is required.
   - `<name>` is a session label, not a provider selector.
-- `/goal <objective>` (owner/collaborator): starts goal work from the current session context in isolated GoalKeeper ADK session/state. With workspace mode enabled, Balda creates a goal workspace from `balda.workspace.base_branch`, exports it back automatically on success, and preserves it for recovery when export fails. With workspace mode disabled, GoalKeeper works directly in `balda.working_dir` and records `not_exported` on success. Started/validation/final updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See the [goal workflow doc](goal-workflow.md).
+- `/goal <objective>` (owner/collaborator): starts goal work from the current session context in isolated GoalKeeper worker/validator ADK sessions. With workspace mode enabled, Balda creates a goal workspace from `balda.workspace.base_branch`, exports it back automatically on success, and preserves it for recovery when export fails. With workspace mode disabled, GoalKeeper works directly in `balda.working_dir` and records `not_exported` on success. Started/validation/final updates use `balda.telegram.formatting_mode`; terminal updates include Result, Artifacts, Confidence, and Next action sections. See the [goal workflow doc](goal-workflow.md).
   - concurrent `/goal` runs in the same session are rejected.
   - `/goal clear` stops active goal work for the current session only.
 - `/reset`, `/restart` (owner/collaborator): cancel current session work, clear the current session history, and immediately start a fresh runtime session without closing the chat/topic. Both commands work in the current DM, public-chat, or thread-scoped session.
@@ -670,10 +670,11 @@ Assignable work is persisted in `swarm_tasks`; task history is published to
 durable command first; task records are created after command delivery.
 
 - `/goal` starts goal work for the current session context. Balda restores or creates the
-  chat session, allocates separate GoalKeeper ADK session/state for the task, runs
-  repeated work and validation passes, exports successful work back to the base branch
-  when workspace mode is enabled, records `not_exported` when workspace mode is
-  disabled, records the task result, and sends progress/final messages.
+  chat session, allocates separate GoalKeeper worker/validator ADK sessions for the
+  task, runs repeated work and validation passes, passes only the latest worker and
+  validator results across those role sessions, exports successful work back to the
+  base branch when workspace mode is enabled, records `not_exported` when workspace
+  mode is disabled, records the task result, and sends progress/final messages.
 - Task statuses are `created`, `queued`, `running`, `waiting_for_agent`,
   `waiting_for_user`, `validating`, `completed`, `failed`, `canceled`, and
   `deadlettered`.

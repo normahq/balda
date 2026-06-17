@@ -29,6 +29,8 @@ import (
 var baldaInstructionTmpl string
 
 const (
+	defaultRuntimeAppName = "norma-balda"
+
 	workspaceBranchUnknown = "unknown"
 	workspaceBranchNA      = "n/a"
 
@@ -194,7 +196,7 @@ func (b *Builder) BuildRuntimeWithMCPServerIDs(
 	bundledMCPServerIDs []string,
 	extraMCPServerIDs []string,
 ) (*BuiltRuntime, error) {
-	const appName = "norma-balda"
+	const appName = defaultRuntimeAppName
 
 	req := agentfactory.BuildRequest{
 		AgentID:          agentName,
@@ -268,7 +270,7 @@ func (b *Builder) CreateRuntimeSession(
 
 	appName := strings.TrimSpace(runtime.AppName)
 	if appName == "" {
-		appName = "norma-balda"
+		appName = defaultRuntimeAppName
 	}
 	req := &adksession.CreateRequest{
 		AppName:   appName,

@@ -85,8 +85,8 @@ func TestGoalValidatorInstruction_DoesNotUseWorkerOutputPlaceholder(t *testing.T
 	if strings.Contains(got, "{goal_worker_output?}") {
 		t.Fatalf("goalValidatorInstruction() = %q, should not include worker output placeholder", got)
 	}
-	if !strings.Contains(got, "shared runtime session context") {
-		t.Fatalf("goalValidatorInstruction() = %q, want shared session validation guidance", got)
+	if !strings.Contains(got, "isolated validator session") {
+		t.Fatalf("goalValidatorInstruction() = %q, want isolated validator session guidance", got)
 	}
 }
 
@@ -363,35 +363,35 @@ func TestBuildGoalWorkflowUsesSharedBaseAgentForWorkerAndValidator(t *testing.T)
 			}
 		}
 	})
+	ctx := context.Background()
+	appName := "goal-shared-runtime-test"
+	sessionService := adksession.InMemoryService()
+	rootSessionID, workerSessionID, validatorSessionID := newGoalWorkflowTestSessions(t, ctx, sessionService, appName)
 	workflow, err := (&Builder{}).BuildGoalWorkflow(context.Background(), GoalBuildConfig{
-		BaseAgent:     base,
-		ProviderID:    "shared-provider",
-		SessionID:     "goal-session",
-		WorkspaceDir:  t.TempDir(),
-		MaxIterations: 1,
+		BaseAgent:          base,
+		ProviderID:         "shared-provider",
+		SessionID:          "goal-session",
+		WorkerSessionID:    workerSessionID,
+		ValidatorSessionID: validatorSessionID,
+		WorkspaceDir:       t.TempDir(),
+		MaxIterations:      1,
+		AppName:            appName,
+		SessionService:     sessionService,
 	})
 	if err != nil {
 		t.Fatalf("BuildGoalWorkflow() error = %v", err)
 	}
 
-	sessionService := adksession.InMemoryService()
 	r, err := adkrunner.New(adkrunner.Config{
-		AppName:        "goal-shared-runtime-test",
+		AppName:        appName,
 		Agent:          workflow,
 		SessionService: sessionService,
 	})
 	if err != nil {
 		t.Fatalf("runner.New() error = %v", err)
 	}
-	created, err := sessionService.Create(context.Background(), &adksession.CreateRequest{
-		AppName: "goal-shared-runtime-test",
-		UserID:  "tg-101",
-	})
-	if err != nil {
-		t.Fatalf("session.Create() error = %v", err)
-	}
 
-	got := runGoalAgentOnce(t, r, "tg-101", created.Session.ID(), "Goal:\nship release")
+	got := runGoalAgentOnce(t, r, "tg-101", rootSessionID, "Goal:\nship release")
 	if got != "verdict: pass\nvalidated" {
 		t.Fatalf("runGoalAgentOnce() = %q, want validator result", got)
 	}
@@ -406,6 +406,104 @@ func TestBuildGoalWorkflowUsesSharedBaseAgentForWorkerAndValidator(t *testing.T)
 	}
 	if !strings.Contains(prompts[1], "Worker result:\nworker summary") {
 		t.Fatalf("validator prompt = %q, want shared worker output", prompts[1])
+	}
+}
+
+func TestBuildGoalWorkflowUsesSeparateRoleSessionsAndFeedsValidatorResultToWorker(t *testing.T) {
+	t.Parallel()
+
+	type promptRecord struct {
+		sessionID string
+		text      string
+	}
+	var prompts []promptRecord
+	var workerRuns int
+	var validatorRuns int
+	base := mustNewGoalTestAgent(t, "shared", func(ctx adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+		return func(yield func(*adksession.Event, error) bool) {
+			prompt := visibleContentText(ctx.UserContent())
+			prompts = append(prompts, promptRecord{
+				sessionID: ctx.Session().ID(),
+				text:      prompt,
+			})
+			switch {
+			case strings.Contains(prompt, "You are the goal validator agent."):
+				validatorRuns++
+				if validatorRuns == 1 {
+					yield(goalTestTextEvent(ctx.InvocationID(), "verdict: fail\nEvidence: expected 102018 total, got 56291 total."), nil)
+					return
+				}
+				yield(goalTestTextEvent(ctx.InvocationID(), "verdict: pass\nvalidated corrected result"), nil)
+			default:
+				workerRuns++
+				if workerRuns == 1 {
+					yield(goalTestTextEvent(ctx.InvocationID(), "56291 total"), nil)
+					return
+				}
+				yield(goalTestTextEvent(ctx.InvocationID(), "102018 total"), nil)
+			}
+		}
+	})
+
+	ctx := context.Background()
+	appName := "goal-role-session-test"
+	sessionService := adksession.InMemoryService()
+	rootSessionID, workerSessionID, validatorSessionID := newGoalWorkflowTestSessions(t, ctx, sessionService, appName)
+	workflow, err := (&Builder{}).BuildGoalWorkflow(ctx, GoalBuildConfig{
+		BaseAgent:          base,
+		ProviderID:         "shared-provider",
+		SessionID:          "goal-session",
+		WorkerSessionID:    workerSessionID,
+		ValidatorSessionID: validatorSessionID,
+		WorkspaceDir:       t.TempDir(),
+		MaxIterations:      2,
+		AppName:            appName,
+		SessionService:     sessionService,
+	})
+	if err != nil {
+		t.Fatalf("BuildGoalWorkflow() error = %v", err)
+	}
+	r, err := adkrunner.New(adkrunner.Config{
+		AppName:        appName,
+		Agent:          workflow,
+		SessionService: sessionService,
+	})
+	if err != nil {
+		t.Fatalf("runner.New() error = %v", err)
+	}
+
+	got := runGoalAgentOnce(t, r, "tg-101", rootSessionID, "Goal:\ncount lines of go files")
+	if got != "verdict: pass\nvalidated corrected result" {
+		t.Fatalf("runGoalAgentOnce() = %q, want final passing validator result", got)
+	}
+	if workerRuns != 2 || validatorRuns != 2 {
+		t.Fatalf("workerRuns, validatorRuns = %d, %d; want 2, 2", workerRuns, validatorRuns)
+	}
+	if len(prompts) != 4 {
+		t.Fatalf("len(prompts) = %d, want 4: %#v", len(prompts), prompts)
+	}
+	for i, record := range prompts {
+		wantSessionID := workerSessionID
+		if strings.Contains(record.text, "You are the goal validator agent.") {
+			wantSessionID = validatorSessionID
+		}
+		if record.sessionID != wantSessionID {
+			t.Fatalf("prompt[%d] sessionID = %q, want %q\n%s", i, record.sessionID, wantSessionID, record.text)
+		}
+	}
+	secondWorkerPrompt := prompts[2].text
+	if !strings.Contains(secondWorkerPrompt, "Previous worker result:\n56291 total") {
+		t.Fatalf("second worker prompt = %q, want previous worker result", secondWorkerPrompt)
+	}
+	if !strings.Contains(secondWorkerPrompt, "Previous validator result:\nverdict: fail\nEvidence: expected 102018 total, got 56291 total.") {
+		t.Fatalf("second worker prompt = %q, want prior validator feedback", secondWorkerPrompt)
+	}
+	secondValidatorPrompt := prompts[3].text
+	if !strings.Contains(secondValidatorPrompt, "Worker result:\n102018 total") {
+		t.Fatalf("second validator prompt = %q, want latest worker result only", secondValidatorPrompt)
+	}
+	if strings.Contains(secondValidatorPrompt, "Worker result:\n56291 total") {
+		t.Fatalf("second validator prompt = %q, contains stale worker result", secondValidatorPrompt)
 	}
 }
 
@@ -426,35 +524,35 @@ func TestBuildGoalWorkflowCarriesWorkerOutputFromPartialEventIntoValidator(t *te
 			}
 		}
 	})
+	ctx := context.Background()
+	appName := "goal-shared-runtime-partial-test"
+	sessionService := newGoalSQLiteSessionService(t)
+	rootSessionID, workerSessionID, validatorSessionID := newGoalWorkflowTestSessions(t, ctx, sessionService, appName)
 	workflow, err := (&Builder{}).BuildGoalWorkflow(context.Background(), GoalBuildConfig{
-		BaseAgent:     base,
-		ProviderID:    "shared-provider",
-		SessionID:     "goal-session",
-		WorkspaceDir:  t.TempDir(),
-		MaxIterations: 1,
+		BaseAgent:          base,
+		ProviderID:         "shared-provider",
+		SessionID:          "goal-session",
+		WorkerSessionID:    workerSessionID,
+		ValidatorSessionID: validatorSessionID,
+		WorkspaceDir:       t.TempDir(),
+		MaxIterations:      1,
+		AppName:            appName,
+		SessionService:     sessionService,
 	})
 	if err != nil {
 		t.Fatalf("BuildGoalWorkflow() error = %v", err)
 	}
 
-	sessionService := newGoalSQLiteSessionService(t)
 	r, err := adkrunner.New(adkrunner.Config{
-		AppName:        "goal-shared-runtime-partial-test",
+		AppName:        appName,
 		Agent:          workflow,
 		SessionService: sessionService,
 	})
 	if err != nil {
 		t.Fatalf("runner.New() error = %v", err)
 	}
-	created, err := sessionService.Create(context.Background(), &adksession.CreateRequest{
-		AppName: "goal-shared-runtime-partial-test",
-		UserID:  "tg-101",
-	})
-	if err != nil {
-		t.Fatalf("session.Create() error = %v", err)
-	}
 
-	got := runGoalAgentOnce(t, r, "tg-101", created.Session.ID(), "Goal:\nship release")
+	got := runGoalAgentOnce(t, r, "tg-101", rootSessionID, "Goal:\nship release")
 	if got != "verdict: pass\nvalidated" {
 		t.Fatalf("runGoalAgentOnce() = %q, want validator result", got)
 	}
@@ -667,6 +765,29 @@ func newGoalSQLiteSessionService(t *testing.T) adksession.Service {
 	return provider.RuntimeSessions()
 }
 
+func newGoalWorkflowTestSessions(
+	t *testing.T,
+	ctx context.Context,
+	sessionService adksession.Service,
+	appName string,
+) (rootSessionID string, workerSessionID string, validatorSessionID string) {
+	t.Helper()
+
+	rootSessionID = "goal-root"
+	workerSessionID = "goal-worker"
+	validatorSessionID = "goal-validator"
+	for _, sessionID := range []string{rootSessionID, workerSessionID, validatorSessionID} {
+		if _, err := sessionService.Create(ctx, &adksession.CreateRequest{
+			AppName:   appName,
+			UserID:    "tg-101",
+			SessionID: sessionID,
+		}); err != nil {
+			t.Fatalf("session.Create(%q) error = %v", sessionID, err)
+		}
+	}
+	return rootSessionID, workerSessionID, validatorSessionID
+}
+
 func TestGoalValidatorWrapperIncludesMissingWorkerResultMarker(t *testing.T) {
 	t.Parallel()
 
@@ -718,12 +839,17 @@ func TestClosableGoalWorkflowCloseDoesNotCloseSharedBaseAgent(t *testing.T) {
 			return nil
 		},
 	}
+	sessionService := adksession.InMemoryService()
 	workflow, err := (&Builder{}).BuildGoalWorkflow(context.Background(), GoalBuildConfig{
-		BaseAgent:     base,
-		ProviderID:    "shared-provider",
-		SessionID:     "goal-session",
-		WorkspaceDir:  t.TempDir(),
-		MaxIterations: 1,
+		BaseAgent:          base,
+		ProviderID:         "shared-provider",
+		SessionID:          "goal-session",
+		WorkerSessionID:    "goal-worker",
+		ValidatorSessionID: "goal-validator",
+		WorkspaceDir:       t.TempDir(),
+		MaxIterations:      1,
+		AppName:            "goal-close-test",
+		SessionService:     sessionService,
 	})
 	if err != nil {
 		t.Fatalf("BuildGoalWorkflow() error = %v", err)

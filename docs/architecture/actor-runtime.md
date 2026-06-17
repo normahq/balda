@@ -47,7 +47,7 @@ Status: active
   - dispatch result states (`acked`, `running`, `in_progress`, `retry`, `deadletter`, `noop`),
   - lifecycle events suitable for external telemetry,
   - and generic transport-facing contracts for dispatch and event flow.
-- Provider runtime: `balda.provider` selects the single app-scoped provider runtime used by all Balda sessions and `/goal` worker-validator runs; goal runs get isolated ADK session/workspace state but reuse that same provider runtime/client ownership.
+- Provider runtime: `balda.provider` selects the single app-scoped provider runtime used by all Balda sessions and `/goal` worker-validator runs; goal runs get isolated worker/validator ADK sessions and workspace state but reuse that same provider runtime/client ownership.
 - Delivery boundary: Balda maps transport messages inside `eventbus/nats` into actorlayer `Source`/`Delivery` contracts; runtime and product actors never consume transport APIs directly.
 
 ### Ownership split

@@ -8,9 +8,10 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/normahq/balda/internal/apps/balda/goalkeeperworkflow"
 	adkagent "google.golang.org/adk/agent"
+	adkrunner "google.golang.org/adk/runner"
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
 )
@@ -20,6 +21,26 @@ const (
 	goalValidatorName        = "GoalValidator"
 	goalCommitterName        = "GoalCommitter"
 	goalWorkerOutputStateKey = "goal_worker_output"
+
+	goalkeeperRootAgentName = "GoalKeeper"
+
+	goalMetadataEventKey              = "norma.goal.event"
+	goalMetadataStepKey               = "norma.goal.step"
+	goalMetadataAgentKey              = "norma.goal.agent"
+	goalMetadataStepIDKey             = "norma.goal.step_id"
+	goalMetadataEventCountKey         = "event_count"
+	goalMetadataFinalResponseCountKey = "final_response_count"
+	goalMetadataVisibleTextLenKey     = "visible_text_len"
+	goalMetadataDurationMSKey         = "duration_ms"
+	goalMetadataEscalatedKey          = "escalated"
+	goalMetadataErrorKey              = "error"
+
+	goalStepStarted   = "step_started"
+	goalStepCompleted = "step_completed"
+	goalStepFailed    = "step_failed"
+
+	goalWorkerStep    = "worker"
+	goalValidatorStep = "validator"
 )
 
 var conventionalCommitSubjectPattern = regexp.MustCompile(`^[a-z]+(?:\([^)]+\))?(?:!)?: .+`)
@@ -29,9 +50,13 @@ type GoalBuildConfig struct {
 	BaseAgent           adkagent.Agent
 	ProviderID          string
 	SessionID           string
+	WorkerSessionID     string
+	ValidatorSessionID  string
 	BranchName          string
 	WorkspaceDir        string
 	MaxIterations       uint
+	AppName             string
+	SessionService      adksession.Service
 	BundledMCPServerIDs []string
 	ExtraMCPServerIDs   []string
 }
@@ -50,6 +75,12 @@ func (b *Builder) BuildGoalWorkflow(ctx context.Context, cfg GoalBuildConfig) (a
 	if strings.TrimSpace(cfg.SessionID) == "" {
 		return nil, fmt.Errorf("session id is required")
 	}
+	if strings.TrimSpace(cfg.WorkerSessionID) == "" {
+		return nil, fmt.Errorf("worker session id is required")
+	}
+	if strings.TrimSpace(cfg.ValidatorSessionID) == "" {
+		return nil, fmt.Errorf("validator session id is required")
+	}
 	if strings.TrimSpace(cfg.WorkspaceDir) == "" {
 		return nil, fmt.Errorf("workspace dir is required")
 	}
@@ -59,11 +90,17 @@ func (b *Builder) BuildGoalWorkflow(ctx context.Context, cfg GoalBuildConfig) (a
 	if cfg.BaseAgent == nil {
 		return nil, fmt.Errorf("goal base agent is required")
 	}
+	if cfg.SessionService == nil {
+		return nil, fmt.Errorf("goal session service is required")
+	}
+	appName := strings.TrimSpace(cfg.AppName)
+	if appName == "" {
+		appName = defaultRuntimeAppName
+	}
 
 	worker, err := wrapGoalPromptAgent(cfg.BaseAgent, goalPromptAgentConfig{
 		Name:        goalWorkerName,
 		Description: "Goal worker agent",
-		OutputKey:   goalWorkerOutputStateKey,
 		BuildPrompt: func(ctx adkagent.InvocationContext) (string, error) {
 			prompt := extractGoalPromptText(ctx.UserContent())
 			if prompt == "" {
@@ -76,12 +113,47 @@ func (b *Builder) BuildGoalWorkflow(ctx context.Context, cfg GoalBuildConfig) (a
 		return nil, err
 	}
 
-	validator, err := wrapGoalValidatorWithWorkerOutput(cfg.BaseAgent, goalWorkerOutputStateKey, goalValidatorInstruction())
+	validator, err := wrapGoalPromptAgent(cfg.BaseAgent, goalPromptAgentConfig{
+		Name:        goalValidatorName,
+		Description: "Goal validator agent",
+		BuildPrompt: func(ctx adkagent.InvocationContext) (string, error) {
+			prompt := extractGoalPromptText(ctx.UserContent())
+			if prompt == "" {
+				return "", fmt.Errorf("goal validation prompt is empty")
+			}
+			return joinGoalPromptSections(goalValidatorInstruction(), prompt), nil
+		},
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	workflow, err := goalkeeperworkflow.New(worker, validator, cfg.MaxIterations)
+	workerRunner, err := adkrunner.New(adkrunner.Config{
+		AppName:        appName,
+		Agent:          worker,
+		SessionService: cfg.SessionService,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating goal worker runner: %w", err)
+	}
+	validatorRunner, err := adkrunner.New(adkrunner.Config{
+		AppName:        appName,
+		Agent:          validator,
+		SessionService: cfg.SessionService,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("creating goal validator runner: %w", err)
+	}
+
+	workflow, err := newGoalKeeperAgent(goalKeeperConfig{
+		Worker:             worker,
+		Validator:          validator,
+		WorkerRunner:       workerRunner,
+		ValidatorRunner:    validatorRunner,
+		WorkerSessionID:    cfg.WorkerSessionID,
+		ValidatorSessionID: cfg.ValidatorSessionID,
+		MaxIterations:      cfg.MaxIterations,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -171,11 +243,224 @@ func wrapGoalPromptAgent(base adkagent.Agent, cfg goalPromptAgentConfig) (adkage
 	})
 }
 
+type goalRunner interface {
+	Run(ctx context.Context, userID string, sessionID string, userContent *genai.Content, cfg adkagent.RunConfig, opts ...adkrunner.RunOption) iter.Seq2[*adksession.Event, error]
+}
+
+type goalKeeperConfig struct {
+	Worker             adkagent.Agent
+	Validator          adkagent.Agent
+	WorkerRunner       goalRunner
+	ValidatorRunner    goalRunner
+	WorkerSessionID    string
+	ValidatorSessionID string
+	MaxIterations      uint
+}
+
+func newGoalKeeperAgent(cfg goalKeeperConfig) (adkagent.Agent, error) {
+	if cfg.Worker == nil {
+		return nil, fmt.Errorf("goal worker agent is required")
+	}
+	if cfg.Validator == nil {
+		return nil, fmt.Errorf("goal validator agent is required")
+	}
+	if cfg.WorkerRunner == nil {
+		return nil, fmt.Errorf("goal worker runner is required")
+	}
+	if cfg.ValidatorRunner == nil {
+		return nil, fmt.Errorf("goal validator runner is required")
+	}
+	if strings.TrimSpace(cfg.WorkerSessionID) == "" {
+		return nil, fmt.Errorf("worker session id is required")
+	}
+	if strings.TrimSpace(cfg.ValidatorSessionID) == "" {
+		return nil, fmt.Errorf("validator session id is required")
+	}
+	if cfg.MaxIterations == 0 {
+		return nil, fmt.Errorf("max iterations must be greater than zero")
+	}
+	return adkagent.New(adkagent.Config{
+		Name:        goalkeeperRootAgentName,
+		Description: "Retries a goal worker and goal validator until validation passes one goal.",
+		SubAgents:   []adkagent.Agent{cfg.Worker, cfg.Validator},
+		Run: func(ctx adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+			return runGoalKeeperLoop(ctx, cfg)
+		},
+	})
+}
+
+func runGoalKeeperLoop(ctx adkagent.InvocationContext, cfg goalKeeperConfig) iter.Seq2[*adksession.Event, error] {
+	return func(yield func(*adksession.Event, error) bool) {
+		objective := extractGoalPromptText(ctx.UserContent())
+		if objective == "" {
+			yield(nil, fmt.Errorf("goal prompt is empty"))
+			return
+		}
+		userID := ""
+		if ctx != nil && ctx.Session() != nil {
+			userID = strings.TrimSpace(ctx.Session().UserID())
+		}
+		if userID == "" {
+			yield(nil, fmt.Errorf("goal user id is required"))
+			return
+		}
+
+		var previousWorkerResult string
+		var previousValidatorResult string
+		for range cfg.MaxIterations {
+			workerPrompt := buildGoalWorkerPrompt(objective, previousWorkerResult, previousValidatorResult)
+			workerResult, err := runGoalStep(
+				ctx,
+				cfg.WorkerRunner,
+				cfg.Worker,
+				goalStepSpec{name: goalWorkerStep, id: 1},
+				userID,
+				cfg.WorkerSessionID,
+				workerPrompt,
+				yield,
+			)
+			if err != nil {
+				return
+			}
+			previousWorkerResult = workerResult
+
+			validatorPrompt := buildGoalValidationPromptFromText(objective, previousWorkerResult, previousValidatorResult)
+			validatorResult, err := runGoalStep(
+				ctx,
+				cfg.ValidatorRunner,
+				cfg.Validator,
+				goalStepSpec{name: goalValidatorStep, id: 2},
+				userID,
+				cfg.ValidatorSessionID,
+				validatorPrompt,
+				yield,
+			)
+			if err != nil {
+				return
+			}
+			previousValidatorResult = validatorResult
+			if strings.HasPrefix(strings.TrimSpace(validatorResult), "verdict: pass") {
+				return
+			}
+		}
+	}
+}
+
+type goalStepSpec struct {
+	name string
+	id   int
+}
+
+type goalStepStats struct {
+	eventCount         int
+	finalResponseCount int
+	visibleTextLen     int
+	duration           time.Duration
+	escalated          bool
+	err                error
+}
+
+func (s *goalStepStats) record(ev *adksession.Event) {
+	if ev == nil {
+		return
+	}
+	s.eventCount++
+	text := visibleGoalEventText(ev)
+	s.visibleTextLen += len(text)
+	if ev.IsFinalResponse() {
+		s.finalResponseCount++
+	}
+	if ev.Actions.Escalate {
+		s.escalated = true
+	}
+}
+
+func runGoalStep(
+	ctx context.Context,
+	r goalRunner,
+	agent adkagent.Agent,
+	spec goalStepSpec,
+	userID string,
+	sessionID string,
+	prompt string,
+	yield func(*adksession.Event, error) bool,
+) (string, error) {
+	startedAt := time.Now()
+	invocationID := ""
+	if invCtx, ok := ctx.(adkagent.InvocationContext); ok {
+		invocationID = invCtx.InvocationID()
+	}
+	if !yield(newGoalStepEvent(invocationID, agent, spec, goalStepStarted, goalStepStats{}), nil) {
+		return "", fmt.Errorf("goal step delivery stopped")
+	}
+
+	stats := goalStepStats{}
+	latestVisibleOutput := ""
+	for ev, err := range r.Run(ctx, userID, sessionID, genai.NewContentFromText(prompt, genai.RoleUser), adkagent.RunConfig{}) {
+		if err != nil {
+			stats.err = err
+			stats.duration = time.Since(startedAt)
+			if !yield(newGoalStepEvent(invocationID, agent, spec, goalStepFailed, stats), nil) {
+				return latestVisibleOutput, err
+			}
+			yield(ev, err)
+			return latestVisibleOutput, err
+		}
+		if text := visibleGoalEventText(ev); text != "" {
+			latestVisibleOutput = strings.TrimSpace(text)
+		}
+		stats.record(ev)
+		if ev != nil {
+			ev.Author = goalkeeperRootAgentName
+		}
+		if !yield(ev, nil) {
+			return latestVisibleOutput, fmt.Errorf("goal step delivery stopped")
+		}
+	}
+	stats.duration = time.Since(startedAt)
+	if strings.HasPrefix(strings.TrimSpace(latestVisibleOutput), "verdict: pass") {
+		stats.escalated = true
+	}
+	if !yield(newGoalStepEvent(invocationID, agent, spec, goalStepCompleted, stats), nil) {
+		return latestVisibleOutput, fmt.Errorf("goal step delivery stopped")
+	}
+	return latestVisibleOutput, nil
+}
+
+func newGoalStepEvent(
+	invocationID string,
+	agent adkagent.Agent,
+	spec goalStepSpec,
+	eventType string,
+	stats goalStepStats,
+) *adksession.Event {
+	ev := adksession.NewEvent(invocationID)
+	ev.Author = goalkeeperRootAgentName
+	ev.CustomMetadata = map[string]any{
+		goalMetadataEventKey:  eventType,
+		goalMetadataStepKey:   spec.name,
+		goalMetadataStepIDKey: spec.id,
+		goalMetadataAgentKey:  agent.Name(),
+	}
+	if eventType == goalStepCompleted || eventType == goalStepFailed {
+		ev.CustomMetadata[goalMetadataEventCountKey] = stats.eventCount
+		ev.CustomMetadata[goalMetadataFinalResponseCountKey] = stats.finalResponseCount
+		ev.CustomMetadata[goalMetadataVisibleTextLenKey] = stats.visibleTextLen
+		ev.CustomMetadata[goalMetadataDurationMSKey] = stats.duration.Milliseconds()
+		ev.CustomMetadata[goalMetadataEscalatedKey] = stats.escalated
+	}
+	if stats.err != nil {
+		ev.CustomMetadata[goalMetadataErrorKey] = stats.err.Error()
+	}
+	return ev
+}
+
 func goalWorkerInstruction() string {
 	return strings.Join([]string{
 		"You are the goal worker agent.",
 		"You receive one user goal as plain text.",
 		"Use the available goal and context.",
+		"When previous worker or validator results are provided, use them as feedback and correct the next attempt.",
 		"Do the requested work in the current working directory.",
 		"Prefer direct execution over clarification when execution is possible.",
 		"Ask clarifying questions only when execution is blocked by missing critical information.",
@@ -187,7 +472,7 @@ func goalWorkerInstruction() string {
 func goalValidatorInstruction() string {
 	return strings.Join([]string{
 		"You are the goal validator agent.",
-		"Validate the prior worker result against the original user goal using the shared runtime session context.",
+		"Validate the provided worker result against the original user goal using your isolated validator session.",
 		"Inspect the current working directory as needed.",
 		"Do not intentionally mutate files or continue the worker's implementation work.",
 		"Start with exactly `verdict: pass` or `verdict: fail`.",
@@ -396,4 +681,32 @@ func buildGoalValidationPrompt(ctx adkagent.InvocationContext, workerOutputState
 		workerOutput = "(none)"
 	}
 	return goal + "\n\nWorker result:\n" + workerOutput
+}
+
+func buildGoalWorkerPrompt(objective string, previousWorkerResult string, previousValidatorResult string) string {
+	sections := []string{
+		strings.TrimSpace(objective),
+	}
+	if trimmed := strings.TrimSpace(previousWorkerResult); trimmed != "" {
+		sections = append(sections, "Previous worker result:\n"+trimmed)
+	}
+	if trimmed := strings.TrimSpace(previousValidatorResult); trimmed != "" {
+		sections = append(sections, "Previous validator result:\n"+trimmed)
+	}
+	return joinGoalPromptSections(sections...)
+}
+
+func buildGoalValidationPromptFromText(objective string, workerResult string, previousValidatorResult string) string {
+	workerResult = strings.TrimSpace(workerResult)
+	if workerResult == "" {
+		workerResult = "(none)"
+	}
+	sections := []string{
+		strings.TrimSpace(objective),
+		"Worker result:\n" + workerResult,
+	}
+	if trimmed := strings.TrimSpace(previousValidatorResult); trimmed != "" {
+		sections = append(sections, "Previous validator result:\n"+trimmed)
+	}
+	return joinGoalPromptSections(sections...)
 }
