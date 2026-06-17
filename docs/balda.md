@@ -513,6 +513,14 @@ session-start snapshot. New or restored sessions read the latest file.
 - `balda.telegram.webhook.auth_token`: webhook auth token required when `balda.telegram.webhook.enabled=true`; Telegram sends it as `X-Telegram-Bot-Api-Secret-Token`
 - `balda.telegram.webhook.listen_addr`: local webhook listen address (default: `0.0.0.0:8080`)
 - `balda.telegram.webhook.path`: local webhook path (default: `/telegram/webhook`)
+- `balda.zulip.bot_email`: Zulip outgoing webhook bot email (required when `balda.zulip.webhook.enabled=true`; env: `BALDA_ZULIP_BOT_EMAIL`)
+- `balda.zulip.api_key`: Zulip bot API key used for REST replies (required when `balda.zulip.webhook.enabled=true`; env: `BALDA_ZULIP_API_KEY`)
+- `balda.zulip.server_url`: Zulip server base URL, absolute `http://` or `https://` (required when `balda.zulip.webhook.enabled=true`; env: `BALDA_ZULIP_SERVER_URL`)
+- `balda.zulip.webhook_token`: Zulip outgoing webhook token that must match the incoming payload token (required when `balda.zulip.webhook.enabled=true`; env: `BALDA_ZULIP_WEBHOOK_TOKEN`)
+- `balda.zulip.allowed_owners`: Zulip user emails trusted to auto-claim topics by mentioning the bot; `BALDA_ZULIP_ALLOWED_OWNERS` accepts a comma-separated list
+- `balda.zulip.webhook.enabled`: enable local Zulip outgoing webhook receiver (`true` => Zulip channel enabled; default: `false`; env: `BALDA_ZULIP_WEBHOOK_ENABLED`)
+- `balda.zulip.webhook.listen_addr`: local Zulip webhook listen address (default: `0.0.0.0:8090`; env: `BALDA_ZULIP_WEBHOOK_LISTEN_ADDR`)
+- `balda.zulip.webhook.path`: local Zulip webhook path, which must start with `/` (default: `/zulip/webhook`; env: `BALDA_ZULIP_WEBHOOK_PATH`)
 - `balda.webhooks.enabled`: enable generic inbound webhook receiver (default: `false`)
 - `balda.webhooks.listen_addr`: local inbound webhook listen address (default: `127.0.0.1:8090`)
 - `balda.webhooks.routes`: route table keyed by route name

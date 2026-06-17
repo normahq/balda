@@ -55,6 +55,7 @@ balda:
     # Zulip user emails that can take over any topic via @mention without /start.
     # On first mention, the user is auto-registered as owner (if none exists) or
     # auto-added as a collaborator. Bare @mention (no message text) sends a welcome.
+    # Set via BALDA_ZULIP_ALLOWED_OWNERS as a comma-separated list.
     allowed_owners: []
     # Example:
     # allowed_owners:
@@ -63,10 +64,13 @@ balda:
     webhook:
       # Enable inbound Zulip webhook receiver.
       # Zulip outgoing webhook bot must target: http://<host>:8090/zulip/webhook
+      # Set via BALDA_ZULIP_WEBHOOK_ENABLED env var
       enabled: false
       # Local bind address for Zulip webhook endpoint.
+      # Set via BALDA_ZULIP_WEBHOOK_LISTEN_ADDR env var
       listen_addr: "0.0.0.0:8090"
       # HTTP path that receives Zulip webhook payloads.
+      # Set via BALDA_ZULIP_WEBHOOK_PATH env var
       path: "/zulip/webhook"
 
   webhooks:

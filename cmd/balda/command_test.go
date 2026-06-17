@@ -81,6 +81,70 @@ balda:
 	}
 }
 
+func TestLoadConfigDocument_AppliesZulipEnvOverrides(t *testing.T) {
+	workingDir := t.TempDir()
+	t.Setenv("BALDA_ZULIP_BOT_EMAIL", "bot@example.com")
+	t.Setenv("BALDA_ZULIP_API_KEY", "zulip-api-key")
+	t.Setenv("BALDA_ZULIP_SERVER_URL", "https://zulip.example.com")
+	t.Setenv("BALDA_ZULIP_WEBHOOK_TOKEN", "zulip-webhook-token")
+	t.Setenv("BALDA_ZULIP_ALLOWED_OWNERS", "owner@example.com,second@example.com")
+	t.Setenv("BALDA_ZULIP_WEBHOOK_ENABLED", "true")
+	t.Setenv("BALDA_ZULIP_WEBHOOK_LISTEN_ADDR", "127.0.0.1:19090")
+	t.Setenv("BALDA_ZULIP_WEBHOOK_PATH", "/custom/zulip")
+
+	if err := writeFile(filepath.Join(workingDir, ".config", "balda", "config.yaml"), `runtime:
+  providers:
+    balda_agent:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
+balda:
+  provider: balda_agent
+`); err != nil {
+		t.Fatalf("write balda config: %v", err)
+	}
+
+	var doc baldaTestConfigDocument
+	_, err := appconfig.LoadConfigDocument(
+		appconfig.RuntimeLoadOptions{WorkingDir: workingDir},
+		appconfig.AppLoadOptions{
+			AppName:            "balda",
+			DefaultsYAML:       defaultBaldaConfig,
+			UseDotConfigAppDir: true,
+		},
+		&doc,
+	)
+	if err != nil {
+		t.Fatalf("LoadConfigDocument: %v", err)
+	}
+
+	if doc.Balda.Zulip.BotEmail != "bot@example.com" {
+		t.Fatalf("zulip.bot_email = %q, want bot@example.com", doc.Balda.Zulip.BotEmail)
+	}
+	if doc.Balda.Zulip.APIKey != "zulip-api-key" {
+		t.Fatalf("zulip.api_key = %q, want zulip-api-key", doc.Balda.Zulip.APIKey)
+	}
+	if doc.Balda.Zulip.ServerURL != "https://zulip.example.com" {
+		t.Fatalf("zulip.server_url = %q, want https://zulip.example.com", doc.Balda.Zulip.ServerURL)
+	}
+	if doc.Balda.Zulip.WebhookToken != "zulip-webhook-token" {
+		t.Fatalf("zulip.webhook_token = %q, want zulip-webhook-token", doc.Balda.Zulip.WebhookToken)
+	}
+	wantOwners := []string{"owner@example.com", "second@example.com"}
+	if got := doc.Balda.Zulip.AllowedOwners; strings.Join(got, ",") != strings.Join(wantOwners, ",") {
+		t.Fatalf("zulip.allowed_owners = %#v, want %#v", got, wantOwners)
+	}
+	if !doc.Balda.Zulip.Webhook.Enabled {
+		t.Fatal("zulip.webhook.enabled = false, want true")
+	}
+	if doc.Balda.Zulip.Webhook.ListenAddr != "127.0.0.1:19090" {
+		t.Fatalf("zulip.webhook.listen_addr = %q, want 127.0.0.1:19090", doc.Balda.Zulip.Webhook.ListenAddr)
+	}
+	if doc.Balda.Zulip.Webhook.Path != "/custom/zulip" {
+		t.Fatalf("zulip.webhook.path = %q, want /custom/zulip", doc.Balda.Zulip.Webhook.Path)
+	}
+}
+
 func TestLoadConfigDocument_ImplicitDefaultProfileDoesNotRequireProfilesDefault(t *testing.T) {
 	workingDir := t.TempDir()
 

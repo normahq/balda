@@ -398,7 +398,7 @@ func Module(
 		),
 		fx.Provide(
 			fx.Annotate(
-				func() []string { return cfg.Balda.Zulip.AllowedOwners },
+				func() []string { return normalizedZulipAllowedOwners(cfg.Balda.Zulip.AllowedOwners) },
 				fx.ResultTags(`name:"balda_zulip_allowed_owners"`),
 			),
 		),
@@ -460,6 +460,18 @@ func Module(
 			})
 		}),
 	)
+}
+
+func normalizedZulipAllowedOwners(owners []string) []string {
+	out := make([]string, 0, len(owners))
+	for _, owner := range owners {
+		trimmed := strings.TrimSpace(owner)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 func validateBaldaMCPConfiguration(normaCfg runtimeconfig.RuntimeConfig) error {
