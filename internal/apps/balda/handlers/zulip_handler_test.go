@@ -500,6 +500,43 @@ func TestZulipBaldaHandlerAutoClaimBareMentionSendsOneWelcome(t *testing.T) {
 	}
 }
 
+func TestZulipBaldaHandlerAutoClaimHandlesMissingOwnerStore(t *testing.T) {
+	locator := baldazulip.NewStreamLocator(42, "ops")
+	dispatcher := &recordingZulipDispatcher{}
+	handler := &ZulipBaldaHandler{
+		actorDispatcher: dispatcher,
+		logger:          zerolog.Nop(),
+	}
+
+	handler.handleAutoClaimMention(context.Background(), locator, 101, "owner@example.com", "", false)
+
+	payloads := zulipDeliveryPayloads(t, dispatcher.commands)
+	if len(payloads) != 1 {
+		t.Fatalf("delivery payloads = %d, want configuration error reply", len(payloads))
+	}
+	if !strings.Contains(payloads[0].Text, "storage configuration") {
+		t.Fatalf("reply = %q, want storage configuration guidance", payloads[0].Text)
+	}
+}
+
+func TestZulipBaldaHandlerCommandAccessHandlesMissingOwnerStore(t *testing.T) {
+	dispatcher := &recordingZulipDispatcher{}
+	handler := &ZulipBaldaHandler{
+		actorDispatcher: dispatcher,
+		logger:          zerolog.Nop(),
+	}
+
+	handler.handleCommand(context.Background(), baldazulip.NewDMLocator(101), 101, "/locator", true)
+
+	payloads := zulipDeliveryPayloads(t, dispatcher.commands)
+	if len(payloads) != 1 {
+		t.Fatalf("delivery payloads = %d, want access denial", len(payloads))
+	}
+	if payloads[0].Text != "Only the bot owner or collaborators can use this bot." {
+		t.Fatalf("reply = %q, want access denial", payloads[0].Text)
+	}
+}
+
 func TestZulipBaldaHandlerMentionCommandUsesCommandText(t *testing.T) {
 	ownerStore, err := auth.NewOwnerStore(&fakeOwnerKVStore{})
 	if err != nil {

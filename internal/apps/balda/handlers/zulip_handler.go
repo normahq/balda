@@ -1306,6 +1306,11 @@ func (h *ZulipBaldaHandler) handleAutoClaimMention(
 	transportUserID := int64(senderID)
 
 	if h.getOwnerID() == 0 {
+		if h.ownerStore == nil {
+			h.logger.Error().Str("email", senderEmail).Msg("zulip: auto-claim owner store is unavailable")
+			_ = h.sendPlain(ctx, locator, "Could not auto-register. Ask the operator to check Balda storage configuration.")
+			return
+		}
 		registered, err := h.ownerStore.RegisterOwner(transportUserID, 0)
 		if err != nil {
 			h.logger.Error().Err(err).Str("email", senderEmail).Msg("zulip: auto-claim failed to register owner")
@@ -1340,7 +1345,7 @@ func (h *ZulipBaldaHandler) handleAutoClaimMention(
 }
 
 func (h *ZulipBaldaHandler) canAccessCollaboratorScope(ctx context.Context, userID int64) bool {
-	if h.ownerStore.IsOwner(userID) {
+	if h.ownerStore != nil && h.ownerStore.IsOwner(userID) {
 		return true
 	}
 	if h.collaboratorStore == nil {
