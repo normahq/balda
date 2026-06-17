@@ -1192,8 +1192,11 @@ func (h *ZulipBaldaHandler) RunSessionTurnPayload(
 	ctx context.Context,
 	payload actors.SessionTurnPayload,
 ) error {
+	if h.sessionManager == nil {
+		return fmt.Errorf("zulip turn: session manager is unavailable")
+	}
 	ts, err := h.sessionManager.GetSession(payload.Locator)
-	if err != nil {
+	if err != nil || ts == nil {
 		userID := strings.TrimSpace(payload.UserID)
 		ts, err = h.sessionManager.RestoreSession(ctx, baldasession.SessionContext{
 			Locator: payload.Locator,

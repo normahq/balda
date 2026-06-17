@@ -937,6 +937,49 @@ func TestZulipBaldaHandlerReturnsDeliveryErrorWhenAdapterMissing(t *testing.T) {
 	}
 }
 
+func TestZulipBaldaHandlerRunSessionTurnRequiresSessionManager(t *testing.T) {
+	handler := &ZulipBaldaHandler{
+		logger: zerolog.Nop(),
+	}
+
+	err := handler.RunSessionTurnPayload(context.Background(), actors.SessionTurnPayload{
+		Locator: baldazulip.NewDMLocator(101),
+		UserID:  "101",
+		Text:    "hello",
+	})
+
+	if err == nil {
+		t.Fatal("RunSessionTurnPayload() error = nil, want missing session manager error")
+	}
+	if got := err.Error(); !strings.Contains(got, "session manager is unavailable") {
+		t.Fatalf("RunSessionTurnPayload() error = %q, want session manager context", got)
+	}
+}
+
+func TestZulipBaldaHandlerRunSessionTurnHandlesNilCachedSession(t *testing.T) {
+	manager := &fakeZulipSessionManager{}
+	handler := &ZulipBaldaHandler{
+		sessionManager: manager,
+		logger:         zerolog.Nop(),
+	}
+
+	err := handler.RunSessionTurnPayload(context.Background(), actors.SessionTurnPayload{
+		Locator: baldazulip.NewDMLocator(101),
+		UserID:  "101",
+		Text:    "hello",
+	})
+
+	if err == nil {
+		t.Fatal("RunSessionTurnPayload() error = nil, want no-runner error from restored placeholder session")
+	}
+	if got := err.Error(); !strings.Contains(got, "no runner") {
+		t.Fatalf("RunSessionTurnPayload() error = %q, want no-runner error after nil cache miss recovery", got)
+	}
+	if len(manager.ensureCalls) != 1 {
+		t.Fatalf("ensureCalls = %d, want restored session creation attempt", len(manager.ensureCalls))
+	}
+}
+
 type errorInviteKVStore struct {
 	err error
 }
