@@ -31,12 +31,12 @@ func TestGoalKeeperActorCompletesPassingRun(t *testing.T) {
 	setUnexportedField(t, ts, "agentSessionID", "adk-session-1")
 	setUnexportedField(t, ts, "workspaceDir", t.TempDir())
 	manager := newBaldaSessionManagerWithSession(t, locator, ts)
-	runtimeBuilder := &fakeGoalRuntimeBuilder{t: t, finalValidatorText: "verdict: pass\nvalidated"}
+	runtimeBuilder := &fakeGoalRunPreparer{t: t, finalValidatorText: "verdict: pass\nvalidated"}
 	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
 		TaskService:        tasks,
 		Dispatcher:         dispatcher,
 		SessionManager:     manager,
-		RuntimeBuilder:     runtimeBuilder,
+		GoalRunPreparer:    runtimeBuilder,
 		TaskRuns:           NewTaskRunRegistry(),
 		MaxIterations:      3,
 		PlanUpdatesEnabled: false,
@@ -82,6 +82,64 @@ func TestGoalKeeperActorCompletesPassingRun(t *testing.T) {
 	}
 }
 
+func TestGoalKeeperActorCompletesPassingRunWithoutWorkspaceExport(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
+	ts := newBaldaTopicSession(t, locator.SessionID)
+	setUnexportedField(t, ts, "userID", "101")
+	setUnexportedField(t, ts, "agentSessionID", "adk-session-1")
+	setUnexportedField(t, ts, "workspaceDir", t.TempDir())
+	manager := newBaldaSessionManagerWithSession(t, locator, ts)
+	runtimeBuilder := &fakeGoalRunPreparer{
+		t:                  t,
+		finalValidatorText: "verdict: pass\nvalidated",
+		exportStatus:       "not_exported",
+		exportReason:       "workspace_disabled",
+	}
+	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
+		TaskService:        tasks,
+		Dispatcher:         dispatcher,
+		SessionManager:     manager,
+		GoalRunPreparer:    runtimeBuilder,
+		TaskRuns:           NewTaskRunRegistry(),
+		MaxIterations:      3,
+		PlanUpdatesEnabled: false,
+		Logger:             zerolog.Nop(),
+	})
+	env, err := goalkeeper.GoalTaskEnvelope(locator, "ship release", "101", 3)
+	if err != nil {
+		t.Fatalf("GoalTaskEnvelope() error = %v", err)
+	}
+	if err := actor.Handle(ctx, env); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	task, ok, err := tasks.Get(ctx, env.TaskID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("task %q not found", env.TaskID)
+	}
+	if task.Status != baldastate.SwarmTaskStatusCompleted {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusCompleted)
+	}
+	for _, want := range []string{`"status":"not_exported"`, `"reason":"workspace_disabled"`} {
+		if !strings.Contains(task.ResultJSON, want) {
+			t.Fatalf("task result = %s, want %s", task.ResultJSON, want)
+		}
+	}
+	if runtimeBuilder.exportedMessage != "" {
+		t.Fatalf("exportedMessage = %q, want empty when export is skipped", runtimeBuilder.exportedMessage)
+	}
+	texts := deliveryTextsForTask(t, bus, env.TaskID)
+	if got := countContains(texts, "Export: skipped (workspace mode disabled)."); got != 1 {
+		t.Fatalf("skipped export deliveries = %d, want 1\n%v", got, texts)
+	}
+}
+
 func TestGoalKeeperActorRejectsSecondActiveGoalInSession(t *testing.T) {
 	t.Parallel()
 
@@ -103,12 +161,12 @@ func TestGoalKeeperActorRejectsSecondActiveGoalInSession(t *testing.T) {
 	}, "test", nil); err != nil {
 		t.Fatalf("Create existing goal task: %v", err)
 	}
-	runtimeBuilder := &fakeGoalRuntimeBuilder{t: t}
+	runtimeBuilder := &fakeGoalRunPreparer{t: t}
 	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
 		TaskService:        tasks,
 		Dispatcher:         dispatcher,
 		SessionManager:     manager,
-		RuntimeBuilder:     runtimeBuilder,
+		GoalRunPreparer:    runtimeBuilder,
 		TaskRuns:           NewTaskRunRegistry(),
 		MaxIterations:      3,
 		PlanUpdatesEnabled: false,
@@ -152,7 +210,7 @@ func TestGoalKeeperActorDeliversWorkerProgressAndDedupesRepeatedOutput(t *testin
 	setUnexportedField(t, ts, "agentSessionID", "adk-session-1")
 	setUnexportedField(t, ts, "workspaceDir", t.TempDir())
 	manager := newBaldaSessionManagerWithSession(t, locator, ts)
-	runtimeBuilder := &fakeGoalRuntimeBuilder{
+	runtimeBuilder := &fakeGoalRunPreparer{
 		t: t,
 		events: []goalTestEvent{
 			{kind: "step", step: goalkeeper.WorkerStep, eventType: goalkeeper.StepStarted},
@@ -168,7 +226,7 @@ func TestGoalKeeperActorDeliversWorkerProgressAndDedupesRepeatedOutput(t *testin
 		TaskService:        tasks,
 		Dispatcher:         dispatcher,
 		SessionManager:     manager,
-		RuntimeBuilder:     runtimeBuilder,
+		GoalRunPreparer:    runtimeBuilder,
 		TaskRuns:           NewTaskRunRegistry(),
 		MaxIterations:      3,
 		PlanUpdatesEnabled: false,
@@ -226,7 +284,7 @@ func TestGoalKeeperActorDeliversPlanUpdatesWhenEnabled(t *testing.T) {
 	setUnexportedField(t, ts, "agentSessionID", "adk-session-1")
 	setUnexportedField(t, ts, "workspaceDir", t.TempDir())
 	manager := newBaldaSessionManagerWithSession(t, locator, ts)
-	runtimeBuilder := &fakeGoalRuntimeBuilder{
+	runtimeBuilder := &fakeGoalRunPreparer{
 		t: t,
 		events: []goalTestEvent{
 			{kind: "step", step: goalkeeper.WorkerStep, eventType: goalkeeper.StepStarted},
@@ -243,7 +301,7 @@ func TestGoalKeeperActorDeliversPlanUpdatesWhenEnabled(t *testing.T) {
 		TaskService:        tasks,
 		Dispatcher:         dispatcher,
 		SessionManager:     manager,
-		RuntimeBuilder:     runtimeBuilder,
+		GoalRunPreparer:    runtimeBuilder,
 		TaskRuns:           NewTaskRunRegistry(),
 		MaxIterations:      3,
 		PlanUpdatesEnabled: true,
@@ -264,23 +322,24 @@ func TestGoalKeeperActorDeliversPlanUpdatesWhenEnabled(t *testing.T) {
 	}
 }
 
-type fakeGoalRuntimeBuilder struct {
+type fakeGoalRunPreparer struct {
 	t                  *testing.T
 	finalValidatorText string
 	commitMessage      string
-	commitErr          error
 	exportErr          error
+	exportStatus       string
+	exportReason       string
 	cleanupCalls       int
 	buildCalls         int
 	exportedMessage    string
 	events             []goalTestEvent
 }
 
-func (b *fakeGoalRuntimeBuilder) BuildGoalRuntime(ctx context.Context, cfg goalkeeper.GoalRuntimeConfig) (goalkeeper.GoalRuntime, error) {
+func (b *fakeGoalRunPreparer) PrepareGoalRun(ctx context.Context, cfg goalkeeper.GoalRunConfig) (goalkeeper.GoalRun, error) {
 	b.t.Helper()
 	b.buildCalls++
 	if cfg.UserID == "" || cfg.SourceSessionID == "" || cfg.TaskID == "" {
-		b.t.Fatalf("BuildGoalRuntime() cfg = %+v, want user/source session/task", cfg)
+		b.t.Fatalf("PrepareGoalRun() cfg = %+v, want user/source session/task", cfg)
 	}
 	workspaceDir := b.t.TempDir()
 	svc := adksession.InMemoryService()
@@ -323,17 +382,33 @@ func (b *fakeGoalRuntimeBuilder) BuildGoalRuntime(ctx context.Context, cfg goalk
 	if err != nil {
 		return nil, err
 	}
-	return fakeGoalRuntime{
+	return fakeGoalRun{
 		runner:       r,
 		sessionID:    cfg.TaskID,
 		workspaceDir: workspaceDir,
 		branchName:   "norma/balda/goal/" + cfg.TaskID,
-		buildCommitMessageFn: func(context.Context, string, string, string) (string, error) {
-			return b.commitMessage, b.commitErr
-		},
-		exportWorkspaceFn: func(_ context.Context, commitMessage string) error {
-			b.exportedMessage = commitMessage
-			return b.exportErr
+		finalizeFn: func(_ context.Context, _ string, _ string, _ string) (goalkeeper.GoalFinalizationResult, error) {
+			commitMessage := strings.TrimSpace(b.commitMessage)
+			if commitMessage == "" {
+				commitMessage = "chore(goal): complete goal"
+			}
+			status := strings.TrimSpace(b.exportStatus)
+			if status == "" {
+				status = "exported"
+			}
+			if status == "exported" {
+				b.exportedMessage = commitMessage
+			}
+			result := goalkeeper.GoalFinalizationResult{
+				Status:        status,
+				CommitMessage: commitMessage,
+				Reason:        b.exportReason,
+			}
+			if b.exportErr != nil {
+				result.Status = "export_failed"
+				result.Error = b.exportErr.Error()
+			}
+			return result, b.exportErr
 		},
 		cleanupResourcesFn: func(context.Context) error {
 			b.cleanupCalls++
@@ -356,7 +431,7 @@ func TestGoalKeeperActorPreservesWorkspaceOnExportFailure(t *testing.T) {
 	setUnexportedField(t, ts, "agentSessionID", "adk-session-1")
 	setUnexportedField(t, ts, "workspaceDir", t.TempDir())
 	manager := newBaldaSessionManagerWithSession(t, locator, ts)
-	runtimeBuilder := &fakeGoalRuntimeBuilder{
+	runtimeBuilder := &fakeGoalRunPreparer{
 		t:                  t,
 		finalValidatorText: "verdict: pass\nvalidated",
 		exportErr:          context.DeadlineExceeded,
@@ -365,7 +440,7 @@ func TestGoalKeeperActorPreservesWorkspaceOnExportFailure(t *testing.T) {
 		TaskService:        tasks,
 		Dispatcher:         dispatcher,
 		SessionManager:     manager,
-		RuntimeBuilder:     runtimeBuilder,
+		GoalRunPreparer:    runtimeBuilder,
 		TaskRuns:           NewTaskRunRegistry(),
 		MaxIterations:      3,
 		PlanUpdatesEnabled: false,
@@ -427,48 +502,38 @@ func (e goalTestEvent) build(invocationID string, fallbackValidatorText string) 
 	return ev
 }
 
-type fakeGoalRuntime struct {
-	runner               goalkeeper.GoalRunner
-	sessionID            string
-	workspaceDir         string
-	branchName           string
-	buildCommitMessageFn func(context.Context, string, string, string) (string, error)
-	exportWorkspaceFn    func(context.Context, string) error
-	cleanupResourcesFn   func(context.Context) error
+type fakeGoalRun struct {
+	runner             goalkeeper.GoalRunner
+	sessionID          string
+	workspaceDir       string
+	branchName         string
+	finalizeFn         func(context.Context, string, string, string) (goalkeeper.GoalFinalizationResult, error)
+	cleanupResourcesFn func(context.Context) error
 }
 
-func (r fakeGoalRuntime) Runner() goalkeeper.GoalRunner { return r.runner }
-func (r fakeGoalRuntime) SessionID() string             { return r.sessionID }
-func (r fakeGoalRuntime) WorkspaceDir() string          { return r.workspaceDir }
-func (r fakeGoalRuntime) BranchName() string            { return r.branchName }
-func (r fakeGoalRuntime) Close() error                  { return nil }
+func (r fakeGoalRun) Runner() goalkeeper.GoalRunner { return r.runner }
+func (r fakeGoalRun) SessionID() string             { return r.sessionID }
+func (r fakeGoalRun) WorkspaceDir() string          { return r.workspaceDir }
+func (r fakeGoalRun) BranchName() string            { return r.branchName }
+func (r fakeGoalRun) Close() error                  { return nil }
 
-func (r fakeGoalRuntime) CleanupResources(ctx context.Context) error {
+func (r fakeGoalRun) CleanupResources(ctx context.Context) error {
 	if r.cleanupResourcesFn == nil {
 		return nil
 	}
 	return r.cleanupResourcesFn(ctx)
 }
 
-func (r fakeGoalRuntime) BuildCommitMessage(ctx context.Context, objective string, workerOutput string, validatorOutput string) (string, error) {
-	if r.buildCommitMessageFn == nil {
-		return "chore(goal): complete goal", nil
+func (r fakeGoalRun) Finalize(
+	ctx context.Context,
+	objective string,
+	workerOutput string,
+	validatorOutput string,
+) (goalkeeper.GoalFinalizationResult, error) {
+	if r.finalizeFn == nil {
+		return goalkeeper.GoalFinalizationResult{Status: "not_exported", Reason: "workspace_disabled"}, nil
 	}
-	message, err := r.buildCommitMessageFn(ctx, objective, workerOutput, validatorOutput)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(message) == "" {
-		return "chore(goal): complete goal", nil
-	}
-	return message, nil
-}
-
-func (r fakeGoalRuntime) ExportWorkspace(ctx context.Context, commitMessage string) error {
-	if r.exportWorkspaceFn == nil {
-		return nil
-	}
-	return r.exportWorkspaceFn(ctx, commitMessage)
+	return r.finalizeFn(ctx, objective, workerOutput, validatorOutput)
 }
 
 func deliveryTextsForTask(t *testing.T, bus *recordingHandlerCommandBus, taskID string) []string {
@@ -501,6 +566,16 @@ func countMatches(values []string, want string) int {
 	count := 0
 	for _, value := range values {
 		if value == want {
+			count++
+		}
+	}
+	return count
+}
+
+func countContains(values []string, want string) int {
+	count := 0
+	for _, value := range values {
+		if strings.Contains(value, want) {
 			count++
 		}
 	}

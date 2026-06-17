@@ -7,12 +7,12 @@ import (
 	baldaagent "github.com/normahq/balda/internal/apps/balda/agent"
 )
 
-type goalRuntimeBuilderAdapter struct {
+type goalRunPreparerAdapter struct {
 	manager *baldaagent.RuntimeManager
 }
 
-func (a goalRuntimeBuilderAdapter) BuildGoalRuntime(ctx context.Context, cfg goalkeeper.GoalRuntimeConfig) (goalkeeper.GoalRuntime, error) {
-	runtime, err := a.manager.BuildGoalRuntime(ctx, baldaagent.GoalRuntimeConfig{
+func (a goalRunPreparerAdapter) PrepareGoalRun(ctx context.Context, cfg goalkeeper.GoalRunConfig) (goalkeeper.GoalRun, error) {
+	runtime, err := a.manager.PrepareGoalRun(ctx, baldaagent.GoalRunConfig{
 		SourceSessionID: cfg.SourceSessionID,
 		TaskID:          cfg.TaskID,
 		UserID:          cfg.UserID,
@@ -21,41 +21,48 @@ func (a goalRuntimeBuilderAdapter) BuildGoalRuntime(ctx context.Context, cfg goa
 	if err != nil {
 		return nil, err
 	}
-	return goalRuntimeAdapter{runtime: runtime}, nil
+	return goalRunAdapter{runtime: runtime}, nil
 }
 
-type goalRuntimeAdapter struct {
-	runtime *baldaagent.GoalRuntime
+type goalRunAdapter struct {
+	runtime *baldaagent.GoalRun
 }
 
-func (a goalRuntimeAdapter) Runner() goalkeeper.GoalRunner {
+func (a goalRunAdapter) Runner() goalkeeper.GoalRunner {
 	return a.runtime.Runner
 }
 
-func (a goalRuntimeAdapter) SessionID() string {
+func (a goalRunAdapter) SessionID() string {
 	return a.runtime.SessionID
 }
 
-func (a goalRuntimeAdapter) WorkspaceDir() string {
+func (a goalRunAdapter) WorkspaceDir() string {
 	return a.runtime.WorkspaceDir
 }
 
-func (a goalRuntimeAdapter) BranchName() string {
+func (a goalRunAdapter) BranchName() string {
 	return a.runtime.BranchName
 }
 
-func (a goalRuntimeAdapter) Close() error {
+func (a goalRunAdapter) Close() error {
 	return a.runtime.Close()
 }
 
-func (a goalRuntimeAdapter) CleanupResources(ctx context.Context) error {
+func (a goalRunAdapter) CleanupResources(ctx context.Context) error {
 	return a.runtime.CleanupResources(ctx)
 }
 
-func (a goalRuntimeAdapter) BuildCommitMessage(ctx context.Context, objective string, workerOutput string, validatorOutput string) (string, error) {
-	return a.runtime.BuildCommitMessage(ctx, objective, workerOutput, validatorOutput)
-}
-
-func (a goalRuntimeAdapter) ExportWorkspace(ctx context.Context, commitMessage string) error {
-	return a.runtime.ExportWorkspace(ctx, commitMessage)
+func (a goalRunAdapter) Finalize(
+	ctx context.Context,
+	objective string,
+	workerOutput string,
+	validatorOutput string,
+) (goalkeeper.GoalFinalizationResult, error) {
+	result, err := a.runtime.Finalize(ctx, objective, workerOutput, validatorOutput)
+	return goalkeeper.GoalFinalizationResult{
+		Status:        result.Status,
+		CommitMessage: result.CommitMessage,
+		Reason:        result.Reason,
+		Error:         result.Error,
+	}, err
 }

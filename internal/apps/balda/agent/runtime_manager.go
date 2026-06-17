@@ -46,24 +46,39 @@ type RuntimeManagerParams struct {
 	Logger            zerolog.Logger
 }
 
-// GoalRuntimeConfig configures a per-run /goal worker-validator runtime.
-type GoalRuntimeConfig struct {
+const (
+	GoalExportStatusExported    = "exported"
+	GoalExportStatusFailed      = "export_failed"
+	GoalExportStatusNotExported = "not_exported"
+	GoalExportReasonDisabled    = "workspace_disabled"
+)
+
+// GoalRunConfig configures a per-run /goal worker-validator execution context.
+type GoalRunConfig struct {
 	SourceSessionID string
 	TaskID          string
 	UserID          string
 	MaxIterations   uint
 }
 
-// GoalRuntime owns the per-run /goal worker-validator runner and agents.
-type GoalRuntime struct {
-	Agent                adkagent.Agent
-	Runner               *runner.Runner
-	SessionID            string
-	WorkspaceDir         string
-	BranchName           string
-	BuildCommitMessageFn func(context.Context, string, string, string) (string, error)
-	ExportWorkspaceFn    func(context.Context, string) error
-	CleanupResourcesFn   func(context.Context) error
+// GoalExportResult describes the export/finalization outcome for a passing
+// /goal run.
+type GoalExportResult struct {
+	Status        string
+	CommitMessage string
+	Reason        string
+	Error         string
+}
+
+// GoalRun owns the per-run /goal worker-validator runner and agents.
+type GoalRun struct {
+	Agent              adkagent.Agent
+	Runner             *runner.Runner
+	SessionID          string
+	WorkspaceDir       string
+	BranchName         string
+	FinalizeFn         func(context.Context, string, string, string) (GoalExportResult, error)
+	CleanupResourcesFn func(context.Context) error
 }
 
 type childRuntimeBase struct {
@@ -75,39 +90,29 @@ type childRuntimeBase struct {
 }
 
 // Close releases child provider agents created for the workflow.
-func (r *GoalRuntime) Close() error {
+func (r *GoalRun) Close() error {
 	if r == nil {
 		return nil
 	}
 	return closeRuntimeAgent(r.Agent)
 }
 
-// BuildCommitMessage returns an AI-generated Conventional Commit subject when
-// available and falls back to a deterministic subject if generation fails.
-func (r *GoalRuntime) BuildCommitMessage(
+// Finalize completes a passing /goal run by exporting workspace-backed runs or
+// reporting an explicit no-export outcome for direct mode.
+func (r *GoalRun) Finalize(
 	ctx context.Context,
 	objective string,
 	workerOutput string,
 	validatorOutput string,
-) (string, error) {
-	fallback := fallbackGoalCommitMessage(objective)
-	if r == nil || r.BuildCommitMessageFn == nil {
-		return fallback, nil
+) (GoalExportResult, error) {
+	if r == nil || r.FinalizeFn == nil {
+		return GoalExportResult{Status: GoalExportStatusNotExported, Reason: GoalExportReasonDisabled}, nil
 	}
-	msg, err := r.BuildCommitMessageFn(ctx, objective, workerOutput, validatorOutput)
-	return normalizeGoalCommitMessage(objective, msg), err
-}
-
-// ExportWorkspace lands goal workspace changes onto the configured base branch.
-func (r *GoalRuntime) ExportWorkspace(ctx context.Context, commitMessage string) error {
-	if r == nil || r.ExportWorkspaceFn == nil {
-		return nil
-	}
-	return r.ExportWorkspaceFn(ctx, commitMessage)
+	return r.FinalizeFn(ctx, objective, workerOutput, validatorOutput)
 }
 
 // CleanupResources deletes the isolated goal runtime session and its workspace.
-func (r *GoalRuntime) CleanupResources(ctx context.Context) error {
+func (r *GoalRun) CleanupResources(ctx context.Context) error {
 	if r == nil || r.CleanupResourcesFn == nil {
 		return nil
 	}
@@ -198,12 +203,13 @@ func (m *RuntimeManager) Runtime(ctx context.Context) (*BuiltRuntime, error) {
 	return runtime, nil
 }
 
-// BuildGoalRuntime creates an isolated GoalKeeper runtime with a per-task
-// runtime session and per-task goal workspace.
-func (m *RuntimeManager) BuildGoalRuntime(
+// PrepareGoalRun creates an isolated GoalKeeper execution context using the
+// app-scoped provider runtime. Workspace-enabled runs get a per-task worktree;
+// direct-mode runs use the app working directory and skip export.
+func (m *RuntimeManager) PrepareGoalRun(
 	ctx context.Context,
-	cfg GoalRuntimeConfig,
-) (*GoalRuntime, error) {
+	cfg GoalRunConfig,
+) (*GoalRun, error) {
 	base, err := m.childRuntimeBase(ctx)
 	if err != nil {
 		return nil, err
@@ -220,26 +226,66 @@ func (m *RuntimeManager) BuildGoalRuntime(
 	if sourceSessionID == "" {
 		return nil, fmt.Errorf("source session id is required")
 	}
-	if !m.workspaceEnabled {
-		return nil, fmt.Errorf("/goal requires balda.workspace mode to be enabled")
-	}
 	goalSessionID := taskID
-	branchName := goalWorkspaceBranchName(taskID)
-	workspace, err := m.goalWorkspaces.EnsureWorkspace(
-		ctx,
-		taskID,
-		branchName,
-		m.goalWorkspaces.CanonicalWorkspaceDir(taskID),
-	)
-	if err != nil {
-		if errors.Is(err, ErrWorkspaceCollision) {
-			workspace, err = m.goalWorkspaces.ForceRemountCanonicalWorkspace(ctx, taskID, branchName)
-		}
+	branchName := ""
+	workspaceDir := base.workingDir
+	cleanupWorkspace := false
+	exportWorkspace := func(context.Context, string, string, string, string) (GoalExportResult, error) {
+		return GoalExportResult{Status: GoalExportStatusNotExported, Reason: GoalExportReasonDisabled}, nil
+	}
+	if m.workspaceEnabled {
+		branchName = goalWorkspaceBranchName(taskID)
+		workspace, err := m.goalWorkspaces.EnsureWorkspace(
+			ctx,
+			taskID,
+			branchName,
+			m.goalWorkspaces.CanonicalWorkspaceDir(taskID),
+		)
 		if err != nil {
-			return nil, fmt.Errorf("create goal workspace: %w", err)
+			if errors.Is(err, ErrWorkspaceCollision) {
+				workspace, err = m.goalWorkspaces.ForceRemountCanonicalWorkspace(ctx, taskID, branchName)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("create goal workspace: %w", err)
+			}
+		}
+		workspaceDir = workspace.Dir
+		cleanupWorkspace = true
+		exportWorkspace = func(
+			ctx context.Context,
+			objective string,
+			workerOutput string,
+			validatorOutput string,
+			workspaceDir string,
+		) (GoalExportResult, error) {
+			commitMessage, commitErr := base.buildGoalCommitMessage(
+				ctx,
+				userID,
+				sourceSessionID,
+				goalSessionID,
+				branchName,
+				workspaceDir,
+				objective,
+				workerOutput,
+				validatorOutput,
+			)
+			if commitErr != nil {
+				m.logger.Warn().Err(commitErr).Str("task_id", taskID).Msg("failed to generate goal export commit message; using fallback")
+			}
+			commitMessage = normalizeGoalCommitMessage(objective, commitMessage)
+			if err := m.goalWorkspaces.Export(ctx, workspaceDir, branchName, commitMessage); err != nil {
+				return GoalExportResult{
+					Status:        GoalExportStatusFailed,
+					CommitMessage: commitMessage,
+					Error:         err.Error(),
+				}, err
+			}
+			return GoalExportResult{
+				Status:        GoalExportStatusExported,
+				CommitMessage: commitMessage,
+			}, nil
 		}
 	}
-	workspaceDir := workspace.Dir
 	if _, err := base.builder.CreateRuntimeSession(
 		ctx,
 		base.runtime,
@@ -252,7 +298,9 @@ func (m *RuntimeManager) BuildGoalRuntime(
 			SessionBranch:  branchName,
 		},
 	); err != nil {
-		_ = m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
+		if cleanupWorkspace {
+			_ = m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
+		}
 		return nil, fmt.Errorf("create goal runtime session: %w", err)
 	}
 
@@ -267,46 +315,40 @@ func (m *RuntimeManager) BuildGoalRuntime(
 	})
 	if err != nil {
 		_ = base.deleteRuntimeSession(ctx, userID, goalSessionID)
-		_ = m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
+		if cleanupWorkspace {
+			_ = m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
+		}
 		return nil, err
 	}
 	r, err := base.runner(workflow, "goal")
 	if err != nil {
 		_ = closeRuntimeAgent(workflow)
 		_ = base.deleteRuntimeSession(ctx, userID, goalSessionID)
-		_ = m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
+		if cleanupWorkspace {
+			_ = m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
+		}
 		return nil, err
 	}
-	return &GoalRuntime{
+	return &GoalRun{
 		Agent:        workflow,
 		Runner:       r,
 		SessionID:    goalSessionID,
 		WorkspaceDir: workspaceDir,
 		BranchName:   branchName,
-		BuildCommitMessageFn: func(
+		FinalizeFn: func(
 			ctx context.Context,
 			objective string,
 			workerOutput string,
 			validatorOutput string,
-		) (string, error) {
-			return base.buildGoalCommitMessage(
-				ctx,
-				userID,
-				sourceSessionID,
-				goalSessionID,
-				branchName,
-				workspaceDir,
-				objective,
-				workerOutput,
-				validatorOutput,
-			)
-		},
-		ExportWorkspaceFn: func(ctx context.Context, commitMessage string) error {
-			return m.goalWorkspaces.Export(ctx, workspaceDir, branchName, commitMessage)
+		) (GoalExportResult, error) {
+			return exportWorkspace(ctx, objective, workerOutput, validatorOutput, workspaceDir)
 		},
 		CleanupResourcesFn: func(ctx context.Context) error {
 			sessionErr := base.deleteRuntimeSession(ctx, userID, goalSessionID)
-			workspaceErr := m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
+			var workspaceErr error
+			if cleanupWorkspace {
+				workspaceErr = m.goalWorkspaces.CleanupWorkspace(ctx, workspaceDir)
+			}
 			return errors.Join(sessionErr, workspaceErr)
 		},
 	}, nil

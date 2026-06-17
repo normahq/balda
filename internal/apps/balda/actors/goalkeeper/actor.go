@@ -29,7 +29,10 @@ const (
 	actorName                     = "goalkeeper.actor"
 	ownerSessionLabel             = "balda"
 	defaultGoalMaxIterations      = 25
+	goalExportStatusExported      = "exported"
 	goalExportStatusFailed        = "export_failed"
+	goalExportStatusNotExported   = "not_exported"
+	goalExportReasonDisabled      = "workspace_disabled"
 	MetadataEventKey              = "norma.goal.event"
 	MetadataStepKey               = "norma.goal.step"
 	StepStarted                   = "step_started"
@@ -54,11 +57,11 @@ var (
 	secretTelegramToken       = regexp.MustCompile(`\b\d{6,10}:[A-Za-z0-9_-]{20,}\b`)
 )
 
-type GoalRuntimeBuilder interface {
-	BuildGoalRuntime(ctx context.Context, cfg GoalRuntimeConfig) (GoalRuntime, error)
+type GoalRunPreparer interface {
+	PrepareGoalRun(ctx context.Context, cfg GoalRunConfig) (GoalRun, error)
 }
 
-type GoalRuntimeConfig struct {
+type GoalRunConfig struct {
 	SourceSessionID string
 	TaskID          string
 	UserID          string
@@ -69,15 +72,21 @@ type GoalRunner interface {
 	Run(ctx context.Context, userID string, sessionID string, userContent *genai.Content, cfg adkagent.RunConfig, opts ...adkrunner.RunOption) iter.Seq2[*adksession.Event, error]
 }
 
-type GoalRuntime interface {
+type GoalRun interface {
 	Runner() GoalRunner
 	SessionID() string
 	WorkspaceDir() string
 	BranchName() string
 	Close() error
 	CleanupResources(ctx context.Context) error
-	BuildCommitMessage(ctx context.Context, objective string, workerOutput string, validatorOutput string) (string, error)
-	ExportWorkspace(ctx context.Context, commitMessage string) error
+	Finalize(ctx context.Context, objective string, workerOutput string, validatorOutput string) (GoalFinalizationResult, error)
+}
+
+type GoalFinalizationResult struct {
+	Status        string
+	CommitMessage string
+	Reason        string
+	Error         string
 }
 
 type TaskRuns interface {
@@ -91,7 +100,7 @@ type ActorParams struct {
 	TaskService        *swarm.TaskService
 	Dispatcher         swarm.ActorDispatcher
 	SessionManager     *baldasession.Manager
-	RuntimeBuilder     GoalRuntimeBuilder
+	GoalRunPreparer    GoalRunPreparer
 	TaskRuns           TaskRuns
 	MaxIterations      int  `name:"balda_goal_max_iterations"`
 	PlanUpdatesEnabled bool `name:"balda_telegram_plan_updates"`
@@ -102,7 +111,7 @@ type Actor struct {
 	tasks              *swarm.TaskService
 	dispatcher         swarm.ActorDispatcher
 	sessions           *baldasession.Manager
-	runtimeBuilder     GoalRuntimeBuilder
+	goalRunPreparer    GoalRunPreparer
 	taskRuns           TaskRuns
 	maxIters           int
 	planUpdatesEnabled bool
@@ -134,6 +143,7 @@ type taskExportResultV1 struct {
 	Status        string `json:"status,omitempty"`
 	CommitMessage string `json:"commit_message,omitempty"`
 	BaseCommit    string `json:"base_commit,omitempty"`
+	Reason        string `json:"reason,omitempty"`
 	Error         string `json:"error,omitempty"`
 }
 
@@ -185,7 +195,7 @@ func NewActor(params ActorParams) *Actor {
 		tasks:              params.TaskService,
 		dispatcher:         params.Dispatcher,
 		sessions:           params.SessionManager,
-		runtimeBuilder:     params.RuntimeBuilder,
+		goalRunPreparer:    params.GoalRunPreparer,
 		taskRuns:           params.TaskRuns,
 		maxIters:           normalizeGoalMaxIterations(params.MaxIterations),
 		planUpdatesEnabled: params.PlanUpdatesEnabled,
@@ -292,10 +302,10 @@ func (a *Actor) runGoal(ctx context.Context, env swarm.Envelope, payload goalTas
 		return err
 	}
 
-	if a.runtimeBuilder == nil {
-		return swarm.TransientError(fmt.Errorf("goal runtime builder is required"))
+	if a.goalRunPreparer == nil {
+		return swarm.TransientError(fmt.Errorf("goal run preparer is required"))
 	}
-	runtime, err := a.runtimeBuilder.BuildGoalRuntime(ctx, GoalRuntimeConfig{
+	goalRun, err := a.goalRunPreparer.PrepareGoalRun(ctx, GoalRunConfig{
 		SourceSessionID: payload.Locator.SessionID,
 		TaskID:          taskID,
 		UserID:          ts.GetUserID(),
@@ -305,8 +315,8 @@ func (a *Actor) runGoal(ctx context.Context, env swarm.Envelope, payload goalTas
 		return swarm.TransientError(err)
 	}
 	defer func() {
-		if err := runtime.Close(); err != nil {
-			a.logger.Warn().Err(err).Str("task_id", taskID).Msg("failed to close goal runtime")
+		if err := goalRun.Close(); err != nil {
+			a.logger.Warn().Err(err).Str("task_id", taskID).Msg("failed to close goal run")
 		}
 	}()
 
@@ -318,12 +328,12 @@ func (a *Actor) runGoal(ctx context.Context, env swarm.Envelope, payload goalTas
 	}
 	defer cancel()
 
-	result, err := a.runWorkflow(runCtx, runtime, ts.GetUserID(), runtime.SessionID(), payload)
-	artifacts := snapshotGoalRuntimeArtifacts(ctx, runtime)
+	result, err := a.runWorkflow(runCtx, goalRun, ts.GetUserID(), goalRun.SessionID(), payload)
+	artifacts := snapshotGoalRunArtifacts(ctx, goalRun)
 	if err != nil {
 		if errors.Is(runCtx.Err(), context.Canceled) {
-			if cleanupErr := runtime.CleanupResources(ctx); cleanupErr != nil {
-				a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup canceled goal runtime")
+			if cleanupErr := goalRun.CleanupResources(ctx); cleanupErr != nil {
+				a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup canceled goal run")
 			}
 			if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "canceled"}), baldastate.SwarmTaskStatusCanceled, actorName, "goal run canceled"); setErr != nil {
 				return swarm.TransientError(setErr)
@@ -331,8 +341,8 @@ func (a *Actor) runGoal(ctx context.Context, env swarm.Envelope, payload goalTas
 			return a.deliver(ctx, taskID, payload.Locator, "Goal run canceled.", "canceled")
 		}
 		reason := redactSecrets(err.Error())
-		if cleanupErr := runtime.CleanupResources(ctx); cleanupErr != nil {
-			a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup failed goal runtime")
+		if cleanupErr := goalRun.CleanupResources(ctx); cleanupErr != nil {
+			a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup failed goal run")
 		}
 		if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "failed", Error: reason}), baldastate.SwarmTaskStatusFailed, actorName, reason); setErr != nil {
 			return swarm.TransientError(setErr)
@@ -340,37 +350,34 @@ func (a *Actor) runGoal(ctx context.Context, env swarm.Envelope, payload goalTas
 		return a.deliver(ctx, taskID, payload.Locator, "Goal run failed: "+reason, "failed")
 	}
 	if reviewerPassed(result.validatorOutput) {
-		commitMessage, commitErr := runtime.BuildCommitMessage(ctx, payload.Objective, result.workerOutput, result.validatorOutput)
-		if commitErr != nil {
-			a.logger.Warn().Err(commitErr).Str("task_id", taskID).Msg("failed to generate goal export commit message; using fallback")
-		}
-		exportSummary := &taskExportResultV1{
-			Status:        "pending",
-			CommitMessage: commitMessage,
-		}
-		if exportErr := runtime.ExportWorkspace(ctx, commitMessage); exportErr != nil {
-			exportSummary.Status = goalExportStatusFailed
-			exportSummary.Error = redactSecrets(exportErr.Error())
+		finalization, exportErr := goalRun.Finalize(ctx, payload.Objective, result.workerOutput, result.validatorOutput)
+		exportSummary := finalization.toTaskExportResult()
+		if exportErr != nil || strings.TrimSpace(exportSummary.Status) == goalExportStatusFailed {
+			if exportSummary.Status == "" {
+				exportSummary.Status = goalExportStatusFailed
+			}
+			if exportSummary.Error == "" && exportErr != nil {
+				exportSummary.Error = redactSecrets(exportErr.Error())
+			}
 			taskResult := result.toTaskResult(true, artifacts, exportSummary)
 			if setErr := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.SwarmTaskStatusFailed, actorName, exportSummary.Error); setErr != nil {
 				return swarm.TransientError(setErr)
 			}
 			return a.deliver(ctx, taskID, payload.Locator, a.renderTaskOutcome(ctx, taskID, "Goal validation passed, but export failed."), "export-failed")
 		}
-		exportSummary.Status = "exported"
 		taskResult := result.toTaskResult(true, artifacts, exportSummary)
 		if err := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.SwarmTaskStatusCompleted, actorName, ""); err != nil {
 			return swarm.TransientError(err)
 		}
-		if cleanupErr := runtime.CleanupResources(ctx); cleanupErr != nil {
-			a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup completed goal runtime")
+		if cleanupErr := goalRun.CleanupResources(ctx); cleanupErr != nil {
+			a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup completed goal run")
 		}
 		return a.deliver(ctx, taskID, payload.Locator, a.renderTaskOutcome(ctx, taskID, "Goal run completed."), "completed")
 	}
-	if cleanupErr := runtime.CleanupResources(ctx); cleanupErr != nil {
-		a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup max-iteration goal runtime")
+	if cleanupErr := goalRun.CleanupResources(ctx); cleanupErr != nil {
+		a.logger.Warn().Err(cleanupErr).Str("task_id", taskID).Msg("failed to cleanup max-iteration goal run")
 	}
-	taskResult := result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "not_exported"})
+	taskResult := result.toTaskResult(false, artifacts, &taskExportResultV1{Status: goalExportStatusNotExported})
 	if err := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.SwarmTaskStatusFailed, actorName, "max iterations reached"); err != nil {
 		return swarm.TransientError(err)
 	}
@@ -477,7 +484,7 @@ func (a *Actor) resolveSession(ctx context.Context, payload goalTaskPayload) (*b
 
 func (a *Actor) runWorkflow(
 	ctx context.Context,
-	runtime GoalRuntime,
+	runtime GoalRun,
 	userID string,
 	agentSessionID string,
 	payload goalTaskPayload,
@@ -663,8 +670,13 @@ func (r goalRunResult) toTaskResult(goalReached bool, artifacts taskArtifactSnap
 	nextAction := "Inspect events and decide whether to continue, cancel, or ask a human."
 	if goalReached {
 		nextAction = "Review the exported result and continue with follow-up work if needed."
-		if export != nil && strings.TrimSpace(export.Status) == goalExportStatusFailed {
-			nextAction = "Inspect the preserved goal workspace and retry export after resolving the base-branch issue."
+		if export != nil {
+			switch strings.TrimSpace(export.Status) {
+			case goalExportStatusFailed:
+				nextAction = "Inspect the preserved goal workspace and retry export after resolving the base-branch issue."
+			case goalExportStatusNotExported:
+				nextAction = "Review the direct working directory changes and commit or follow up manually if needed."
+			}
 		}
 	} else if r.payload.MaxIterations > 0 && r.iterations >= r.payload.MaxIterations {
 		nextAction = "Review failure evidence and rerun /goal or assign a narrower follow-up task."
@@ -696,7 +708,20 @@ func (r goalRunResult) toTaskResult(goalReached bool, artifacts taskArtifactSnap
 	}
 }
 
-func snapshotGoalRuntimeArtifacts(ctx context.Context, runtime GoalRuntime) taskArtifactSnapshot {
+func (r GoalFinalizationResult) toTaskExportResult() *taskExportResultV1 {
+	status := strings.TrimSpace(r.Status)
+	if status == "" {
+		status = goalExportStatusNotExported
+	}
+	return &taskExportResultV1{
+		Status:        status,
+		CommitMessage: redactSecrets(strings.TrimSpace(r.CommitMessage)),
+		Reason:        redactSecrets(strings.TrimSpace(r.Reason)),
+		Error:         redactSecrets(strings.TrimSpace(r.Error)),
+	}
+}
+
+func snapshotGoalRunArtifacts(ctx context.Context, runtime GoalRun) taskArtifactSnapshot {
 	if runtime == nil {
 		return taskArtifactSnapshot{}
 	}
@@ -891,6 +916,16 @@ func renderReviewableOutcome(task baldastate.SwarmTaskRecord, artifacts taskArti
 	case string:
 		goalReached = strings.EqualFold(strings.TrimSpace(typed), "true")
 	}
+	exportStatus := ""
+	exportReason := ""
+	exportError := ""
+	if len(result) != 0 {
+		if exportMap, ok := result["export"].(map[string]any); ok {
+			exportStatus = redactSecrets(strings.TrimSpace(fmt.Sprint(exportMap["status"])))
+			exportReason = redactSecrets(strings.TrimSpace(fmt.Sprint(exportMap["reason"])))
+			exportError = redactSecrets(strings.TrimSpace(fmt.Sprint(exportMap["error"])))
+		}
+	}
 	resultText := func(key string) string {
 		if len(result) == 0 {
 			return ""
@@ -923,6 +958,22 @@ func renderReviewableOutcome(task baldastate.SwarmTaskRecord, artifacts taskArti
 		parts = append(parts, "Result: Goal completed.")
 	} else {
 		parts = append(parts, "Result: Goal not completed.")
+	}
+	if goalReached && exportStatus != "" {
+		switch exportStatus {
+		case goalExportStatusExported:
+			parts = append(parts, "Export: exported.")
+		case goalExportStatusNotExported:
+			reason := exportReason
+			if reason == goalExportReasonDisabled || reason == "" {
+				reason = "workspace mode disabled"
+			}
+			parts = append(parts, "Export: skipped ("+reason+").")
+		case goalExportStatusFailed:
+			parts = append(parts, "Export: failed: "+firstNonEmpty(exportError, exportReason, "unknown error"))
+		default:
+			parts = append(parts, "Export: "+exportStatus+".")
+		}
 	}
 	if whatWasDone != "" {
 		parts = append(parts, "What was done:\n"+whatWasDone)

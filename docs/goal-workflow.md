@@ -7,11 +7,10 @@ Use `/goal clear` to stop active goal work for the current session. `/cancel` do
 The workflow uses the configured `balda.provider` and the Balda MCP server set through the same app-scoped Balda provider runtime used by normal session turns, but it does not reuse the current chat runtime session, workspace, or state. Each `/goal` run gets:
 
 - a separate GoalKeeper ADK session/state
-- a separate goal workspace under Balda state
-- a goal branch created from `balda.workspace.base_branch`
-- automatic export back to the base branch when validation passes
+- the configured Balda runtime working directory, or a separate goal workspace under Balda state when workspace mode is enabled
+- automatic export back to the base branch when validation passes in workspace mode
 
-`/goal` requires `balda.workspace.mode` to resolve to an enabled git-worktree mode.
+When `balda.workspace.mode` resolves to `off`, `/goal` still runs with isolated GoalKeeper ADK session/state but works directly in `balda.working_dir`. Passing runs are completed with `not_exported` metadata because there is no workspace branch to export.
 
 Only one `/goal` run can be active per session. New `/goal <objective>` requests in the same session are rejected until the active run completes, fails, or is cleared.
 
@@ -19,7 +18,7 @@ Only one `/goal` run can be active per session. New `/goal <objective>` requests
 
 The loop is fixed:
 
-- GoalKeeper performs work toward the goal in the isolated goal workspace
+- GoalKeeper performs work toward the goal in its goal run working directory
 - Balda then validates the result against the same goal using the latest visible work summary
 - if the validation final visible response starts with `verdict: pass`, the loop exits
 - otherwise work and validation repeat until `balda.goal.max_iterations` is exhausted
@@ -59,9 +58,8 @@ Balda records enough isolated goal session state to continue the workflow across
 
 When validation passes:
 
-- Balda generates a Conventional Commit message for export
-- Balda squash-merges the goal branch into `balda.workspace.base_branch`
-- Balda deletes the goal workspace and goal session state after successful export
+- in workspace mode, Balda generates a Conventional Commit message, squash-merges the goal branch into `balda.workspace.base_branch`, then deletes the goal workspace and goal session state after successful export
+- with workspace mode disabled, Balda marks export as `not_exported` and deletes only the isolated goal session state
 
 When validation passes but export fails:
 
