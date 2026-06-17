@@ -147,6 +147,33 @@ func TestZulipBaldaHandlerReturnsBusyWhenProcessingSlotsFull(t *testing.T) {
 	}
 }
 
+func TestZulipBaldaHandlerIgnoresBotEchoBeforeProcessingQueue(t *testing.T) {
+	handler := &ZulipBaldaHandler{
+		webhookToken: "expected-token",
+		processSem:   make(chan struct{}, 1),
+		logger:       zerolog.Nop(),
+	}
+	handler.processSem <- struct{}{}
+	req := httptest.NewRequest(http.MethodPost, "/zulip/webhook", strings.NewReader(`{
+		"bot_email":"bot@example.com",
+		"token":"expected-token",
+		"message":{"sender_id":101,"sender_email":"bot@example.com","type":"stream","stream_id":42,"subject":"ops","content":"reply"}
+	}`))
+	rec := httptest.NewRecorder()
+
+	handler.handleWebhook(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"response_not_required": true}` {
+		t.Fatalf("body = %q, want no-response payload", got)
+	}
+	if got := len(handler.processSem); got != 1 {
+		t.Fatalf("process slot count = %d, want unchanged full queue", got)
+	}
+}
+
 func TestZulipBaldaHandlerRejectsInvalidAuthenticatedPayload(t *testing.T) {
 	tests := []struct {
 		name string

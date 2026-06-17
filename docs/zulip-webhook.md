@@ -157,6 +157,9 @@ Set `balda.zulip.webhook.listen_addr` to change the bind address.
 - **Bot responds to all messages, not just mentions**: outgoing webhook bots in
   Zulip fire on every message unless scoped by stream subscription; consider
   restricting the bot's stream access.
+- **Bot posts trigger new webhook events**: Balda ignores webhook payloads where
+  `message.sender_email` matches Zulip's `bot_email`, so API replies do not
+  recurse into new turns.
 - **Bot ignores first message in a new topic**: this was a bug where the HTTP
   request context was cancelled before the goroutine finished processing.
   Fixed in `zulip_handler.go` by using `context.WithoutCancel`.

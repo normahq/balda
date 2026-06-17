@@ -285,6 +285,11 @@ func (h *ZulipBaldaHandler) handleWebhook(w http.ResponseWriter, r *http.Request
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	if isZulipBotEcho(payload) {
+		h.logger.Debug().Str("sender", payload.Message.SenderEmail).Msg("ignoring zulip bot echo")
+		writeZulipWebhookNoResponse(w)
+		return
+	}
 	release, ok := h.acquireWebhookProcessSlot()
 	if !ok {
 		h.logger.Warn().Msg("zulip webhook processing queue full")
@@ -293,9 +298,7 @@ func (h *ZulipBaldaHandler) handleWebhook(w http.ResponseWriter, r *http.Request
 	}
 
 	// Respond immediately; process asynchronously.
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`{"response_not_required": true}`))
+	writeZulipWebhookNoResponse(w)
 
 	go func() {
 		defer release()
@@ -303,6 +306,20 @@ func (h *ZulipBaldaHandler) handleWebhook(w http.ResponseWriter, r *http.Request
 		defer cancel()
 		h.processMessage(ctx, payload)
 	}()
+}
+
+func writeZulipWebhookNoResponse(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"response_not_required": true}`))
+}
+
+func isZulipBotEcho(payload zulipWebhookPayload) bool {
+	botEmail := strings.TrimSpace(payload.BotEmail)
+	if botEmail == "" {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(payload.Message.SenderEmail), botEmail)
 }
 
 func (h *ZulipBaldaHandler) acquireWebhookProcessSlot() (func(), bool) {
