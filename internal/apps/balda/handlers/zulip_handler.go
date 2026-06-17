@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -74,29 +75,30 @@ type ZulipBaldaHandler struct {
 	mu      sync.RWMutex
 	ownerID int64
 	server  *http.Server
+	ln      net.Listener
 }
 
 type zulipBaldaHandlerParams struct {
 	fx.In
 
-	LC                fx.Lifecycle
-	OwnerStore        *auth.OwnerStore
-	InviteStore       *auth.InviteStore
-	CollaboratorStore *auth.CollaboratorStore
-	ZulipAdapter      *baldazulip.Adapter
-	SessionManager    *baldasession.Manager
-	TurnDispatcher    *actors.TurnDispatcher
-	ActorDispatcher   actortransport.Dispatcher
-	TaskService       *swarm.TaskService `optional:"true"`
-	AuthToken           string   `name:"balda_auth_token"`
-	BaldaProviderID     string   `name:"balda_provider"`
-	ZulipWebhookToken   string   `name:"balda_zulip_webhook_token"`
-	ZulipListenAddr     string   `name:"balda_zulip_listen_addr"`
-	ZulipWebhookPath    string   `name:"balda_zulip_webhook_path"`
-	ZulipEnabled        bool     `name:"balda_zulip_webhook_enabled"`
-	ZulipAllowedOwners  []string `name:"balda_zulip_allowed_owners"`
-	MaxIterations       int      `name:"balda_goal_max_iterations"`
-	Logger              zerolog.Logger
+	LC                 fx.Lifecycle
+	OwnerStore         *auth.OwnerStore
+	InviteStore        *auth.InviteStore
+	CollaboratorStore  *auth.CollaboratorStore
+	ZulipAdapter       *baldazulip.Adapter
+	SessionManager     *baldasession.Manager
+	TurnDispatcher     *actors.TurnDispatcher
+	ActorDispatcher    actortransport.Dispatcher
+	TaskService        *swarm.TaskService `optional:"true"`
+	AuthToken          string             `name:"balda_auth_token"`
+	BaldaProviderID    string             `name:"balda_provider"`
+	ZulipWebhookToken  string             `name:"balda_zulip_webhook_token"`
+	ZulipListenAddr    string             `name:"balda_zulip_listen_addr"`
+	ZulipWebhookPath   string             `name:"balda_zulip_webhook_path"`
+	ZulipEnabled       bool               `name:"balda_zulip_webhook_enabled"`
+	ZulipAllowedOwners []string           `name:"balda_zulip_allowed_owners"`
+	MaxIterations      int                `name:"balda_goal_max_iterations"`
+	Logger             zerolog.Logger
 }
 
 // NewZulipBaldaHandler creates a ZulipBaldaHandler and registers lifecycle hooks.
@@ -155,10 +157,15 @@ func (h *ZulipBaldaHandler) onStart(_ context.Context) error {
 		Addr:    listenAddr,
 		Handler: mux,
 	}
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return fmt.Errorf("listen zulip webhook endpoint on %q: %w", listenAddr, err)
+	}
+	h.ln = ln
 
 	go func() {
 		h.logger.Info().Str("addr", listenAddr).Str("path", path).Msg("zulip webhook server starting")
-		if err := h.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := h.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			h.logger.Error().Err(err).Msg("zulip webhook server error")
 		}
 	}()
@@ -173,6 +180,7 @@ func (h *ZulipBaldaHandler) onStop(ctx context.Context) error {
 	if err := h.server.Shutdown(ctx); err != nil {
 		h.logger.Warn().Err(err).Msg("zulip webhook server shutdown error")
 	}
+	h.ln = nil
 	return nil
 }
 
@@ -240,7 +248,7 @@ func (h *ZulipBaldaHandler) processMessage(ctx context.Context, payload zulipWeb
 	locator := h.locatorFromPayload(payload)
 	senderID := payload.Message.SenderID
 	text := strings.TrimSpace(payload.Data)
-	isDM := payload.Message.Type == "private"
+	isDM := payload.Message.Type == chatTypePrivate
 
 	h.logger.Debug().
 		Str("trigger", payload.Trigger).
@@ -280,15 +288,15 @@ func (h *ZulipBaldaHandler) handleCommand(
 	}
 
 	transportUserID := int64(senderID)
-	if cmd != "start" && !h.canAccessCollaboratorScope(ctx, transportUserID) {
+	if cmd != commandStart && !h.canAccessCollaboratorScope(ctx, transportUserID) {
 		_ = h.sendPlain(ctx, locator, "Only the bot owner or collaborators can use this bot.")
 		return
 	}
 
 	switch cmd {
-	case "start":
+	case commandStart:
 		h.handleStartCommand(ctx, locator, senderID, args)
-	case "reset", "restart":
+	case commandReset, commandRestart:
 		h.handleResetCommand(ctx, locator, senderID, cmd)
 	case "cancel":
 		h.handleCancelCommand(ctx, locator, senderID)
@@ -298,7 +306,7 @@ func (h *ZulipBaldaHandler) handleCommand(
 		h.handleTopicCommand(ctx, locator, senderID, args, isDM)
 	case "goal":
 		h.handleGoalCommand(ctx, locator, senderID, args)
-	case "close":
+	case commandClose:
 		h.handleCloseCommand(ctx, locator, senderID)
 	case "user":
 		h.handleUserCommand(ctx, locator, senderID, args)
@@ -346,7 +354,7 @@ func (h *ZulipBaldaHandler) handleStartCommand(
 		return
 	}
 
-	if mode != "owner" {
+	if mode != startModeOwner {
 		_ = h.sendPlain(
 			ctx, locator,
 			"Invalid /start format. Use one of:\n"+
@@ -811,9 +819,9 @@ func (h *ZulipBaldaHandler) getOrCreateSession(
 		return ts, nil
 	}
 
-	label := "auto"
+	label := autoSessionLabel
 	if isDM {
-		label = "balda"
+		label = ownerSessionLabel
 	}
 	ts, err = h.sessionManager.EnsureSession(ctx, baldasession.SessionContext{
 		Locator: locator,
@@ -835,9 +843,9 @@ func (h *ZulipBaldaHandler) sendSessionWelcome(
 	providerName string,
 	isDM bool,
 ) {
-	label := "auto"
+	label := autoSessionLabel
 	if isDM {
-		label = "balda"
+		label = ownerSessionLabel
 	}
 	metadata := h.sessionManager.GetAgentMetadata(providerName)
 	welcomeMsg := welcome.BuildAgentWelcomeMessage(label, ts.GetSessionID(), metadata.Type, metadata.Model, metadata.MCPServers)
@@ -901,7 +909,7 @@ func (h *ZulipBaldaHandler) RunSessionTurnPayload(
 			ts, err = h.sessionManager.EnsureSession(ctx, baldasession.SessionContext{
 				Locator: payload.Locator,
 				UserID:  userID,
-			}, "balda")
+			}, ownerSessionLabel)
 			if err != nil {
 				return fmt.Errorf("create session for queued zulip turn: %w", err)
 			}
@@ -1030,9 +1038,9 @@ func (h *ZulipBaldaHandler) handleAutoClaimMention(
 	if strings.TrimSpace(text) == "" {
 		providerName := h.getProviderName()
 		metadata := h.sessionManager.GetAgentMetadata(providerName)
-		label := "auto"
+		label := autoSessionLabel
 		if isDM {
-			label = "balda"
+			label = ownerSessionLabel
 		}
 		ts, err := h.getOrCreateSession(ctx, locator, baldazulip.UserID(senderID), providerName, isDM)
 		if err != nil {
@@ -1078,7 +1086,7 @@ func (h *ZulipBaldaHandler) sendPlain(
 }
 
 func (h *ZulipBaldaHandler) locatorFromPayload(payload zulipWebhookPayload) baldasession.SessionLocator {
-	if payload.Message.Type == "private" {
+	if payload.Message.Type == chatTypePrivate {
 		return baldazulip.NewDMLocator(payload.Message.SenderID)
 	}
 	return baldazulip.NewStreamLocator(payload.Message.StreamID, payload.Message.Subject)

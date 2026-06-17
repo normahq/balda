@@ -60,11 +60,11 @@ func (h *StartHandler) Register(registry tgbotkit.Registry) {
 }
 
 func (h *StartHandler) onCommand(ctx context.Context, event *events.CommandEvent) error {
-	if event.Command != "start" {
+	if event.Command != commandStart {
 		return nil
 	}
 
-	if event.Message.Chat.Type != "private" {
+	if event.Message.Chat.Type != chatTypePrivate {
 		return nil
 	}
 

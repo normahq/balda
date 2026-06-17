@@ -38,6 +38,20 @@ func NewClient(baseURL, botEmail, apiKey string) *Client {
 	}
 }
 
+// ValidateConfig validates the REST credentials needed to send Zulip replies.
+func ValidateConfig(baseURL, botEmail, apiKey string) error {
+	if strings.TrimSpace(baseURL) == "" {
+		return fmt.Errorf("balda.zulip.server_url is required when Zulip webhook is enabled")
+	}
+	if strings.TrimSpace(botEmail) == "" {
+		return fmt.Errorf("balda.zulip.bot_email is required when Zulip webhook is enabled")
+	}
+	if strings.TrimSpace(apiKey) == "" {
+		return fmt.Errorf("balda.zulip.api_key is required when Zulip webhook is enabled")
+	}
+	return nil
+}
+
 // SendStreamMessage sends a message to a Zulip stream topic.
 // Returns the Zulip message ID on success.
 func (c *Client) SendStreamMessage(
@@ -138,7 +152,7 @@ func (c *Client) post(
 	if err != nil {
 		return nil, fmt.Errorf("zulip request to %s: %w", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

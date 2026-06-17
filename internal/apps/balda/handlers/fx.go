@@ -11,9 +11,9 @@ import (
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
-	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	"github.com/normahq/balda/internal/apps/balda/session"
+	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
@@ -148,6 +148,7 @@ var Module = fx.Module("balda_handlers",
 				baldaProviderName:  strings.TrimSpace(deps.BaldaProviderID),
 				planUpdatesEnabled: deps.PlanUpdatesEnabled,
 				telegramEnabled:    deps.TelegramEnabled,
+				telegramConfigured: true,
 				logger:             deps.Logger.With().Str("component", "balda.handler").Logger(),
 			}
 

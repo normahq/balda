@@ -16,6 +16,9 @@ const (
 	zulipSessionIDPrefix = "zu"
 	// ChannelType is the channel type string for the Zulip transport.
 	ChannelType = "zulip"
+
+	addressTypeStream = "stream"
+	addressTypeDM     = "dm"
 )
 
 // LocatorAddress is the Zulip-specific transport address payload.
@@ -29,7 +32,7 @@ type LocatorAddress struct {
 // NewStreamLocator builds a canonical session locator for a Zulip stream/topic.
 func NewStreamLocator(streamID int, topic string) baldasession.SessionLocator {
 	address := LocatorAddress{
-		Type:     "stream",
+		Type:     addressTypeStream,
 		StreamID: streamID,
 		Topic:    topic,
 	}
@@ -58,7 +61,7 @@ func NewStreamLocator(streamID int, topic string) baldasession.SessionLocator {
 // NewDMLocator builds a canonical session locator for a Zulip direct message.
 func NewDMLocator(userID int) baldasession.SessionLocator {
 	address := LocatorAddress{
-		Type:   "dm",
+		Type:   addressTypeDM,
 		UserID: userID,
 	}
 	raw, _ := json.Marshal(address)
@@ -94,7 +97,7 @@ func DecodeLocator(locator baldasession.SessionLocator) (LocatorAddress, bool, e
 
 // LocatorFromAddressKey rebuilds a canonical Zulip locator from an address key.
 // Stream format: "s:<stream_id>:<url-path-escaped topic>"
-// DM format: "dm:<user_id>"
+// DM format: "dm:<user_id>".
 func LocatorFromAddressKey(addressKey string) (baldasession.SessionLocator, error) {
 	trimmed := strings.TrimSpace(addressKey)
 	if strings.HasPrefix(trimmed, "s:") {
@@ -153,7 +156,7 @@ func dmLocatorFromAddressKey(addressKey string) (baldasession.SessionLocator, er
 // Returns (0, false) if the locator is not a Zulip stream locator.
 func StreamIDFromLocator(locator baldasession.SessionLocator) (int, bool) {
 	addr, ok, err := DecodeLocator(locator)
-	if !ok || err != nil || addr.Type != "stream" {
+	if !ok || err != nil || addr.Type != addressTypeStream {
 		return 0, false
 	}
 	return addr.StreamID, true

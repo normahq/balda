@@ -204,6 +204,71 @@ func TestValidateRuntimeConfigLint_AllowsLoopbackWebhookWithoutRouteAuth(t *test
 	}
 }
 
+func TestValidateZulipConfigRequiresWebhookAuthAndReplyCredentials(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		cfg       ZulipConfig
+		wantError string
+	}{
+		{
+			name:      "disabled",
+			cfg:       ZulipConfig{},
+			wantError: "",
+		},
+		{
+			name: "missing token",
+			cfg: ZulipConfig{
+				ServerURL: "https://zulip.example.com",
+				BotEmail:  "bot@example.com",
+				APIKey:    "key",
+				Webhook:   ZulipWebhookConfig{Enabled: true},
+			},
+			wantError: "webhook_token",
+		},
+		{
+			name: "missing reply credentials",
+			cfg: ZulipConfig{
+				WebhookToken: "token",
+				Webhook:      ZulipWebhookConfig{Enabled: true},
+			},
+			wantError: "server_url",
+		},
+		{
+			name: "valid",
+			cfg: ZulipConfig{
+				ServerURL:    "https://zulip.example.com",
+				BotEmail:     "bot@example.com",
+				APIKey:       "key",
+				WebhookToken: "token",
+				Webhook:      ZulipWebhookConfig{Enabled: true},
+			},
+			wantError: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateZulipConfig(tt.cfg)
+			if tt.wantError == "" {
+				if err != nil {
+					t.Fatalf("validateZulipConfig() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validateZulipConfig() error = nil, want marker %q", tt.wantError)
+			}
+			if !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("validateZulipConfig() error = %v, want marker %q", err, tt.wantError)
+			}
+		})
+	}
+}
+
 func TestBuildInboundWebhookConfig(t *testing.T) {
 	t.Parallel()
 

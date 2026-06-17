@@ -161,6 +161,9 @@ func Module(
 	if err := validateRuntimeConfigLint(swarmConfig, inboundWebhookConfig); err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}
+	if err := validateZulipConfig(cfg.Balda.Zulip); err != nil {
+		return fx.Module("balda", fx.Error(err))
+	}
 
 	// Start with global MCP servers.
 	mcpServers := make(map[string]agentconfig.MCPServerConfig, len(normaCfg.MCPServers))
@@ -643,6 +646,19 @@ func validateRuntimeConfigLint(swarmCfg swarm.Config, webhookCfg handlers.Inboun
 		return nil
 	}
 	return fmt.Errorf("invalid runtime configuration: %s", strings.Join(errs, "; "))
+}
+
+func validateZulipConfig(cfg ZulipConfig) error {
+	if !cfg.Webhook.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(cfg.WebhookToken) == "" {
+		return fmt.Errorf("balda.zulip.webhook_token is required when Zulip webhook is enabled")
+	}
+	if err := baldazulip.ValidateConfig(cfg.ServerURL, cfg.BotEmail, cfg.APIKey); err != nil {
+		return err
+	}
+	return nil
 }
 
 func validateIdentifierValue(field, value string) error {

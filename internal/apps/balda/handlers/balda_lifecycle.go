@@ -109,7 +109,7 @@ func (h *BaldaHandler) setChatID(chatID int64) {
 }
 
 func (h *BaldaHandler) onStart(ctx context.Context) error {
-	if !h.telegramEnabled {
+	if h.telegramConfigured && !h.telegramEnabled {
 		return nil
 	}
 	if err := h.initializeBotUsername(ctx); err != nil {

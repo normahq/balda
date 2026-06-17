@@ -93,9 +93,9 @@ func (a *Adapter) SendTyping(
 		return fmt.Errorf("unsupported channel type %q for zulip typing", locator.ChannelType)
 	}
 	switch address.Type {
-	case "stream":
+	case addressTypeStream:
 		return a.client.SendStreamTyping(ctx, address.StreamID, address.Topic)
-	case "dm":
+	case addressTypeDM:
 		return a.client.SendDirectTyping(ctx, address.UserID)
 	default:
 		return fmt.Errorf("unsupported zulip address type %q for typing", address.Type)
@@ -115,9 +115,9 @@ func (a *Adapter) send(
 		return 0, fmt.Errorf("unsupported channel type %q", locator.ChannelType)
 	}
 	switch address.Type {
-	case "stream":
+	case addressTypeStream:
 		return a.client.SendStreamMessage(ctx, address.StreamID, address.Topic, text)
-	case "dm":
+	case addressTypeDM:
 		return a.client.SendDirectMessage(ctx, address.UserID, text)
 	default:
 		return 0, fmt.Errorf("unsupported zulip address type %q", address.Type)

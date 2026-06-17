@@ -37,6 +37,14 @@ type sessionWorkCanceller interface {
 	CancelWork(ctx context.Context, locator session.SessionLocator, actor string, reason string) error
 }
 
+const (
+	commandStart    = "start"
+	commandReset    = "reset"
+	commandRestart  = "restart"
+	commandClose    = "close"
+	chatTypePrivate = "private"
+)
+
 // CommandHandler handles Balda chat commands such as /topic, /goal, /reset,
 // /restart, /locator, /close, /cancel, and /user.
 type CommandHandler struct {
@@ -79,11 +87,11 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 	switch commandCtx.Command {
 	case "topic":
 		return h.onTopicCommand(ctx, commandCtx)
-	case "reset", "restart":
+	case commandReset, commandRestart:
 		return h.onResetCommand(ctx, commandCtx)
 	case "locator":
 		return h.onLocatorCommand(ctx, commandCtx)
-	case "close":
+	case commandClose:
 		return h.onCloseCommand(ctx, commandCtx)
 	case "cancel":
 		return h.onCancelCommand(ctx, commandCtx)
@@ -149,7 +157,7 @@ func (h *CommandHandler) onGoalCommand(ctx context.Context, commandCtx baldatele
 func (h *CommandHandler) onResetCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
 	commandName := commandCtx.Command
 	if commandName == "" {
-		commandName = "reset"
+		commandName = commandReset
 	}
 
 	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {

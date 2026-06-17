@@ -53,6 +53,7 @@ type BaldaHandler struct {
 	baldaProviderName  string
 	planUpdatesEnabled bool
 	telegramEnabled    bool
+	telegramConfigured bool
 	logger             zerolog.Logger
 
 	mu          sync.RWMutex
