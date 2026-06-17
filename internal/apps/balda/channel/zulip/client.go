@@ -195,13 +195,26 @@ func (c *Client) post(
 		return nil, fmt.Errorf("read zulip response body: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, &APIError{
-			Path:       path,
-			StatusCode: resp.StatusCode,
-			Message:    responseBodySnippet(body),
-		}
+		return nil, zulipAPIErrorFromResponse(path, resp.StatusCode, body)
 	}
 	return body, nil
+}
+
+func zulipAPIErrorFromResponse(path string, statusCode int, body []byte) *APIError {
+	var result sendMessageResult
+	if err := json.Unmarshal(body, &result); err == nil && (strings.TrimSpace(result.Msg) != "" || strings.TrimSpace(result.Code) != "") {
+		return &APIError{
+			Path:       path,
+			StatusCode: statusCode,
+			Code:       result.Code,
+			Message:    result.Msg,
+		}
+	}
+	return &APIError{
+		Path:       path,
+		StatusCode: statusCode,
+		Message:    responseBodySnippet(body),
+	}
 }
 
 func isContentRejectedError(err error) bool {

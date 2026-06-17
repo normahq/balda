@@ -3,6 +3,7 @@ package zulip
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -124,5 +125,33 @@ func TestClientSendStreamMessageTruncatesHTTPErrorBody(t *testing.T) {
 	}
 	if len(got) > maxErrorResponseBodyText+200 {
 		t.Fatalf("SendStreamMessage() error length = %d, want bounded diagnostic", len(got))
+	}
+}
+
+func TestClientSendStreamMessageParsesStructuredHTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(sendMessageResult{
+			Result: "error",
+			Code:   "BAD_REQUEST",
+			Msg:    "invalid image URL",
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(server.URL, "bot@example.com", "api-key")
+	_, err := client.SendStreamMessage(context.Background(), 42, "ops", "hello")
+	if err == nil {
+		t.Fatal("SendStreamMessage() error = nil, want structured HTTP error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("SendStreamMessage() error = %T, want APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusBadRequest || apiErr.Code != "BAD_REQUEST" || apiErr.Message != "invalid image URL" {
+		t.Fatalf("APIError = %+v, want parsed status/code/message", apiErr)
+	}
+	if got := err.Error(); !strings.Contains(got, "HTTP 400 (BAD_REQUEST): invalid image URL") {
+		t.Fatalf("SendStreamMessage() error = %q, want structured error text", got)
 	}
 }

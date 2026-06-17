@@ -170,6 +170,8 @@ starting with `/`, for example `/zulip/webhook`.
 - **Zulip API delivery fails**: queued turns return delivery errors to the actor
   runtime, so transient failures can be retried and persistent failures surface
   through the runtime's failure handling instead of being silently acknowledged.
+  Structured Zulip API error responses preserve Zulip's `code` and `msg` fields
+  in Balda diagnostics.
 - **Webhook shutdown fails**: Balda returns Zulip webhook shutdown errors from
   the application lifecycle hook after logging them, so process supervisors can
   report an unhealthy stop instead of a clean shutdown.
