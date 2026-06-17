@@ -1040,6 +1040,50 @@ func TestZulipBaldaHandlerRunSessionTurnHandlesNilCachedSession(t *testing.T) {
 	}
 }
 
+func TestZulipBaldaHandlerRunSessionTurnRejectsNilRestoredSession(t *testing.T) {
+	handler := &ZulipBaldaHandler{
+		sessionManager: &nilRestoreZulipSessionManager{},
+		logger:         zerolog.Nop(),
+	}
+
+	err := handler.RunSessionTurnPayload(context.Background(), actors.SessionTurnPayload{
+		Locator: baldazulip.NewDMLocator(101),
+		UserID:  "101",
+		Text:    "hello",
+	})
+
+	if err == nil {
+		t.Fatal("RunSessionTurnPayload() error = nil, want unavailable session error")
+	}
+	if got := err.Error(); !strings.Contains(got, "unavailable after restore") {
+		t.Fatalf("RunSessionTurnPayload() error = %q, want unavailable session context", got)
+	}
+}
+
+func TestZulipBaldaHandlerRunSessionTurnRejectsNilEnsuredSession(t *testing.T) {
+	manager := &nilEnsureZulipSessionManager{}
+	handler := &ZulipBaldaHandler{
+		sessionManager: manager,
+		logger:         zerolog.Nop(),
+	}
+
+	err := handler.RunSessionTurnPayload(context.Background(), actors.SessionTurnPayload{
+		Locator: baldazulip.NewDMLocator(101),
+		UserID:  "101",
+		Text:    "hello",
+	})
+
+	if err == nil {
+		t.Fatal("RunSessionTurnPayload() error = nil, want unavailable session error")
+	}
+	if got := err.Error(); !strings.Contains(got, "unavailable after restore") {
+		t.Fatalf("RunSessionTurnPayload() error = %q, want unavailable session context", got)
+	}
+	if len(manager.ensureCalls) != 1 {
+		t.Fatalf("ensureCalls = %d, want restored session creation attempt", len(manager.ensureCalls))
+	}
+}
+
 type errorInviteKVStore struct {
 	err error
 }
@@ -1121,6 +1165,31 @@ func (f *fakeZulipSessionManager) TakeStartupNotice(sessionID string) string {
 	notice := strings.TrimSpace(f.startupNotices[sessionID])
 	delete(f.startupNotices, sessionID)
 	return notice
+}
+
+type nilRestoreZulipSessionManager struct {
+	fakeZulipSessionManager
+}
+
+func (*nilRestoreZulipSessionManager) RestoreSession(context.Context, session.SessionContext) (*session.TopicSession, error) {
+	return nil, nil
+}
+
+type nilEnsureZulipSessionManager struct {
+	fakeZulipSessionManager
+}
+
+func (f *nilEnsureZulipSessionManager) EnsureSession(
+	_ context.Context,
+	sessionCtx session.SessionContext,
+	agentName string,
+) (*session.TopicSession, error) {
+	f.ensureCalls = append(f.ensureCalls, createSessionCall{
+		SessionID: sessionCtx.Locator.SessionID,
+		UserID:    sessionCtx.UserID,
+		AgentName: agentName,
+	})
+	return nil, nil
 }
 
 var errFakeZulipSessionNotFound = errors.New("zulip session not found")

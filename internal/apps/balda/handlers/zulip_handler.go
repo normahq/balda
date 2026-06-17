@@ -1236,6 +1236,9 @@ func (h *ZulipBaldaHandler) RunSessionTurnPayload(
 			}
 		}
 	}
+	if ts == nil {
+		return fmt.Errorf("zulip turn: session %s unavailable after restore", payload.Locator.SessionID)
+	}
 
 	userID := strings.TrimSpace(payload.UserID)
 	if userID == "" {
