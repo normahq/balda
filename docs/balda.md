@@ -1,6 +1,6 @@
 # Balda (V1)
 
-`balda start` is a channel-aware background worker service that binds Telegram chats/topics to Balda worker sessions.
+`balda start` is a channel-aware background worker service that binds chat sessions to Balda worker sessions.
 
 Architecture contracts are maintained in:
 
@@ -8,10 +8,10 @@ Architecture contracts are maintained in:
 
 ## Summary
 
-- Runtime stack: one or more channel runtimes (Telegram, Zulip) plus the configured Balda provider runtime.
-- Supported channels: Telegram (polling or webhook) and Zulip (outgoing webhook). Additional channels should be added as top-level config siblings such as `balda.whatsapp`.
+- Runtime stack: one or more channel runtimes (Telegram, Zulip, Slack) plus the configured Balda provider runtime.
+- Supported channels: Telegram (polling or webhook), Zulip (outgoing webhook), and Slack (HTTP Events API plus slash command receiver).
 - Main agent: Balda app key `balda.provider` (profile overrides via `profiles.<profile>.balda.provider`).
-- Subagents: one session per Telegram topic (`message_thread_id`) with dedicated git worktree.
+- Subagents: one session per channel topic/thread with dedicated git worktree.
 - Balda startup prompt includes workspace settings for each session; in git workspace mode it also includes session/base/current-branch context and workspace MCP guidance.
 - Output streaming:
   - Progress updates: non-terminal provider progress emits channel progress. Telegram maps this to throttled typing indicators for all chats, plus DM-only thinking placeholders.
@@ -215,7 +215,7 @@ Balda startup order is strict:
 1. Load runtime + balda config.
 2. Start internal MCP lifecycle manager.
 3. Start Balda provider runtime via `RuntimeManager.EnsureRuntime(...)`.
-4. Start channel and ingress runtimes (Telegram, configured scheduler tasks, and inbound webhook receiver).
+4. Start channel and ingress runtimes (Telegram, Zulip, Slack, configured scheduler tasks, and inbound webhook receiver).
 
 Internal MCP v1 scope is config + lifecycle plumbing; server implementations can be added incrementally.
 
@@ -239,6 +239,12 @@ BALDA_TELEGRAM_FORMATTING_MODE=rich_markdown
 BALDA_TELEGRAM_WEBHOOK_ENABLED=true
 BALDA_TELEGRAM_WEBHOOK_URL=https://example.com/telegram/webhook
 ```
+
+Slack deployments use plain HTTP inside Balda. Public HTTPS Request URLs,
+certificates, reverse proxies, ingress, and tunnels are deployment
+infrastructure outside Balda. Forward Slack Events API traffic to
+`balda.slack.events_path` and Slack slash command traffic to
+`balda.slack.commands_path`.
 
 Config shape:
 
@@ -521,6 +527,14 @@ session-start snapshot. New or restored sessions read the latest file.
 - `balda.zulip.webhook.enabled`: enable local Zulip outgoing webhook receiver (`true` => Zulip channel enabled; default: `false`; env: `BALDA_ZULIP_WEBHOOK_ENABLED`)
 - `balda.zulip.webhook.listen_addr`: local Zulip webhook listen address (default: `0.0.0.0:8090`; env: `BALDA_ZULIP_WEBHOOK_LISTEN_ADDR`)
 - `balda.zulip.webhook.path`: local Zulip webhook path, which must start with `/` (default: `/zulip/webhook`; env: `BALDA_ZULIP_WEBHOOK_PATH`)
+- `balda.slack.enabled`: enable local Slack HTTP receiver (`true` => Slack channel enabled; default: `false`; env: `BALDA_SLACK_ENABLED`)
+- `balda.slack.bot_token`: Slack bot token used for `auth.test` and replies (required when Slack is enabled; env: `BALDA_SLACK_BOT_TOKEN`)
+- `balda.slack.signing_secret`: Slack signing secret used for request verification (required when Slack is enabled; env: `BALDA_SLACK_SIGNING_SECRET`)
+- `balda.slack.listen_addr`: local Slack HTTP listen address (default: `0.0.0.0:8091`; env: `BALDA_SLACK_LISTEN_ADDR`)
+- `balda.slack.events_path`: local Slack Events API path, must start with `/` (default: `/slack/events`; env: `BALDA_SLACK_EVENTS_PATH`)
+- `balda.slack.commands_path`: local Slack slash command path, must start with `/` (default: `/slack/commands`; env: `BALDA_SLACK_COMMANDS_PATH`)
+- `balda.slack.allowed_owners`: Slack subjects trusted to auto-claim ownership, formatted `slack:<team_id>:<user_id>`
+- `balda.slack.include_private_channels`: process private channel events when the app has `groups:history` (default: `false`)
 - `balda.webhooks.enabled`: enable generic inbound webhook receiver (default: `false`)
 - `balda.webhooks.listen_addr`: local inbound webhook listen address (default: `127.0.0.1:8090`)
 - `balda.webhooks.routes`: route table keyed by route name
@@ -606,7 +620,7 @@ Session key:
 
 - Owner session: owner DM `(chat_id, topic_id=0)`
 - Regular session: any other channel address `(chat_id, topic_id)`, including public `topic_id=0`
-- Canonical Balda session IDs are channel-scoped. Telegram uses `tg-<chat_id>-<topic_id>`.
+- Canonical Balda session IDs are channel-scoped. Telegram uses `tg-<chat_id>-<topic_id>`; Slack uses stable hashed IDs derived from DM or thread locators.
 - The owner session is bootstrapped for the bound owner DM chat (`topic_id=0`) during activation/startup when an owner is already registered.
 
 Balda always persists session metadata in `state.db` for lazy restore.
@@ -636,6 +650,16 @@ Per model turn:
    - `html`: model writes Telegram HTML; Balda escapes unsafe raw text and preserves supported Telegram HTML tags.
    - `none`: Balda sends raw text with no formatting mode.
 3. If rich-message delivery fails at transport or formatting-validation level, balda retries once using the legacy path for that mode.
+
+## Slack Messaging Behavior
+
+See [Slack Integration](slack.md) for setup details.
+
+1. Slack DMs map to Balda DM sessions.
+2. Slack `app_mention` events map to thread sessions. If the mention is not already in a thread, Balda uses that message timestamp as the thread root.
+3. Ambient channel messages are ignored unless they belong to an already-active Balda thread session.
+4. `/balda topic <name>` posts a seed message and creates a Balda session from that seed thread.
+5. Slack typing and draft progress are no-ops in v1; final replies are posted with Slack `mrkdwn`.
 
 ## Topic Sessions
 

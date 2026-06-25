@@ -12,6 +12,7 @@ type BaldaConfig struct {
 	Provider          string               `mapstructure:"provider"`
 	Telegram          TelegramConfig       `mapstructure:"telegram"`
 	Zulip             ZulipConfig          `mapstructure:"zulip"`
+	Slack             SlackConfig          `mapstructure:"slack"`
 	Webhooks          WebhooksConfig       `mapstructure:"webhooks"`
 	Logger            LoggerConfig         `mapstructure:"logger"`
 	WorkingDir        string               `mapstructure:"working_dir"`
@@ -59,6 +60,18 @@ type ZulipWebhookConfig struct {
 	Enabled    bool   `mapstructure:"enabled"`
 	ListenAddr string `mapstructure:"listen_addr"`
 	Path       string `mapstructure:"path"`
+}
+
+// SlackConfig holds Slack app configuration.
+type SlackConfig struct {
+	Enabled                bool     `mapstructure:"enabled"`
+	BotToken               string   `mapstructure:"bot_token"`
+	SigningSecret          string   `mapstructure:"signing_secret"`
+	ListenAddr             string   `mapstructure:"listen_addr"`
+	EventsPath             string   `mapstructure:"events_path"`
+	CommandsPath           string   `mapstructure:"commands_path"`
+	AllowedOwners          []string `mapstructure:"allowed_owners"`
+	IncludePrivateChannels bool     `mapstructure:"include_private_channels"`
 }
 
 // WebhooksConfig controls Balda-owned external webhook ingestion.

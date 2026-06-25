@@ -500,17 +500,17 @@ func (h *ZulipBaldaHandler) handleCommand(
 		h.handleStartCommand(ctx, locator, senderID, args, isDM)
 	case commandReset, commandRestart:
 		h.handleResetCommand(ctx, locator, senderID, cmd, args, isDM)
-	case "cancel":
+	case commandCancel:
 		h.handleCancelCommand(ctx, locator, senderID, args)
-	case "locator":
+	case commandLocator:
 		h.handleLocatorCommand(ctx, locator, args)
-	case "topic":
+	case commandTopic:
 		h.handleTopicCommand(ctx, locator, senderID, args, isDM)
-	case "goal":
+	case commandGoal:
 		h.handleGoalCommand(ctx, locator, senderID, args)
 	case commandClose:
 		h.handleCloseCommand(ctx, locator, senderID, args, isDM)
-	case "user":
+	case commandUser:
 		h.handleUserCommand(ctx, locator, senderID, args)
 	default:
 		_ = h.sendPlain(ctx, locator, fmt.Sprintf("Unknown command: /%s", cmd))
@@ -556,7 +556,7 @@ func (h *ZulipBaldaHandler) handleStartCommand(
 	mode := strings.TrimSpace(key)
 	token := strings.TrimSpace(value)
 
-	if mode == "invite" {
+	if mode == userActionInvite {
 		h.handleInviteStart(ctx, locator, senderID, token)
 		return
 	}
@@ -827,11 +827,11 @@ func (h *ZulipBaldaHandler) handleUserCommand(
 		return
 	}
 	switch fields[0] {
-	case "add", "invite":
+	case userActionAdd, userActionInvite:
 		h.handleUserInvite(ctx, locator, senderID)
-	case "list":
+	case userActionList:
 		h.handleUserList(ctx, locator)
-	case "remove":
+	case userActionRemove:
 		if len(fields) < 2 {
 			_ = h.sendPlain(ctx, locator, "Usage: /user remove <user_id>")
 			return

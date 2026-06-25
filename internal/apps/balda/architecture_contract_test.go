@@ -52,7 +52,7 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 
 	t.Run("user command routing stays owned by command handler", func(t *testing.T) {
 		handlerSource := readSource(t, filepath.Join(root, "handlers/command_handler.go"))
-		if !strings.Contains(handlerSource, `case "user":`) {
+		if !strings.Contains(handlerSource, `commandUser     = "user"`) || !strings.Contains(handlerSource, `case commandUser:`) {
 			t.Fatal("command handler must own /user routing")
 		}
 		fxSource := readSource(t, filepath.Join(root, "handlers/fx.go"))

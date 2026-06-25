@@ -9,6 +9,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	"github.com/normahq/balda/internal/apps/balda/agent"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
+	baldaslack "github.com/normahq/balda/internal/apps/balda/channel/slack"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
@@ -40,13 +41,16 @@ var Module = fx.Module("balda_handlers",
 		),
 		baldatelegram.NewAdapter,
 		baldazulip.NewAdapter,
-		func(tg *baldatelegram.Adapter, zu *baldazulip.Adapter) *baldachannel.Router {
+		baldaslack.NewAdapter,
+		func(tg *baldatelegram.Adapter, zu *baldazulip.Adapter, sl *baldaslack.Adapter) *baldachannel.Router {
 			return baldachannel.NewRouter(map[string]baldachannel.ChannelAdapter{
 				baldastate.ChannelTypeTelegram: tg,
 				baldastate.ChannelTypeZulip:    zu,
+				baldastate.ChannelTypeSlack:    sl,
 			})
 		},
 		NewZulipBaldaHandler,
+		NewSlackHandler,
 		func(params scheduledTaskSchedulerParams) (*ScheduledTaskScheduler, error) {
 			if params.StateProvider == nil {
 				return nil, fmt.Errorf("balda state provider is required")
@@ -220,5 +224,6 @@ var Module = fx.Module("balda_handlers",
 		func(*ScheduledTaskScheduler) {},
 		func(*InboundWebhookReceiver) {},
 		func(*ZulipBaldaHandler) {},
+		func(*SlackHandler) {},
 	),
 )

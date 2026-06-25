@@ -37,6 +37,28 @@ func TestOwnerStore_PersistsInKV(t *testing.T) {
 	}
 }
 
+func TestOwnerStoreSubject(t *testing.T) {
+	kv := newMemoryOwnerKV()
+	store, err := NewOwnerStore(kv)
+	if err != nil {
+		t.Fatalf("NewOwnerStore() error = %v", err)
+	}
+
+	ok, err := store.RegisterOwnerSubject("slack:T123:U456")
+	if err != nil {
+		t.Fatalf("RegisterOwnerSubject() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("RegisterOwnerSubject() ok = false, want true")
+	}
+	if !store.IsOwnerSubject("slack:T123:U456") {
+		t.Fatal("IsOwnerSubject() = false, want true")
+	}
+	if store.IsOwner(0) {
+		t.Fatal("IsOwner(0) = true, want false for subject owner")
+	}
+}
+
 type memoryOwnerKV struct {
 	data map[string]any
 }

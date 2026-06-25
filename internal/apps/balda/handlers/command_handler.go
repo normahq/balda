@@ -39,10 +39,20 @@ type sessionWorkCanceller interface {
 
 const (
 	commandStart    = "start"
+	commandTopic    = "topic"
+	commandLocator  = "locator"
+	commandCancel   = "cancel"
+	commandGoal     = "goal"
+	commandUser     = "user"
 	commandReset    = "reset"
 	commandRestart  = "restart"
 	commandClose    = "close"
 	chatTypePrivate = "private"
+
+	userActionAdd    = "add"
+	userActionInvite = "invite"
+	userActionList   = "list"
+	userActionRemove = "remove"
 )
 
 // CommandHandler handles Balda chat commands such as /topic, /goal, /reset,
@@ -85,19 +95,19 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 	}
 
 	switch commandCtx.Command {
-	case "topic":
+	case commandTopic:
 		return h.onTopicCommand(ctx, commandCtx)
 	case commandReset, commandRestart:
 		return h.onResetCommand(ctx, commandCtx)
-	case "locator":
+	case commandLocator:
 		return h.onLocatorCommand(ctx, commandCtx)
 	case commandClose:
 		return h.onCloseCommand(ctx, commandCtx)
-	case "cancel":
+	case commandCancel:
 		return h.onCancelCommand(ctx, commandCtx)
-	case "goal":
+	case commandGoal:
 		return h.onGoalCommand(ctx, commandCtx)
-	case "user":
+	case commandUser:
 		// Route to UserHandler
 		return h.userHandler.HandleUserCommand(ctx, commandCtx)
 	default:

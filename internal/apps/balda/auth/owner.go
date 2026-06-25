@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -11,6 +12,7 @@ import (
 type Owner struct {
 	UserID       int64     `json:"user_id"`
 	ChatID       int64     `json:"chat_id,omitempty"`
+	Subject      string    `json:"subject,omitempty"`
 	RegisteredAt time.Time `json:"registered_at"`
 }
 
@@ -47,6 +49,19 @@ func NewOwnerStore(stateStore ownerKVStore) (*OwnerStore, error) {
 // RegisterOwner registers a new owner if none exists.
 // Returns true if registered, false if already exists.
 func (s *OwnerStore) RegisterOwner(userID, chatID int64) (bool, error) {
+	return s.registerOwner(userID, chatID, "")
+}
+
+// RegisterOwnerSubject registers a non-numeric transport owner subject.
+func (s *OwnerStore) RegisterOwnerSubject(subject string) (bool, error) {
+	trimmed := strings.TrimSpace(subject)
+	if trimmed == "" {
+		return false, fmt.Errorf("owner subject is required")
+	}
+	return s.registerOwner(0, 0, trimmed)
+}
+
+func (s *OwnerStore) registerOwner(userID, chatID int64, subject string) (bool, error) {
 	if s.owner != nil {
 		return false, nil
 	}
@@ -54,6 +69,7 @@ func (s *OwnerStore) RegisterOwner(userID, chatID int64) (bool, error) {
 	s.owner = &Owner{
 		UserID:       userID,
 		ChatID:       chatID,
+		Subject:      strings.TrimSpace(subject),
 		RegisteredAt: time.Now(),
 	}
 
@@ -69,7 +85,25 @@ func (s *OwnerStore) IsOwner(userID int64) bool {
 	if s.owner == nil {
 		return false
 	}
+	if userID == 0 || s.owner.UserID == 0 {
+		return false
+	}
 	return s.owner.UserID == userID
+}
+
+// IsOwnerSubject checks if the given transport subject is the registered owner.
+func (s *OwnerStore) IsOwnerSubject(subject string) bool {
+	if s.owner == nil {
+		return false
+	}
+	trimmed := strings.TrimSpace(subject)
+	if trimmed == "" {
+		return false
+	}
+	if strings.TrimSpace(s.owner.Subject) != "" {
+		return s.owner.Subject == trimmed
+	}
+	return false
 }
 
 // UpdateChatID updates and persists the owner's chat ID.

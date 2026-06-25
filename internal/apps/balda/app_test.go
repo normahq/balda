@@ -86,6 +86,16 @@ func TestNormalizedZulipAllowedOwnersTrimsEmptyEntries(t *testing.T) {
 	}
 }
 
+func TestNormalizedSlackAllowedOwnersTrimsEmptyEntries(t *testing.T) {
+	t.Parallel()
+
+	got := normalizedSlackAllowedOwners([]string{" slack:T123:U1 ", "", " slack:T123:U2 "})
+	want := []string{"slack:T123:U1", "slack:T123:U2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("normalizedSlackAllowedOwners() = %#v, want %#v", got, want)
+	}
+}
+
 func TestValidateSessionPersistence(t *testing.T) {
 	t.Parallel()
 
@@ -288,6 +298,69 @@ func TestValidateZulipConfigRequiresWebhookAuthAndReplyCredentials(t *testing.T)
 			}
 			if !strings.Contains(err.Error(), tt.wantError) {
 				t.Fatalf("validateZulipConfig() error = %v, want marker %q", err, tt.wantError)
+			}
+		})
+	}
+}
+
+func TestValidateSlackConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		cfg       SlackConfig
+		wantError string
+	}{
+		{name: "disabled", cfg: SlackConfig{}, wantError: ""},
+		{name: "missing bot token", cfg: SlackConfig{Enabled: true, SigningSecret: "secret"}, wantError: "bot_token"},
+		{name: "missing signing secret", cfg: SlackConfig{Enabled: true, BotToken: "xoxb-token"}, wantError: "signing_secret"},
+		{
+			name: "invalid events path",
+			cfg: SlackConfig{
+				Enabled:       true,
+				BotToken:      "xoxb-token",
+				SigningSecret: "secret",
+				EventsPath:    "slack/events",
+			},
+			wantError: "events_path",
+		},
+		{
+			name: "invalid commands path",
+			cfg: SlackConfig{
+				Enabled:       true,
+				BotToken:      "xoxb-token",
+				SigningSecret: "secret",
+				CommandsPath:  "slack/commands",
+			},
+			wantError: "commands_path",
+		},
+		{
+			name: "valid",
+			cfg: SlackConfig{
+				Enabled:       true,
+				BotToken:      "xoxb-token",
+				SigningSecret: "secret",
+			},
+			wantError: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateSlackConfig(tt.cfg)
+			if tt.wantError == "" {
+				if err != nil {
+					t.Fatalf("validateSlackConfig() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validateSlackConfig() error = nil, want marker %q", tt.wantError)
+			}
+			if !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("validateSlackConfig() error = %v, want marker %q", err, tt.wantError)
 			}
 		})
 	}

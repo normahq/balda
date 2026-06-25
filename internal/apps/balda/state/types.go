@@ -24,6 +24,9 @@ const (
 	// ChannelTypeZulip is the balda channel type backed by Zulip.
 	ChannelTypeZulip = "zulip"
 
+	// ChannelTypeSlack is the balda channel type backed by Slack.
+	ChannelTypeSlack = "slack"
+
 	// ScheduledTaskStatusActive means the task is eligible for scheduler dispatch.
 	ScheduledTaskStatusActive = "active"
 	// ScheduledTaskStatusPaused means the task is persisted but not dispatched.

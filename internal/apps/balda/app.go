@@ -14,6 +14,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	baldaagent "github.com/normahq/balda/internal/apps/balda/agent"
 	"github.com/normahq/balda/internal/apps/balda/auth"
+	baldaslack "github.com/normahq/balda/internal/apps/balda/channel/slack"
 	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
 	natsbus "github.com/normahq/balda/internal/apps/balda/eventbus/nats"
 	"github.com/normahq/balda/internal/apps/balda/handlers"
@@ -162,6 +163,9 @@ func Module(
 		return fx.Module("balda", fx.Error(err))
 	}
 	if err := validateZulipConfig(cfg.Balda.Zulip); err != nil {
+		return fx.Module("balda", fx.Error(err))
+	}
+	if err := validateSlackConfig(cfg.Balda.Slack); err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}
 
@@ -402,6 +406,22 @@ func Module(
 				fx.ResultTags(`name:"balda_zulip_allowed_owners"`),
 			),
 		),
+		// Slack transport
+		fx.Provide(func() *baldaslack.Client {
+			return baldaslack.NewClient(cfg.Balda.Slack.BotToken)
+		}),
+		fx.Provide(func() handlers.SlackConfig {
+			return handlers.SlackConfig{
+				Enabled:                cfg.Balda.Slack.Enabled,
+				BotToken:               strings.TrimSpace(cfg.Balda.Slack.BotToken),
+				SigningSecret:          strings.TrimSpace(cfg.Balda.Slack.SigningSecret),
+				ListenAddr:             strings.TrimSpace(cfg.Balda.Slack.ListenAddr),
+				EventsPath:             strings.TrimSpace(cfg.Balda.Slack.EventsPath),
+				CommandsPath:           strings.TrimSpace(cfg.Balda.Slack.CommandsPath),
+				AllowedOwners:          normalizedSlackAllowedOwners(cfg.Balda.Slack.AllowedOwners),
+				IncludePrivateChannels: cfg.Balda.Slack.IncludePrivateChannels,
+			}
+		}),
 		fx.Provide(func(provider baldastate.Provider) (*auth.OwnerStore, error) {
 			return auth.NewOwnerStore(provider.AppKV())
 		}),
@@ -463,6 +483,18 @@ func Module(
 }
 
 func normalizedZulipAllowedOwners(owners []string) []string {
+	out := make([]string, 0, len(owners))
+	for _, owner := range owners {
+		trimmed := strings.TrimSpace(owner)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func normalizedSlackAllowedOwners(owners []string) []string {
 	out := make([]string, 0, len(owners))
 	for _, owner := range owners {
 		trimmed := strings.TrimSpace(owner)
@@ -672,6 +704,25 @@ func validateZulipConfig(cfg ZulipConfig) error {
 	}
 	if err := baldazulip.ValidateConfig(cfg.ServerURL, cfg.BotEmail, cfg.APIKey); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateSlackConfig(cfg SlackConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(cfg.BotToken) == "" {
+		return fmt.Errorf("balda.slack.bot_token is required when Slack is enabled")
+	}
+	if strings.TrimSpace(cfg.SigningSecret) == "" {
+		return fmt.Errorf("balda.slack.signing_secret is required when Slack is enabled")
+	}
+	if path := strings.TrimSpace(cfg.EventsPath); path != "" && !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("balda.slack.events_path must start with /")
+	}
+	if path := strings.TrimSpace(cfg.CommandsPath); path != "" && !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("balda.slack.commands_path must start with /")
 	}
 	return nil
 }

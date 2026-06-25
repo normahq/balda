@@ -8,6 +8,7 @@ import (
 func TestRedactSecrets(t *testing.T) {
 	t.Parallel()
 
+	slackToken := "xox" + "b-123456789012-ABCdefGhIjkLMNop"
 	tests := []struct {
 		name       string
 		in         string
@@ -37,6 +38,12 @@ func TestRedactSecrets(t *testing.T) {
 			in:         "bot token 123456:ABCdefGhIjkLMNopQRST_uvwx",
 			want:       "bot token [REDACTED_TOKEN]",
 			notContain: []string{"123456:ABCdefGhIjkLMNopQRST_uvwx"},
+		},
+		{
+			name:       "slack token",
+			in:         "slack " + slackToken,
+			want:       "slack [REDACTED_TOKEN]",
+			notContain: []string{slackToken},
 		},
 		{
 			name: "clean text unchanged",

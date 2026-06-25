@@ -73,6 +73,30 @@ balda:
       # Set via BALDA_ZULIP_WEBHOOK_PATH env var
       path: "/zulip/webhook"
 
+  slack:
+    # Enable inbound Slack HTTP receiver.
+    # Slack's public Request URLs should terminate HTTPS outside Balda and forward
+    # plain HTTP to these local endpoints.
+    enabled: false
+    # Slack bot token (xoxb-...)
+    # Set via BALDA_SLACK_BOT_TOKEN env var
+    bot_token: ""
+    # Slack signing secret used to verify incoming Events API and slash requests.
+    # Set via BALDA_SLACK_SIGNING_SECRET env var
+    signing_secret: ""
+    # Local HTTP bind address for Slack endpoints.
+    listen_addr: "0.0.0.0:8091"
+    # Local HTTP path for Slack Events API requests.
+    events_path: "/slack/events"
+    # Local HTTP path for Slack slash command requests.
+    commands_path: "/slack/commands"
+    # Slack owner subjects allowed to auto-claim ownership on first message.
+    # Format: slack:<team_id>:<user_id>
+    allowed_owners: []
+    # If true, process private channel message events when the Slack app has
+    # groups:history. Public channel and DM support does not require this.
+    include_private_channels: false
+
   webhooks:
     # Enable generic inbound webhook ingestion.
     enabled: false

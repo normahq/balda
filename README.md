@@ -40,19 +40,19 @@ balda start
 ## How Balda Works Today
 
 1. Pick a provider runtime.
-2. Connect a Telegram bot token **or** a Zulip outgoing webhook bot.
+2. Connect a Telegram bot token, a Zulip outgoing webhook bot, **or** an internal Slack app.
 3. Chat, create topics, and let Balda persist session state, memory, and workspaces.
 
 Balda runs one provider runtime per process and maps chat conversations to
-separate agent sessions. Each Telegram topic or Zulip stream+topic pair becomes
-an isolated session. That keeps the bot simple to operate while preserving
-session boundaries.
+separate agent sessions. Each Telegram topic, Zulip stream+topic pair, or
+Slack thread becomes an isolated session. That keeps the bot simple to operate
+while preserving session boundaries.
 
 ## Quickstart
 
 You need:
 
-- a Telegram bot token from BotFather **or** a Zulip outgoing webhook bot
+- a Telegram bot token from BotFather, a Zulip outgoing webhook bot, **or** an internal Slack app
 - at least one provider CLI for host installs: `codex`, `opencode`, `copilot`,
   `gemini`, or `claude`
 - Node.js/npm, unless you use the Docker Compose flow
@@ -264,6 +264,15 @@ balda:
       enabled: false
       listen_addr: "0.0.0.0:8090"
       path: "/zulip/webhook"
+  slack:
+    enabled: false
+    bot_token: ""
+    signing_secret: ""
+    listen_addr: "0.0.0.0:8091"
+    events_path: "/slack/events"
+    commands_path: "/slack/commands"
+    allowed_owners: []
+    include_private_channels: false
   webhooks:
     enabled: false
     listen_addr: "127.0.0.1:8090"
@@ -306,6 +315,10 @@ Common settings:
 - `balda.zulip.webhook_token`: verification token from the Zulip outgoing webhook bot settings.
 - `balda.zulip.webhook.enabled`: set `true` to start the Zulip webhook receiver on `listen_addr`. When this is `true`, a Telegram token is not required — Balda can run Zulip-only.
 - `balda.zulip.allowed_owners`: list of Zulip user emails trusted to auto-claim any topic by @-mentioning Balda, without needing `/start owner=<token>` first.
+- `balda.slack.enabled`: set `true` to start the Slack HTTP receiver. Balda serves plain HTTP only; HTTPS termination and public Request URL routing are external deployment concerns. See [`docs/slack.md`](docs/slack.md).
+- `balda.slack.bot_token`: Slack bot token (`xoxb-...`), usually supplied as `BALDA_SLACK_BOT_TOKEN`.
+- `balda.slack.signing_secret`: Slack signing secret used to verify Events API and slash command requests, usually supplied as `BALDA_SLACK_SIGNING_SECRET`.
+- `balda.slack.allowed_owners`: Slack subjects trusted to auto-claim owner on first message, formatted as `slack:<team_id>:<user_id>`.
 - `balda.telegram.webhook.auth_token`: required when Telegram webhook mode is enabled; Telegram sends it as `X-Telegram-Bot-Api-Secret-Token`.
 - `balda.webhooks.*`: optional local inbound webhook receiver for external event-to-session ingress. Each route defines `path`, `prompt_template`, `envelope` (`target`, `key`, optional `mode=task|session`, optional `report_to`), `auth` (`type=none|header`, `header`, `value` or `secret_env`), and `dedupe` (`source=request_id|header|body_sha256`, optional `header` for header source). Use `target: locator` with a `/locator` value in `key` to route directly to a specific session context.
 - `balda.webhooks.*` security: set route `auth` (for example shared-token header) and keep `listen_addr` private (localhost/private network) or front it with trusted gateway auth.
@@ -370,6 +383,9 @@ Do not define `runtime.mcp_servers.balda`; Balda owns that bundled server.
 - `zulip webhook disabled; skipping server start`: set `balda.zulip.webhook.enabled=true` or `BALDA_ZULIP_WEBHOOK_ENABLED=true`.
 - Zulip webhook token mismatch: verify `balda.zulip.webhook_token` matches the token shown in the Zulip outgoing webhook bot settings.
 - Zulip 401 Unauthorized: check `balda.zulip.bot_email` and `balda.zulip.api_key`.
+- `slack disabled; skipping server start`: set `balda.slack.enabled=true` or `BALDA_SLACK_ENABLED=true`.
+- Slack request signature failures: verify `balda.slack.signing_secret` matches the app's signing secret and that the forwarding layer preserves request body bytes.
+- Slack delivery failures: check `balda.slack.bot_token`, bot scopes, and whether Balda can reach `https://slack.com/api`.
 
 ## Documentation
 
@@ -377,6 +393,7 @@ Do not define `runtime.mcp_servers.balda`; Balda owns that bundled server.
 - Architecture map: [`docs/architecture/index.md`](docs/architecture/index.md)
 - Telegram formatting guide: [`docs/telegram-formatting.md`](docs/telegram-formatting.md)
 - Zulip webhook integration: [`docs/zulip-webhook.md`](docs/zulip-webhook.md)
+- Slack integration: [`docs/slack.md`](docs/slack.md)
 - Contributing guide: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Agent workflow/policies: [`AGENTS.md`](AGENTS.md)
 

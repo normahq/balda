@@ -64,8 +64,8 @@ func startCommand() *cobra.Command {
 
 			baldaCfg := balda.Config{Balda: doc.Balda}
 
-			if baldaCfg.Balda.Telegram.Token == "" && !baldaCfg.Balda.Zulip.Webhook.Enabled {
-				return fmt.Errorf("at least one channel is required.\nFor Telegram:\n  - Environment: BALDA_TELEGRAM_TOKEN=<token>\n  - CWD .env: %s with BALDA_TELEGRAM_TOKEN=<token>\nFor Zulip: set balda.zulip.webhook.enabled=true (or BALDA_ZULIP_WEBHOOK_ENABLED=true)", filepath.Join(workingDir, ".env"))
+			if baldaCfg.Balda.Telegram.Token == "" && !baldaCfg.Balda.Zulip.Webhook.Enabled && !baldaCfg.Balda.Slack.Enabled {
+				return fmt.Errorf("at least one channel is required.\nFor Telegram:\n  - Environment: BALDA_TELEGRAM_TOKEN=<token>\n  - CWD .env: %s with BALDA_TELEGRAM_TOKEN=<token>\nFor Zulip: set balda.zulip.webhook.enabled=true (or BALDA_ZULIP_WEBHOOK_ENABLED=true)\nFor Slack: set balda.slack.enabled=true (or BALDA_SLACK_ENABLED=true)", filepath.Join(workingDir, ".env"))
 			}
 
 			stateDir, err := paths.ResolveStateDir(workingDir, baldaCfg.Balda.StateDir)

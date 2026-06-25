@@ -24,7 +24,7 @@ Use this map to find the authoritative runtime contracts.
 
 ## Runtime Flow
 
-Telegram/webhook/scheduler ingress -> actorlayer transport dispatcher -> NATS adapter -> actorlayer `Source`/`Delivery` -> local dispatch runtime -> Balda product actor -> event projection/read-model updates.
+Telegram/Zulip/Slack/webhook/scheduler ingress -> actorlayer transport dispatcher -> NATS adapter -> actorlayer `Source`/`Delivery` -> local dispatch runtime -> Balda product actor -> event projection/read-model updates.
 
 ## Related tests
 

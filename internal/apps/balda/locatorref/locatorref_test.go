@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	baldaslack "github.com/normahq/balda/internal/apps/balda/channel/slack"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 )
 
@@ -42,14 +43,28 @@ func TestParseRejectsMalformedRef(t *testing.T) {
 	}
 }
 
+func TestParseSlackThread(t *testing.T) {
+	t.Parallel()
+
+	got, err := Parse("slack:t:T123:C456:1712345678.000100")
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	want := baldaslack.NewThreadLocator("T123", "C456", "1712345678.000100")
+	if got != want {
+		t.Fatalf("Parse() = %+v, want %+v", got, want)
+	}
+}
+
 func TestParseRejectsUnknownTransport(t *testing.T) {
 	t.Parallel()
 
-	_, err := Parse("slack:ops:deploy")
+	_, err := Parse("matrix:ops:deploy")
 	if err == nil {
 		t.Fatal("Parse() error = nil, want non-nil")
 	}
-	if !strings.Contains(err.Error(), `unsupported locator transport "slack"`) {
+	if !strings.Contains(err.Error(), `unsupported locator transport "matrix"`) {
 		t.Fatalf("Parse() error = %v", err)
 	}
 }

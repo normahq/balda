@@ -66,11 +66,11 @@ func (h *userHandler) HandleUserCommand(ctx context.Context, commandCtx baldatel
 	}
 
 	switch args[0] {
-	case "add":
+	case userActionAdd:
 		return h.onAdd(ctx, commandCtx)
-	case "list":
+	case userActionList:
 		return h.onList(ctx, commandCtx)
-	case "remove":
+	case userActionRemove:
 		return h.onRemove(ctx, commandCtx)
 	default:
 		return h.sendUsage(ctx, commandCtx.Locator)
