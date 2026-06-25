@@ -31,7 +31,7 @@ func ownerBindTokenBundleMessage(ctx context.Context, authService *auth.ChannelA
 	for _, token := range tokens {
 		switch token.Channel {
 		case auth.ChannelTelegram:
-			lines = append(lines, "", "Telegram:", fmt.Sprintf("https://t.me/<bot_username>?start=%s", token.Token))
+			lines = append(lines, "", "Telegram:", fmt.Sprintf("DM Balda this command: /start %s", token.Token))
 		case auth.ChannelSlack:
 			lines = append(lines, "", "Slack:", "DM Balda this token:", token.Token)
 		case auth.ChannelZulip:

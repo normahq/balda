@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -32,6 +34,40 @@ func TestChannelTokenStoreConsumesOwnerBindTokenOnce(t *testing.T) {
 	}
 	if record != nil {
 		t.Fatalf("Consume(second) = %#v, want nil", record)
+	}
+}
+
+func TestChannelTokenStoreConcurrentConsumeSucceedsOnce(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewChannelTokenStore(&fakeInviteKVStore{})
+	if err != nil {
+		t.Fatalf("NewChannelTokenStore() error = %v", err)
+	}
+	token, _, err := store.CreateOwnerBindToken(ctx, ChannelSlack, "telegram:101")
+	if err != nil {
+		t.Fatalf("CreateOwnerBindToken() error = %v", err)
+	}
+
+	var successes atomic.Int32
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			record, err := store.Consume(ctx, token, ChannelSlack)
+			if err != nil {
+				t.Errorf("Consume() error = %v", err)
+				return
+			}
+			if record != nil {
+				successes.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := successes.Load(); got != 1 {
+		t.Fatalf("successful consumes = %d, want 1", got)
 	}
 }
 

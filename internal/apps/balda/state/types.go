@@ -93,6 +93,8 @@ type KVStore interface {
 	List(ctx context.Context, prefix string) ([]string, error)
 	Clear(ctx context.Context) error
 	GetJSON(ctx context.Context, key string) (value any, ok bool, err error)
+	// ConsumeJSON atomically reads a JSON value and deletes it when shouldConsume returns true.
+	ConsumeJSON(ctx context.Context, key string, shouldConsume func(value any) (bool, error)) (value any, consumed bool, err error)
 	SetJSON(ctx context.Context, key string, value any) error
 	SetWithTTL(ctx context.Context, key string, value any, ttl time.Duration) error
 	MergeJSON(ctx context.Context, key string, fields map[string]any) (merged map[string]any, err error)

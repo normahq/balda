@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,6 +21,7 @@ type Owner struct {
 // OwnerStore manages owner persistence.
 type OwnerStore struct {
 	store ownerKVStore
+	mu    sync.RWMutex
 	owner *Owner
 }
 
@@ -67,6 +69,9 @@ func (s *OwnerStore) RegisterOwnerSubject(subject string) (bool, error) {
 }
 
 func (s *OwnerStore) registerOwner(userID, chatID int64, subject string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.owner != nil {
 		return false, nil
 	}
@@ -84,7 +89,7 @@ func (s *OwnerStore) registerOwner(userID, chatID int64, subject string) (bool, 
 		RegisteredAt: time.Now(),
 	}
 
-	if err := s.save(); err != nil {
+	if err := s.saveLocked(); err != nil {
 		return false, fmt.Errorf("saving owner: %w", err)
 	}
 
@@ -93,6 +98,9 @@ func (s *OwnerStore) registerOwner(userID, chatID int64, subject string) (bool, 
 
 // IsOwner checks if the given user ID is the registered owner.
 func (s *OwnerStore) IsOwner(userID int64) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if s.owner == nil {
 		return false
 	}
@@ -102,11 +110,14 @@ func (s *OwnerStore) IsOwner(userID int64) bool {
 	if s.owner.UserID != 0 && s.owner.UserID == userID {
 		return true
 	}
-	return s.IsOwnerSubject(TelegramSubject(userID))
+	return isOwnerSubject(s.owner, TelegramSubject(userID))
 }
 
 // BindOwnerSubject adds a channel-qualified subject to the existing owner.
 func (s *OwnerStore) BindOwnerSubject(subject string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.owner == nil {
 		return fmt.Errorf("no owner registered")
 	}
@@ -114,18 +125,21 @@ func (s *OwnerStore) BindOwnerSubject(subject string) error {
 	if trimmed == "" {
 		return fmt.Errorf("owner subject is required")
 	}
-	if s.IsOwnerSubject(trimmed) {
+	if isOwnerSubject(s.owner, trimmed) {
 		return nil
 	}
 	s.owner.Bindings = append(s.owner.Bindings, trimmed)
 	if strings.TrimSpace(s.owner.Subject) == "" {
 		s.owner.Subject = trimmed
 	}
-	return s.save()
+	return s.saveLocked()
 }
 
 // BindOwnerTelegram adds the Telegram subject for the existing owner and updates chat ID.
 func (s *OwnerStore) BindOwnerTelegram(userID, chatID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if userID == 0 {
 		return fmt.Errorf("owner user ID is required")
 	}
@@ -138,14 +152,17 @@ func (s *OwnerStore) BindOwnerTelegram(userID, chatID int64) error {
 	if chatID != 0 {
 		s.owner.ChatID = chatID
 	}
-	if !s.IsOwnerSubject(TelegramSubject(userID)) {
+	if !isOwnerSubject(s.owner, TelegramSubject(userID)) {
 		s.owner.Bindings = append(s.owner.Bindings, TelegramSubject(userID))
 	}
-	return s.save()
+	return s.saveLocked()
 }
 
 // OwnerSubjects returns all known channel-qualified owner subjects.
 func (s *OwnerStore) OwnerSubjects() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if s.owner == nil {
 		return nil
 	}
@@ -185,17 +202,24 @@ func (s *OwnerStore) HasOwnerSubject(channel string) bool {
 
 // IsOwnerSubject checks if the given transport subject is the registered owner.
 func (s *OwnerStore) IsOwnerSubject(subject string) bool {
-	if s.owner == nil {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return isOwnerSubject(s.owner, subject)
+}
+
+func isOwnerSubject(owner *Owner, subject string) bool {
+	if owner == nil {
 		return false
 	}
 	trimmed := strings.TrimSpace(subject)
 	if trimmed == "" {
 		return false
 	}
-	if strings.TrimSpace(s.owner.Subject) != "" && s.owner.Subject == trimmed {
+	if strings.TrimSpace(owner.Subject) != "" && owner.Subject == trimmed {
 		return true
 	}
-	for _, binding := range s.owner.Bindings {
+	for _, binding := range owner.Bindings {
 		if strings.TrimSpace(binding) == trimmed {
 			return true
 		}
@@ -220,20 +244,29 @@ func ZulipSubject(userID int) string {
 
 // UpdateChatID updates and persists the owner's chat ID.
 func (s *OwnerStore) UpdateChatID(chatID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.owner == nil {
 		return fmt.Errorf("no owner registered")
 	}
 	s.owner.ChatID = chatID
-	return s.save()
+	return s.saveLocked()
 }
 
 // GetOwner returns the registered owner, or nil if none exists.
 func (s *OwnerStore) GetOwner() *Owner {
-	return s.owner
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return cloneOwner(s.owner)
 }
 
 // HasOwner returns true if an owner is registered.
 func (s *OwnerStore) HasOwner() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	return s.owner != nil
 }
 
@@ -256,16 +289,27 @@ func (s *OwnerStore) load() error {
 	}
 	owner.Bindings = normalizeOwnerBindings(owner)
 
+	s.mu.Lock()
 	s.owner = &owner
+	s.mu.Unlock()
 	return nil
 }
 
-func (s *OwnerStore) save() error {
-	if err := s.store.SetJSON(context.Background(), ownerKVKey, s.owner); err != nil {
+func (s *OwnerStore) saveLocked() error {
+	if err := s.store.SetJSON(context.Background(), ownerKVKey, cloneOwner(s.owner)); err != nil {
 		return fmt.Errorf("set owner state: %w", err)
 	}
 
 	return nil
+}
+
+func cloneOwner(owner *Owner) *Owner {
+	if owner == nil {
+		return nil
+	}
+	out := *owner
+	out.Bindings = append([]string(nil), owner.Bindings...)
+	return &out
 }
 
 func normalizeOwnerBindings(owner Owner) []string {

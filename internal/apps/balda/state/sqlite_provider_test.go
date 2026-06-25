@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -48,6 +50,48 @@ func TestSQLiteProvider_KVRoundTrip(t *testing.T) {
 	}
 	if merged["name"] != "balda" {
 		t.Fatalf("merged[name] = %v, want balda", merged["name"])
+	}
+}
+
+func TestSQLiteProvider_KVConsumeJSONConcurrentConsumeOnce(t *testing.T) {
+	provider := newTestProvider(t)
+	defer closeProvider(t, provider)
+
+	ctx := context.Background()
+	store := provider.AppKV()
+	if err := store.SetJSON(ctx, "token", map[string]any{"channel": "slack"}); err != nil {
+		t.Fatalf("SetJSON() error = %v", err)
+	}
+
+	var successes atomic.Int32
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, consumed, err := store.ConsumeJSON(ctx, "token", func(value any) (bool, error) {
+				return true, nil
+			})
+			if err != nil {
+				t.Errorf("ConsumeJSON() error = %v", err)
+				return
+			}
+			if consumed {
+				successes.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := successes.Load(); got != 1 {
+		t.Fatalf("successful consumes = %d, want 1", got)
+	}
+	_, ok, err := store.GetJSON(ctx, "token")
+	if err != nil {
+		t.Fatalf("GetJSON() error = %v", err)
+	}
+	if ok {
+		t.Fatal("GetJSON() found token after consume, want false")
 	}
 }
 

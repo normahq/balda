@@ -186,6 +186,93 @@ func (s *sqliteKVStore) GetJSON(ctx context.Context, key string) (any, bool, err
 	return value, true, nil
 }
 
+func (s *sqliteKVStore) ConsumeJSON(
+	ctx context.Context,
+	key string,
+	shouldConsume func(value any) (bool, error),
+) (any, bool, error) {
+	trimmedKey := strings.TrimSpace(key)
+	if trimmedKey == "" {
+		return nil, false, nil
+	}
+	if shouldConsume == nil {
+		return nil, false, fmt.Errorf("consume predicate is required")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("begin consume json key %q: %w", trimmedKey, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var raw string
+	var expiresAt sql.NullString
+	err = tx.QueryRowContext(ctx, `
+		SELECT value_json, expires_at
+		FROM balda_app_kv
+		WHERE namespace = ? AND key = ?`,
+		s.namespace, trimmedKey,
+	).Scan(&raw, &expiresAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			if commitErr := tx.Commit(); commitErr != nil {
+				return nil, false, fmt.Errorf("commit missing consume json key %q: %w", trimmedKey, commitErr)
+			}
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("get json key %q for consume: %w", trimmedKey, err)
+	}
+
+	if expiresAt.Valid {
+		expTime, parseErr := time.Parse(time.RFC3339, expiresAt.String)
+		if parseErr == nil && time.Now().UTC().After(expTime) {
+			if _, err := tx.ExecContext(ctx, `
+				DELETE FROM balda_app_kv
+				WHERE namespace = ? AND key = ?`,
+				s.namespace, trimmedKey,
+			); err != nil {
+				return nil, false, fmt.Errorf("delete expired json key %q: %w", trimmedKey, err)
+			}
+			if err := tx.Commit(); err != nil {
+				return nil, false, fmt.Errorf("commit expired consume json key %q: %w", trimmedKey, err)
+			}
+			return nil, false, nil
+		}
+	}
+
+	var value any
+	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+		return nil, false, fmt.Errorf("unmarshal json key %q: %w", trimmedKey, err)
+	}
+	consume, err := shouldConsume(value)
+	if err != nil {
+		return nil, false, err
+	}
+	if !consume {
+		if err := tx.Commit(); err != nil {
+			return nil, false, fmt.Errorf("commit skipped consume json key %q: %w", trimmedKey, err)
+		}
+		return value, false, nil
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		DELETE FROM balda_app_kv
+		WHERE namespace = ? AND key = ?`,
+		s.namespace, trimmedKey,
+	)
+	if err != nil {
+		return nil, false, fmt.Errorf("delete consumed json key %q: %w", trimmedKey, err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, false, fmt.Errorf("check consumed json key %q: %w", trimmedKey, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, fmt.Errorf("commit consumed json key %q: %w", trimmedKey, err)
+	}
+	return value, rows == 1, nil
+}
+
 func (s *sqliteKVStore) SetJSON(ctx context.Context, key string, value any) error {
 	trimmedKey := strings.TrimSpace(key)
 	if trimmedKey == "" {
