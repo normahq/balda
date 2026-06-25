@@ -42,6 +42,7 @@ var Module = fx.Module("balda_handlers",
 		baldatelegram.NewAdapter,
 		baldazulip.NewAdapter,
 		baldaslack.NewAdapter,
+		NewBaldaSessionTurnRunner,
 		func(tg *baldatelegram.Adapter, zu *baldazulip.Adapter, sl *baldaslack.Adapter) *baldachannel.Router {
 			return baldachannel.NewRouter(map[string]baldachannel.ChannelAdapter{
 				baldastate.ChannelTypeTelegram: tg,
@@ -165,14 +166,8 @@ var Module = fx.Module("balda_handlers",
 			return h, nil
 		},
 		fx.Annotate(
-			func(balda *BaldaHandler, zulip *ZulipBaldaHandler) actors.SessionTurnRunner {
-				return NewDispatchingSessionTurnRunner(
-					map[string]actors.SessionTurnRunner{
-						baldastate.ChannelTypeTelegram: balda,
-						baldastate.ChannelTypeZulip:    zulip,
-					},
-					balda,
-				)
+			func(r *BaldaSessionTurnRunner) actors.SessionTurnRunner {
+				return r
 			},
 		),
 		fx.Annotate(

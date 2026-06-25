@@ -78,6 +78,20 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 		}
 	})
 
+	t.Run("session turn execution is channel independent", func(t *testing.T) {
+		handlersSource := readPackageSource(t, filepath.Join(root, "handlers"))
+		if !strings.Contains(handlersSource, "type BaldaSessionTurnRunner struct") {
+			t.Fatal("handlers must provide a channel-independent session turn runner")
+		}
+		fxSource := readSource(t, filepath.Join(root, "handlers/fx.go"))
+		if !strings.Contains(fxSource, "func(r *BaldaSessionTurnRunner) actors.SessionTurnRunner") {
+			t.Fatal("production session turn runner must be BaldaSessionTurnRunner")
+		}
+		if strings.Contains(fxSource, "NewDispatchingSessionTurnRunner(") {
+			t.Fatal("production session turn execution must not dispatch through transport handlers")
+		}
+	})
+
 	t.Run("nats imports stay inside runtime adapter", func(t *testing.T) {
 		matches := findSourceMatches(t, root, files, regexp.MustCompile(`github\.com/nats-io/`))
 		assertOnlyAllowedFiles(t, matches, []string{

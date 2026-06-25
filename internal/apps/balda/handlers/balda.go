@@ -394,26 +394,25 @@ func (h *BaldaHandler) runTurnWithDelivery(
 	progressPolicy baldachannel.ProgressPolicy,
 	deliver bool,
 ) error {
+	if r == nil {
+		return fmt.Errorf("session turn: no runner in session %s", sessionID)
+	}
 	if strings.TrimSpace(agentSessionID) == "" {
 		agentSessionID = sessionID
 	}
 
-	address, ok, err := baldatelegram.DecodeLocator(locator)
-	if err != nil {
-		return fmt.Errorf("decode telegram locator: %w", err)
-	}
-	if !ok {
-		return fmt.Errorf("unsupported channel type %q", locator.ChannelType)
+	topicID := 0
+	if address, ok, err := baldatelegram.DecodeLocator(locator); err == nil && ok {
+		topicID = address.TopicID
 	}
 
-	chatID := address.ChatID
-	topicID := address.TopicID
 	userContent := genai.NewContentFromText(text, genai.RoleUser)
 	draftID := messageID + 1
 	taskBackedDelivery := deliver && strings.TrimSpace(taskID) != "" && h.actorDispatcher != nil
 
 	runCtx := zerolog.Ctx(ctx).With().
-		Int64("chat_id", chatID).
+		Str("channel_type", locator.ChannelType).
+		Str("address_key", locator.AddressKey).
 		Int("topic_id", topicID).
 		Str("session_id", sessionID).
 		Str("task_id", strings.TrimSpace(taskID)).

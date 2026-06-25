@@ -13,6 +13,7 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
+	baldaslack "github.com/normahq/balda/internal/apps/balda/channel/slack"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
@@ -1542,6 +1543,41 @@ func TestRunSessionTurnPayload_RestoresPersistedSessionWithoutPayloadUserID(t *t
 	}
 	if !strings.Contains(err.Error(), "restore session for queued turn") || !strings.Contains(err.Error(), "restore create failed") {
 		t.Fatalf("RunSessionTurnPayload() error = %v", err)
+	}
+}
+
+func TestRunTurnWithDelivery_AcceptsSlackLocator(t *testing.T) {
+	t.Parallel()
+
+	h := &BaldaHandler{
+		actorDispatcher: &recordingHandlerCommandBus{},
+		logger:          zerolog.Nop(),
+	}
+	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
+		reply := adksession.NewEvent(invocationID)
+		reply.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
+		done := adksession.NewEvent(invocationID)
+		done.TurnComplete = true
+		return []*adksession.Event{reply, done}
+	})
+	locator := baldaslack.NewThreadLocator("T123", "C456", "1712345678.000100")
+
+	if err := h.runTurnWithDelivery(context.Background(), "hello", adkRunner, "tg-101", sessionID, "", sessionID, locator, 41, baldachannel.ProgressPolicy{}, true); err != nil {
+		t.Fatalf("runTurnWithDelivery() error = %v", err)
+	}
+	bus := h.actorDispatcher.(*recordingHandlerCommandBus)
+	if len(bus.commands) != 1 {
+		t.Fatalf("dispatch calls = %d, want 1", len(bus.commands))
+	}
+	var payload actors.DeliveryPayload
+	if err := json.Unmarshal([]byte(bus.commands[0].PayloadJSON), &payload); err != nil {
+		t.Fatalf("decode delivery payload: %v", err)
+	}
+	if payload.Locator.ChannelType != baldastate.ChannelTypeSlack {
+		t.Fatalf("delivery channel type = %q, want slack", payload.Locator.ChannelType)
+	}
+	if payload.Text != baldaRunTurnFinalAnswerText {
+		t.Fatalf("delivery text = %q, want final answer", payload.Text)
 	}
 }
 
