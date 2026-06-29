@@ -21,6 +21,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	actortransport "github.com/normahq/balda/pkg/actorlayer/transport"
@@ -570,6 +571,13 @@ func (r *InboundWebhookReceiver) handleInboundWebhook(w http.ResponseWriter, req
 		ReportTo: reportTo,
 		UserID:   target.UserID,
 		TopicID:  target.TopicID,
+		DeliveryOptions: deliveryfmt.Options{
+			Profile: deliveryfmt.Profile{Format: deliveryfmt.FormatAuto},
+			ProgressPolicy: deliveryfmt.ProgressPolicy{
+				Typing:   false,
+				Thinking: false,
+			},
+		},
 		ProgressPolicy: baldachannel.ProgressPolicy{
 			Typing:   false,
 			Thinking: false,

@@ -7,6 +7,7 @@ import (
 	"text/template"
 
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	"github.com/normahq/balda/internal/apps/balda/telegramfmt"
 )
 
@@ -89,10 +90,17 @@ func renderGoalStatusMessage(profile deliverycmd.Profile, text string) string {
 }
 
 func goalMessageStyleForProfile(profile deliverycmd.Profile) goalMessageStyle {
-	switch strings.ToLower(strings.TrimSpace(profile.FormattingMode)) {
-	case "rich_markdown", "markdownv2", "markdown":
+	normalized := deliveryfmt.NormalizeProfile(profile)
+	switch normalized.Format {
+	case deliveryfmt.FormatMarkdown:
 		return goalMessageStyleMarkdown
-	case "rich_html", "html":
+	case deliveryfmt.FormatHTML:
+		return goalMessageStyleHTML
+	}
+	switch normalized.TelegramMode {
+	case telegramfmt.ModeRichMarkdown, telegramfmt.ModeMarkdownV2:
+		return goalMessageStyleMarkdown
+	case telegramfmt.ModeRichHTML, telegramfmt.ModeHTML:
 		return goalMessageStyleHTML
 	default:
 		return goalMessageStylePlain

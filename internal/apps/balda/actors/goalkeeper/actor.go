@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	"github.com/normahq/balda/internal/apps/balda/progress"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
@@ -847,7 +848,7 @@ func normalizeGoalDeliveryLocator(locator baldasession.SessionLocator) baldasess
 }
 
 func normalizeGoalDeliveryProfile(profile deliverycmd.Profile) deliverycmd.Profile {
-	return deliverycmd.Profile{FormattingMode: strings.TrimSpace(profile.FormattingMode)}
+	return deliveryfmt.NormalizeProfile(profile)
 }
 
 func normalizeGoalMaxIterations(v int) int {

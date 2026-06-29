@@ -3,9 +3,9 @@ package slack
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/rs/zerolog"
 )
@@ -37,7 +37,10 @@ func (a *Adapter) SendMarkdown(ctx context.Context, locator baldasession.Session
 
 // SendMarkdownWithProfile sends a Slack message using the requested formatting profile.
 func (a *Adapter) SendMarkdownWithProfile(ctx context.Context, locator baldasession.SessionLocator, profile deliverycmd.Profile, text string) error {
-	if strings.EqualFold(strings.TrimSpace(profile.FormattingMode), "plain") {
+	if deliveryfmt.NormalizeProfile(profile).Format == deliveryfmt.FormatHTML {
+		return fmt.Errorf("slack delivery does not support html formatting")
+	}
+	if deliveryfmt.NormalizeProfile(profile).Format == deliveryfmt.FormatPlain {
 		return a.SendPlain(ctx, locator, text)
 	}
 	_, err := a.send(ctx, locator, text, true)
@@ -57,7 +60,11 @@ func (a *Adapter) SendAgentReplyWithProviderMessageID(ctx context.Context, locat
 
 // SendAgentReplyWithProviderMessageIDAndProfile sends agent output using Slack mrkdwn unless plain is requested.
 func (a *Adapter) SendAgentReplyWithProviderMessageIDAndProfile(ctx context.Context, locator baldasession.SessionLocator, profile deliverycmd.Profile, text string) (string, error) {
-	mrkdwn := !strings.EqualFold(strings.TrimSpace(profile.FormattingMode), "plain")
+	normalized := deliveryfmt.NormalizeProfile(profile)
+	if normalized.Format == deliveryfmt.FormatHTML {
+		return "", fmt.Errorf("slack delivery does not support html formatting")
+	}
+	mrkdwn := normalized.Format != deliveryfmt.FormatPlain
 	return a.send(ctx, locator, text, mrkdwn)
 }
 

@@ -8,6 +8,7 @@ import (
 
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/rs/zerolog"
@@ -31,20 +32,21 @@ type Adapter struct {
 
 // MessageContext is the balda-facing Telegram message shape.
 type MessageContext struct {
-	Locator        baldasession.SessionLocator
-	ChatID         int64
-	TopicID        int
-	MessageID      int
-	UserID         int64
-	Entities       []client.MessageEntity
-	IsReply        bool
-	ReplyToUserID  int64
-	ReplyToIsBot   bool
-	ReplyContent   string
-	Text           string
-	HasCommand     bool
-	ProgressPolicy baldachannel.ProgressPolicy
-	IsDM           bool
+	Locator         baldasession.SessionLocator
+	ChatID          int64
+	TopicID         int
+	MessageID       int
+	UserID          int64
+	Entities        []client.MessageEntity
+	IsReply         bool
+	ReplyToUserID   int64
+	ReplyToIsBot    bool
+	ReplyContent    string
+	Text            string
+	HasCommand      bool
+	DeliveryOptions deliveryfmt.Options
+	ProgressPolicy  baldachannel.ProgressPolicy
+	IsDM            bool
 }
 
 // CommandContext is the balda-facing Telegram command shape.
@@ -134,6 +136,16 @@ func (a *Adapter) MessageContextFromEvent(event *events.MessageEvent) (MessageCo
 		ReplyContent:  replyContent,
 		Text:          text,
 		HasCommand:    hasCommand,
+		DeliveryOptions: deliveryfmt.Options{
+			Profile: deliveryfmt.Profile{
+				Format:       deliveryfmt.FormatAuto,
+				TelegramMode: a.messenger.TelegramFormattingMode(),
+			},
+			ProgressPolicy: deliveryfmt.ProgressPolicy{
+				Typing:   true,
+				Thinking: event.Message.Chat.Type == chatTypePrivate,
+			},
+		},
 		ProgressPolicy: baldachannel.ProgressPolicy{
 			Typing:   true,
 			Thinking: event.Message.Chat.Type == chatTypePrivate,
@@ -361,7 +373,8 @@ func (a *Adapter) CommandContextFromEvent(event *events.CommandEvent) (CommandCo
 	return CommandContext{
 		Locator: NewLocator(event.Message.Chat.Id, topicID),
 		DeliveryProfile: deliverycmd.Profile{
-			FormattingMode: a.messenger.TelegramFormattingMode(),
+			Format:       deliveryfmt.FormatAuto,
+			TelegramMode: a.messenger.TelegramFormattingMode(),
 		},
 		ChatID:  event.Message.Chat.Id,
 		TopicID: topicID,
@@ -421,10 +434,8 @@ func (a *Adapter) SendMarkdownWithProfile(ctx context.Context, locator baldasess
 	if err != nil {
 		return err
 	}
-	if profile.FormattingMode != "" {
-		return a.messenger.SendMarkdownWithMode(ctx, chatID, text, topicID, profile.FormattingMode)
-	}
-	return a.messenger.SendMarkdown(ctx, chatID, text, topicID)
+	mode := deliveryfmt.EffectiveTelegramMode(profile, a.messenger.TelegramFormattingMode())
+	return a.messenger.SendMarkdownWithMode(ctx, chatID, text, topicID, mode)
 }
 
 // SendAgentReply sends final agent output for the locator using configured formatting mode.
@@ -448,11 +459,8 @@ func (a *Adapter) SendAgentReplyWithProviderMessageIDAndProfile(ctx context.Cont
 		return "", err
 	}
 	var result messenger.AgentReplyResult
-	if profile.FormattingMode != "" {
-		result, err = a.messenger.SendAgentReplyWithResultAndMode(ctx, chatID, text, topicID, profile.FormattingMode)
-	} else {
-		result, err = a.messenger.SendAgentReplyWithResult(ctx, chatID, text, topicID)
-	}
+	mode := deliveryfmt.EffectiveTelegramMode(profile, a.messenger.TelegramFormattingMode())
+	result, err = a.messenger.SendAgentReplyWithResultAndMode(ctx, chatID, text, topicID, mode)
 	if err != nil {
 		return "", err
 	}

@@ -15,6 +15,7 @@ import (
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldaslack "github.com/normahq/balda/internal/apps/balda/channel/slack"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
@@ -488,8 +489,9 @@ func TestRunTurn_TaskBackedVisibleOutputOnlySendsFinalReply(t *testing.T) {
 		return []*adksession.Event{partialOne, partialTwo, partialThree, done}
 	})
 	locator := baldatelegram.NewLocator(9001, 77)
-	if err := h.runTurnWithDelivery(context.Background(), "hello", adkRunner, "tg-101", sessionID, "task-2", sessionID, locator, 41, baldachannel.ProgressPolicy{}, true); err != nil {
-		t.Fatalf("runTurnWithDelivery() error = %v", err)
+	options := deliveryfmt.Options{Profile: deliveryfmt.Profile{Format: deliveryfmt.FormatAuto, TelegramMode: "markdownv2"}}
+	if err := h.runTurnWithDeliveryOptions(context.Background(), "hello", adkRunner, "tg-101", sessionID, "task-2", sessionID, locator, 41, options, true); err != nil {
+		t.Fatalf("runTurnWithDeliveryOptions() error = %v", err)
 	}
 
 	gotTexts := deliveryTextsFromCommands(t, bus.commands)
@@ -503,6 +505,13 @@ func TestRunTurn_TaskBackedVisibleOutputOnlySendsFinalReply(t *testing.T) {
 	}
 	if got := agentEvents[0].Meta["event_type"]; got != swarm.TaskEventAgentResult {
 		t.Fatalf("event[0] type = %q, want %q", got, swarm.TaskEventAgentResult)
+	}
+	var payload actors.DeliveryPayload
+	if err := json.Unmarshal([]byte(bus.commands[0].PayloadJSON), &payload); err != nil {
+		t.Fatalf("decode delivery payload: %v", err)
+	}
+	if payload.Profile.Format != options.Profile.Format || payload.Profile.TelegramMode != options.Profile.TelegramMode {
+		t.Fatalf("delivery profile = %+v, want %+v", payload.Profile, options.Profile)
 	}
 }
 

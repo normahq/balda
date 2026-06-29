@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
@@ -33,6 +34,7 @@ type SessionTurnPayload struct {
 	ScheduledTaskID string                       `json:"scheduled_task_id,omitempty"`
 	MessageID       int                          `json:"message_id,omitempty"`
 	TopicID         int                          `json:"topic_id,omitempty"`
+	DeliveryOptions deliveryfmt.Options          `json:"delivery_options,omitempty,omitzero"`
 	ProgressPolicy  baldachannel.ProgressPolicy  `json:"progress_policy,omitempty"`
 	Deliver         bool                         `json:"deliver"`
 	Source          string                       `json:"source,omitempty"`
@@ -250,4 +252,12 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func NormalizeSessionDeliveryOptions(payload SessionTurnPayload) deliveryfmt.Options {
+	options := deliveryfmt.NormalizeOptions(payload.DeliveryOptions)
+	if !options.ProgressPolicy.Typing && !options.ProgressPolicy.Thinking {
+		options.ProgressPolicy = payload.ProgressPolicy
+	}
+	return deliveryfmt.NormalizeOptions(options)
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/rs/zerolog"
 )
@@ -58,8 +59,12 @@ func (a *Adapter) SendMarkdownWithProfile(
 	profile deliverycmd.Profile,
 	text string,
 ) error {
-	if strings.EqualFold(strings.TrimSpace(profile.FormattingMode), "plain") {
-		return a.SendPlain(ctx, locator, text)
+	normalized := deliveryfmt.NormalizeProfile(profile)
+	if normalized.Format == deliveryfmt.FormatHTML {
+		return fmt.Errorf("zulip delivery does not support html formatting")
+	}
+	if normalized.Format == deliveryfmt.FormatPlain {
+		return a.SendPlain(ctx, locator, plainTextFallback(text))
 	}
 	_, err := a.sendWithPlainFallback(ctx, locator, text)
 	return err
@@ -92,8 +97,12 @@ func (a *Adapter) SendAgentReplyWithProviderMessageIDAndProfile(
 	profile deliverycmd.Profile,
 	text string,
 ) (string, error) {
-	if strings.EqualFold(strings.TrimSpace(profile.FormattingMode), "plain") {
-		msgID, err := a.send(ctx, locator, text)
+	normalized := deliveryfmt.NormalizeProfile(profile)
+	if normalized.Format == deliveryfmt.FormatHTML {
+		return "", fmt.Errorf("zulip delivery does not support html formatting")
+	}
+	if normalized.Format == deliveryfmt.FormatPlain {
+		msgID, err := a.send(ctx, locator, plainTextFallback(text))
 		if err != nil {
 			return "", err
 		}

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/normahq/balda/pkg/actorlayer"
@@ -25,10 +26,7 @@ type Payload struct {
 
 type Mode string
 
-// Profile snapshots delivery-target formatting attributes at request time.
-type Profile struct {
-	FormattingMode string `json:"formatting_mode,omitempty"`
-}
+type Profile = deliveryfmt.Profile
 
 const (
 	ModeAgentReply Mode = "agent_reply"
@@ -138,7 +136,7 @@ func ChatActionEnvelope(
 }
 
 func normalizeProfile(profile Profile) Profile {
-	return Profile{FormattingMode: strings.TrimSpace(profile.FormattingMode)}
+	return deliveryfmt.NormalizeProfile(profile)
 }
 
 func Validate(payload Payload) error {

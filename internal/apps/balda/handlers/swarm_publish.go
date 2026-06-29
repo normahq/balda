@@ -94,7 +94,7 @@ func (h *BaldaHandler) RunSessionTurnPayload(ctx context.Context, payload actors
 	if payload.ReportTo != nil {
 		deliveryLocator = *payload.ReportTo
 	}
-	return h.runTurnTaskWithDelivery(
+	return h.runTurnTaskWithDeliveryOptions(
 		ctx,
 		payload.Text,
 		ts.GetRunner(),
@@ -105,7 +105,7 @@ func (h *BaldaHandler) RunSessionTurnPayload(ctx context.Context, payload actors
 		deliveryLocator,
 		payload.MessageID,
 		payload.TopicID,
-		payload.ProgressPolicy,
+		actors.NormalizeSessionDeliveryOptions(payload),
 		payload.Deliver,
 	)
 }

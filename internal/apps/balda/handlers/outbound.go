@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/normahq/balda/internal/apps/balda/actors"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/pkg/actorlayer"
 	actortransport "github.com/normahq/balda/pkg/actorlayer/transport"
@@ -42,7 +43,11 @@ func sendMarkdown(ctx context.Context, dispatcher actortransport.Dispatcher, fro
 }
 
 func sendAgentReply(ctx context.Context, dispatcher actortransport.Dispatcher, from actorlayer.ActorAddress, locator baldasession.SessionLocator, text string) error {
-	env, err := actors.AgentReplyDeliveryEnvelope("", from, locator, text, "")
+	return sendAgentReplyWithProfile(ctx, dispatcher, from, locator, deliveryfmt.Profile{}, text)
+}
+
+func sendAgentReplyWithProfile(ctx context.Context, dispatcher actortransport.Dispatcher, from actorlayer.ActorAddress, locator baldasession.SessionLocator, profile deliveryfmt.Profile, text string) error {
+	env, err := actors.AgentReplyDeliveryEnvelopeWithProfile("", from, locator, profile, text, "")
 	if err != nil {
 		return err
 	}

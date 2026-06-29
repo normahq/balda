@@ -41,6 +41,27 @@ func TestTelegramFormattingDocsCoverFormatterContract(t *testing.T) {
 	}
 }
 
+func TestUserDocsDocumentSharedDeliveryFormatting(t *testing.T) {
+	t.Parallel()
+
+	doc := readRepoDoc(t, "docs/balda.md")
+	for _, want := range []string{
+		"### Delivery formatting",
+		"`auto`",
+		"`markdown`",
+		"`html`",
+		"`plain`",
+		"Slack `mrkdwn`",
+		"Zulip Markdown",
+		"Slack and",
+		"Zulip do not use Telegram formatting mode names",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("docs/balda.md does not document %q", want)
+		}
+	}
+}
+
 func TestUserDocsLinkTelegramFormattingGuide(t *testing.T) {
 	t.Parallel()
 

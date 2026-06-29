@@ -12,6 +12,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
@@ -221,6 +222,7 @@ func (h *BaldaHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		locator,
 		messageCtx.MessageID,
 		topicID,
+		messageCtx.DeliveryOptions,
 		messageCtx.ProgressPolicy,
 	); err != nil {
 		if swarm.IsCommandQueueFull(err) {
@@ -242,6 +244,7 @@ func (h *BaldaHandler) enqueueTurn(
 	locator baldasession.SessionLocator,
 	messageID int,
 	topicID int,
+	deliveryOptions deliveryfmt.Options,
 	progressPolicy baldachannel.ProgressPolicy,
 ) error {
 	if ts == nil {
@@ -255,6 +258,10 @@ func (h *BaldaHandler) enqueueTurn(
 		AgentSessionID: ts.GetAgentSessionID(),
 		MessageID:      messageID,
 		TopicID:        topicID,
+		DeliveryOptions: deliveryfmt.Options{
+			Profile:        deliveryOptions.Profile,
+			ProgressPolicy: progressPolicy,
+		},
 		ProgressPolicy: progressPolicy,
 		Deliver:        true,
 		Source:         "telegram",
@@ -279,10 +286,27 @@ func (h *BaldaHandler) runTurnTaskWithDelivery(
 	progressPolicy baldachannel.ProgressPolicy,
 	deliver bool,
 ) error {
+	return h.runTurnTaskWithDeliveryOptions(ctx, text, r, userID, sessionID, taskID, agentSessionID, locator, messageID, topicID, deliveryfmt.Options{ProgressPolicy: progressPolicy}, deliver)
+}
+
+func (h *BaldaHandler) runTurnTaskWithDeliveryOptions(
+	ctx context.Context,
+	text string,
+	r *runner.Runner,
+	userID string,
+	sessionID string,
+	taskID string,
+	agentSessionID string,
+	locator baldasession.SessionLocator,
+	messageID int,
+	topicID int,
+	deliveryOptions deliveryfmt.Options,
+	deliver bool,
+) error {
 	if !deliver {
-		progressPolicy = baldachannel.ProgressPolicy{}
+		deliveryOptions.ProgressPolicy = deliveryfmt.ProgressPolicy{}
 	}
-	err := h.runTurnWithDelivery(ctx, text, r, userID, sessionID, taskID, agentSessionID, locator, messageID, progressPolicy, deliver)
+	err := h.runTurnWithDeliveryOptions(ctx, text, r, userID, sessionID, taskID, agentSessionID, locator, messageID, deliveryOptions, deliver)
 	if err == nil {
 		return nil
 	}
@@ -394,6 +418,22 @@ func (h *BaldaHandler) runTurnWithDelivery(
 	progressPolicy baldachannel.ProgressPolicy,
 	deliver bool,
 ) error {
+	return h.runTurnWithDeliveryOptions(ctx, text, r, userID, sessionID, taskID, agentSessionID, locator, messageID, deliveryfmt.Options{ProgressPolicy: progressPolicy}, deliver)
+}
+
+func (h *BaldaHandler) runTurnWithDeliveryOptions(
+	ctx context.Context,
+	text string,
+	r *runner.Runner,
+	userID string,
+	sessionID string,
+	taskID string,
+	agentSessionID string,
+	locator baldasession.SessionLocator,
+	messageID int,
+	deliveryOptions deliveryfmt.Options,
+	deliver bool,
+) error {
 	if r == nil {
 		return fmt.Errorf("session turn: no runner in session %s", sessionID)
 	}
@@ -409,6 +449,9 @@ func (h *BaldaHandler) runTurnWithDelivery(
 	userContent := genai.NewContentFromText(text, genai.RoleUser)
 	draftID := messageID + 1
 	taskBackedDelivery := deliver && strings.TrimSpace(taskID) != "" && h.actorDispatcher != nil
+	deliveryOptions = deliveryfmt.NormalizeOptions(deliveryOptions)
+	progressPolicy := deliveryOptions.ProgressPolicy
+	deliveryProfile := deliveryOptions.Profile
 
 	runCtx := zerolog.Ctx(ctx).With().
 		Str("channel_type", locator.ChannelType).
@@ -466,7 +509,7 @@ func (h *BaldaHandler) runTurnWithDelivery(
 			if taskBackedDelivery {
 				if hasPlanUpdate && planProgressText != "" && planProgressText != lastPlanProgressText {
 					deliverySeq++
-					if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, planProgressText, fmt.Sprintf("progress:plan:%03d", deliverySeq)); err != nil {
+					if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, deliveryProfile, planProgressText, fmt.Sprintf("progress:plan:%03d", deliverySeq)); err != nil {
 						return err
 					}
 					if err := h.appendTaskEvent(ctx, taskID, swarm.TaskEventAgentProgress, "session.actor", "", map[string]any{
@@ -606,7 +649,7 @@ func (h *BaldaHandler) runTurnWithDelivery(
 				responseSource = "fire_and_forget"
 			case strings.TrimSpace(responseText) != "":
 				if taskBackedDelivery {
-					if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, responseText, "final"); err != nil {
+					if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, deliveryProfile, responseText, "final"); err != nil {
 						return err
 					}
 					if err := h.appendTaskEvent(ctx, taskID, swarm.TaskEventAgentResult, "session.actor", "", map[string]any{
@@ -616,7 +659,7 @@ func (h *BaldaHandler) runTurnWithDelivery(
 					}
 					responseEmitted = true
 					responseSource = "streamed_text"
-				} else if sendErr := sendAgentReply(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, responseText); sendErr != nil {
+				} else if sendErr := sendAgentReplyWithProfile(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, deliveryProfile, responseText); sendErr != nil {
 					log.Warn().Err(sendErr).Int("topic_id", topicID).Msg("failed to send balda response")
 				} else {
 					responseEmitted = true
@@ -629,7 +672,7 @@ func (h *BaldaHandler) runTurnWithDelivery(
 				}
 				if terminalMessage != "" {
 					if taskBackedDelivery {
-						if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, terminalMessage, "terminal"); err != nil {
+						if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, deliveryProfile, terminalMessage, "terminal"); err != nil {
 							return err
 						}
 						if err := h.appendTaskEvent(ctx, taskID, swarm.TaskEventAgentResult, "session.actor", "", map[string]any{
@@ -720,13 +763,14 @@ func (h *BaldaHandler) dispatchTaskDelivery(
 	taskID string,
 	locator baldasession.SessionLocator,
 	sessionID string,
+	profile deliveryfmt.Profile,
 	text string,
 	dedupeSuffix string,
 ) error {
 	if h == nil || h.actorDispatcher == nil {
 		return fmt.Errorf("swarm runtime is unavailable")
 	}
-	env, err := actors.DeliveryEnvelope(taskID, actorlayer.ActorAddress{Target: swarm.ActorTypeSession, Key: sessionID}, locator, text, dedupeSuffix)
+	env, err := actors.AgentReplyDeliveryEnvelopeWithProfile(taskID, actorlayer.ActorAddress{Target: swarm.ActorTypeSession, Key: sessionID}, locator, profile, text, dedupeSuffix)
 	if err != nil {
 		return err
 	}

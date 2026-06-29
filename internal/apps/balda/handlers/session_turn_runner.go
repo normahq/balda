@@ -102,7 +102,7 @@ func (r *BaldaSessionTurnRunner) RunSessionTurnPayload(ctx context.Context, payl
 		logger:             r.logger,
 		now:                r.now,
 	}
-	return handler.runTurnWithDelivery(
+	return handler.runTurnWithDeliveryOptions(
 		ctx,
 		payload.Text,
 		ts.GetRunner(),
@@ -112,7 +112,7 @@ func (r *BaldaSessionTurnRunner) RunSessionTurnPayload(ctx context.Context, payl
 		agentSessionID,
 		deliveryLocator,
 		payload.MessageID,
-		payload.ProgressPolicy,
+		actors.NormalizeSessionDeliveryOptions(payload),
 		payload.Deliver,
 	)
 }

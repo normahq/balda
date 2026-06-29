@@ -612,6 +612,21 @@ session-start snapshot. New or restored sessions read the latest file.
   servers must be declared explicitly through `runtime.mcp_servers`,
   provider-level `mcp_servers`, or `balda.mcp_servers`.
 
+### Delivery formatting
+
+Balda actor commands carry a request-scoped delivery format so session, goal,
+and task-result replies render consistently across transports.
+
+| Delivery format | Meaning | Telegram | Slack | Zulip |
+| --- | --- | --- | --- | --- |
+| `auto` | Use the target channel default | configured `balda.telegram.formatting_mode` | Markdown-style text | Markdown-style text |
+| `markdown` | Channel-native Markdown-style formatting | configured Telegram Markdown-capable mode | Slack `mrkdwn` | Zulip Markdown |
+| `html` | Channel-native HTML where supported | Telegram HTML-capable mode | unsupported | unsupported |
+| `plain` | No markup | no Telegram `parse_mode` | Slack `mrkdwn=false` | plain-text fallback |
+
+The public Telegram config remains `balda.telegram.formatting_mode`; Slack and
+Zulip do not use Telegram formatting mode names.
+
 ## Session Model
 
 Session key:

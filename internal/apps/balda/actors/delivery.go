@@ -2,6 +2,7 @@ package actors
 
 import (
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/pkg/actorlayer"
 )
@@ -26,6 +27,17 @@ func AgentReplyDeliveryEnvelope(
 	return deliverycmd.AgentReplyEnvelope(taskID, from, locator, text, dedupeSuffix)
 }
 
+func AgentReplyDeliveryEnvelopeWithProfile(
+	taskID string,
+	from actorlayer.ActorAddress,
+	locator baldasession.SessionLocator,
+	profile deliveryfmt.Profile,
+	text string,
+	dedupeSuffix string,
+) (actorlayer.Envelope, error) {
+	return deliverycmd.AgentReplyEnvelopeWithProfile(taskID, from, locator, profile, text, dedupeSuffix)
+}
+
 func PlainDeliveryEnvelope(
 	taskID string,
 	from actorlayer.ActorAddress,
@@ -44,6 +56,17 @@ func MarkdownDeliveryEnvelope(
 	dedupeSuffix string,
 ) (actorlayer.Envelope, error) {
 	return deliverycmd.MarkdownEnvelope(taskID, from, locator, text, dedupeSuffix)
+}
+
+func MarkdownDeliveryEnvelopeWithProfile(
+	taskID string,
+	from actorlayer.ActorAddress,
+	locator baldasession.SessionLocator,
+	profile deliveryfmt.Profile,
+	text string,
+	dedupeSuffix string,
+) (actorlayer.Envelope, error) {
+	return deliverycmd.MarkdownEnvelopeWithProfile(taskID, from, locator, profile, text, dedupeSuffix)
 }
 
 func DraftPlainDeliveryEnvelope(

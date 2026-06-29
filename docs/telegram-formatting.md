@@ -3,6 +3,10 @@
 Balda sends final assistant responses to Telegram with the configured
 `balda.telegram.formatting_mode`.
 
+This page is Telegram-specific. Other transports use Balda's shared delivery
+formats and map `markdown` to their own channel-native dialects, such as Slack
+`mrkdwn` and Zulip Markdown.
+
 Allowed values:
 
 - `rich_markdown` (default): agent output is Markdown or plain text. Balda sends it with Telegram rich messages.

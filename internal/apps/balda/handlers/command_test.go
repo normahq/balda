@@ -11,6 +11,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
@@ -617,7 +618,7 @@ func TestCommandHandlerSubmitGoalTask_PublishesDurableCommandOnly(t *testing.T) 
 	bus := &recordingHandlerCommandBus{}
 	handler := &CommandHandler{actorDispatcher: bus, goalMaxIterations: 7}
 
-	profile := deliverycmd.Profile{FormattingMode: "rich_markdown"}
+	profile := deliveryfmt.Profile{Format: deliveryfmt.FormatAuto, TelegramMode: "rich_markdown"}
 	started, err := handler.submitGoalTaskWithProfile(ctx, locator, profile, "deploy release", testTelegramUserID101)
 	if err != nil {
 		t.Fatalf("submitGoalTask() error = %v", err)
@@ -640,8 +641,8 @@ func TestCommandHandlerSubmitGoalTask_PublishesDurableCommandOnly(t *testing.T) 
 	if payload.Goal == nil || payload.Goal.MaxIterations != 7 {
 		t.Fatalf("goal payload = %+v, want max_iterations=7 from config", payload.Goal)
 	}
-	if payload.Goal.DeliveryProfile.FormattingMode != profile.FormattingMode {
-		t.Fatalf("delivery profile mode = %q, want %q", payload.Goal.DeliveryProfile.FormattingMode, profile.FormattingMode)
+	if payload.Goal.DeliveryProfile.Format != profile.Format || payload.Goal.DeliveryProfile.TelegramMode != profile.TelegramMode {
+		t.Fatalf("delivery profile = %+v, want %+v", payload.Goal.DeliveryProfile, profile)
 	}
 }
 

@@ -22,7 +22,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldaslack "github.com/normahq/balda/internal/apps/balda/channel/slack"
-	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	"github.com/normahq/balda/internal/apps/balda/locatorref"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
@@ -706,7 +706,7 @@ func (h *SlackHandler) handleGoalCommand(ctx context.Context, locator baldasessi
 			return
 		}
 	}
-	env, err := goalkeeper.GoalTaskEnvelopeWithProfile(locator, deliverycmd.Profile{FormattingMode: "markdown"}, objective, subject, h.goalMaxIterations)
+	env, err := goalkeeper.GoalTaskEnvelopeWithProfile(locator, deliveryfmt.Profile{Format: deliveryfmt.FormatMarkdown}, objective, subject, h.goalMaxIterations)
 	if err != nil {
 		_ = h.sendPlain(ctx, locator, "Could not start goal run.")
 		return
@@ -820,6 +820,10 @@ func (h *SlackHandler) handleMessage(ctx context.Context, locator baldasession.S
 		UserID:         ts.GetUserID(),
 		AgentSessionID: ts.GetAgentSessionID(),
 		MessageID:      slackMessageID(messageID),
+		DeliveryOptions: deliveryfmt.Options{
+			Profile:        deliveryfmt.Profile{Format: deliveryfmt.FormatMarkdown},
+			ProgressPolicy: progressPolicy,
+		},
 		ProgressPolicy: progressPolicy,
 		Deliver:        true,
 		Source:         "slack",

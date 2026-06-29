@@ -19,6 +19,10 @@ User → Zulip stream/topic or DM
 Balda maps Zulip stream+topic pairs to separate agent sessions (equivalent to
 Telegram forum topics), and Zulip DMs to a personal DM session.
 
+Zulip replies use Balda's shared delivery format. The `markdown` and `auto`
+formats are sent as Zulip Markdown; `plain` uses Balda's plain-text fallback;
+`html` is not supported for Zulip delivery.
+
 ## Setup
 
 ### 1. Create the bot in Zulip

@@ -3,12 +3,46 @@ package telegram
 import (
 	"testing"
 
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
+	"github.com/normahq/balda/internal/apps/balda/messenger"
+	"github.com/normahq/balda/internal/apps/balda/telegramfmt"
+	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/messagetype"
 )
 
 const testMessageText = "hello"
+
+func TestMessageContextFromEvent_SnapshotsDeliveryOptions(t *testing.T) {
+	msg := messenger.NewMessenger(nil, zerolog.Nop())
+	msg.SetTelegramFormattingMode(telegramfmt.ModeMarkdownV2)
+	adapter := NewAdapter(AdapterParams{Messenger: msg, Logger: zerolog.Nop()})
+
+	got, ok := adapter.MessageContextFromEvent(&events.MessageEvent{
+		Message: &client.Message{
+			MessageId: 42,
+			Chat: client.Chat{
+				Id:   9001,
+				Type: "private",
+			},
+			From: &client.User{Id: 101},
+			Text: textPtr(testMessageText),
+		},
+	})
+	if !ok {
+		t.Fatal("MessageContextFromEvent() ok = false, want true")
+	}
+	if got.DeliveryOptions.Profile.Format != deliveryfmt.FormatAuto {
+		t.Fatalf("delivery profile format = %q, want %q", got.DeliveryOptions.Profile.Format, deliveryfmt.FormatAuto)
+	}
+	if got.DeliveryOptions.Profile.TelegramMode != telegramfmt.ModeMarkdownV2 {
+		t.Fatalf("delivery telegram mode = %q, want %q", got.DeliveryOptions.Profile.TelegramMode, telegramfmt.ModeMarkdownV2)
+	}
+	if !got.DeliveryOptions.ProgressPolicy.Typing || !got.DeliveryOptions.ProgressPolicy.Thinking {
+		t.Fatalf("delivery progress policy = %+v, want typing and thinking", got.DeliveryOptions.ProgressPolicy)
+	}
+}
 
 func TestMessageContextFromEvent_PrivateChatIgnoresMessageThreadID(t *testing.T) {
 	topicID := 523431

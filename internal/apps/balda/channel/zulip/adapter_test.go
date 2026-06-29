@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	"github.com/rs/zerolog"
 )
 
@@ -47,6 +48,59 @@ func TestAdapterSendAgentReplyFallsBackToPlainTextOnContentRejection(t *testing.
 	}
 	if contents[1] != "Screenshot: broken: https://example.invalid/missing.png" {
 		t.Fatalf("fallback content = %q, want plain text image reference", contents[1])
+	}
+}
+
+func TestAdapterFormattingProfileMapsMarkdownAndPlain(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		profile deliveryfmt.Profile
+		want    string
+	}{
+		{name: "auto uses markdown content", profile: deliveryfmt.Profile{Format: deliveryfmt.FormatAuto}, want: "**hello**"},
+		{name: "markdown uses markdown content", profile: deliveryfmt.Profile{Format: deliveryfmt.FormatMarkdown}, want: "**hello**"},
+		{name: "plain strips markdown content", profile: deliveryfmt.Profile{Format: deliveryfmt.FormatPlain}, want: "hello"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var got string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := r.ParseForm(); err != nil {
+					t.Fatalf("ParseForm() error = %v", err)
+				}
+				got = r.Form.Get("content")
+				_ = json.NewEncoder(w).Encode(sendMessageResult{Result: "success", ID: 456})
+			}))
+			t.Cleanup(server.Close)
+
+			adapter := NewAdapter(NewClient(server.URL, "bot@example.com", "api-key"), zerolog.Nop())
+			if _, err := adapter.SendAgentReplyWithProviderMessageIDAndProfile(context.Background(), NewStreamLocator(42, "ops"), tt.profile, "**hello**"); err != nil {
+				t.Fatalf("SendAgentReplyWithProviderMessageIDAndProfile() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("content = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAdapterRejectsHTMLFormatting(t *testing.T) {
+	t.Parallel()
+
+	adapter := NewAdapter(NewClient("http://127.0.0.1", "bot@example.com", "api-key"), zerolog.Nop())
+	_, err := adapter.SendAgentReplyWithProviderMessageIDAndProfile(
+		context.Background(),
+		NewStreamLocator(42, "ops"),
+		deliveryfmt.Profile{Format: deliveryfmt.FormatHTML},
+		"hello",
+	)
+	if err == nil {
+		t.Fatal("SendAgentReplyWithProviderMessageIDAndProfile() error = nil, want unsupported html")
 	}
 }
 

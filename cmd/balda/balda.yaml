@@ -10,7 +10,8 @@ balda:
     # Telegram bot token (required)
     # Set via BALDA_TELEGRAM_TOKEN env var
     token: ""
-    # Formatting mode for outbound Telegram text:
+    # Formatting mode for outbound Telegram text.
+    # Slack/Zulip use their own channel-native Markdown delivery and do not use this setting.
     # - rich_markdown: model writes Markdown/plain text; balda sends Telegram rich Markdown (default)
     # - rich_html: model writes rich-message HTML; balda sends Telegram rich HTML
     # - markdownv2: legacy parse_mode=MarkdownV2 conversion

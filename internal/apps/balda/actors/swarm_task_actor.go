@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
+	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
@@ -356,9 +357,12 @@ func (e *taskActorExecutor) startScheduledTaskTask(ctx context.Context, env swar
 		UserID:          payload.UserID,
 		ScheduledTaskID: payload.TaskID,
 		TopicID:         payload.TopicID,
-		Deliver:         payload.ReportTo != nil,
-		Source:          sessionTurnSourceSchedule,
-		DedupeKey:       firstNonEmpty(env.DedupeKey, taskID) + ":session",
+		DeliveryOptions: deliveryfmt.Options{
+			Profile: deliveryfmt.Profile{Format: deliveryfmt.FormatAuto},
+		},
+		Deliver:   payload.ReportTo != nil,
+		Source:    sessionTurnSourceSchedule,
+		DedupeKey: firstNonEmpty(env.DedupeKey, taskID) + ":session",
 	}
 	sessionEnv, err := SessionTurnEnvelope(sessionPayload)
 	if err != nil {
