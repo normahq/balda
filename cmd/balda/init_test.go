@@ -12,7 +12,7 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/paths"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
-	"github.com/normahq/norma/pkg/runtime/appconfig"
+	"github.com/normahq/runtime/v2/appconfig"
 	"gopkg.in/yaml.v3"
 )
 

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	adksession "google.golang.org/adk/session"
+	adksession "google.golang.org/adk/v2/session"
 	_ "modernc.org/sqlite"
 )
 
@@ -398,8 +398,17 @@ func TestSQLiteProvider_RuntimeSessionPersistsAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	event := adksession.NewEvent("invocation-1")
+	event := adksession.NewEvent(context.Background(), "invocation-1")
 	event.Author = "user"
+	event.IsolationScope = "scope-1"
+	event.Routes = []string{"start", "worker", "done"}
+	event.RequestedInput = &adksession.RequestInput{InterruptID: "approve-1", Message: "Approve?"}
+	event.Output = map[string]any{"result": "ok"}
+	event.NodeInfo = &adksession.NodeInfo{
+		Path:            "goal/worker",
+		MessageAsOutput: true,
+		OutputFor:       []string{"goal"},
+	}
 	event.Actions.StateDelta = map[string]any{
 		"cwd":       "/workspace/session",
 		"temp:skip": "drop",
@@ -425,6 +434,26 @@ func TestSQLiteProvider_RuntimeSessionPersistsAcrossReopen(t *testing.T) {
 	}
 	if got.Session.Events().Len() != 1 {
 		t.Fatalf("events len = %d, want 1", got.Session.Events().Len())
+	}
+	gotEvent := got.Session.Events().At(0)
+	if gotEvent.IsolationScope != "scope-1" {
+		t.Fatalf("event IsolationScope = %q, want scope-1", gotEvent.IsolationScope)
+	}
+	if len(gotEvent.Routes) != 3 || gotEvent.Routes[1] != "worker" {
+		t.Fatalf("event Routes = %#v, want start/worker/done", gotEvent.Routes)
+	}
+	if gotEvent.RequestedInput == nil || gotEvent.RequestedInput.InterruptID != "approve-1" {
+		t.Fatalf("event RequestedInput = %#v, want approve-1", gotEvent.RequestedInput)
+	}
+	output, ok := gotEvent.Output.(map[string]any)
+	if !ok || output["result"] != "ok" {
+		t.Fatalf("event Output = %#v, want result ok", gotEvent.Output)
+	}
+	if gotEvent.NodeInfo == nil || gotEvent.NodeInfo.Path != "goal/worker" || !gotEvent.NodeInfo.MessageAsOutput {
+		t.Fatalf("event NodeInfo = %#v, want goal/worker message output", gotEvent.NodeInfo)
+	}
+	if len(gotEvent.NodeInfo.OutputFor) != 1 || gotEvent.NodeInfo.OutputFor[0] != "goal" {
+		t.Fatalf("event NodeInfo.OutputFor = %#v, want [goal]", gotEvent.NodeInfo.OutputFor)
 	}
 	if value, err := got.Session.State().Get("cwd"); err != nil || value != "/workspace/session" {
 		t.Fatalf("state cwd = %v, err = %v, want /workspace/session", value, err)

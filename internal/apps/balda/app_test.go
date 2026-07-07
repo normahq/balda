@@ -13,8 +13,8 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/paths"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/normahq/balda/internal/git"
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
-	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
+	"github.com/normahq/runtime/v2/agentconfig"
+	runtimeconfig "github.com/normahq/runtime/v2/appconfig"
 )
 
 const (

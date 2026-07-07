@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	adksession "google.golang.org/adk/session"
+	"google.golang.org/adk/v2/platform"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 const runtimeSessionTimeFormat = time.RFC3339Nano
@@ -48,7 +48,7 @@ func (s *sqliteRuntimeSessionService) UpdateSessionState(
 		return nil, err
 	}
 	maps.Copy(sessionState, cloneStateMap(state))
-	now := time.Now().UTC()
+	now := platform.Now(ctx).UTC()
 	if err := saveRuntimeSessionState(ctx, tx, key, sessionState, now); err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (s *sqliteRuntimeSessionService) Create(ctx context.Context, req *adksessio
 
 	sessionID := strings.TrimSpace(req.SessionID)
 	if sessionID == "" {
-		sessionID = uuid.NewString()
+		sessionID = platform.NewUUID(ctx)
 	}
 	key := runtimeSessionKey{
 		appName:   strings.TrimSpace(req.AppName),
@@ -108,18 +108,18 @@ func (s *sqliteRuntimeSessionService) Create(ctx context.Context, req *adksessio
 	appDelta, userDelta, sessionState := splitRuntimeStateDeltas(req.State)
 	if len(appDelta) > 0 {
 		maps.Copy(appState, appDelta)
-		if err := saveRuntimeAppState(ctx, tx, key.appName, appState, time.Now().UTC()); err != nil {
+		if err := saveRuntimeAppState(ctx, tx, key.appName, appState, platform.Now(ctx).UTC()); err != nil {
 			return nil, err
 		}
 	}
 	if len(userDelta) > 0 {
 		maps.Copy(userState, userDelta)
-		if err := saveRuntimeUserState(ctx, tx, key.appName, key.userID, userState, time.Now().UTC()); err != nil {
+		if err := saveRuntimeUserState(ctx, tx, key.appName, key.userID, userState, platform.Now(ctx).UTC()); err != nil {
 			return nil, err
 		}
 	}
 
-	now := time.Now().UTC()
+	now := platform.Now(ctx).UTC()
 	if err := saveRuntimeSessionState(ctx, tx, key, sessionState, now); err != nil {
 		return nil, err
 	}
@@ -248,11 +248,11 @@ func (s *sqliteRuntimeSessionService) AppendEvent(ctx context.Context, curSessio
 		return err
 	}
 	if strings.TrimSpace(event.ID) == "" {
-		event.ID = uuid.NewString()
+		event.ID = platform.NewUUID(ctx)
 	}
 	event.Timestamp = event.Timestamp.UTC().Truncate(time.Microsecond)
 	if event.Timestamp.IsZero() {
-		event.Timestamp = time.Now().UTC().Truncate(time.Microsecond)
+		event.Timestamp = platform.Now(ctx).UTC().Truncate(time.Microsecond)
 	}
 	filterTempState(event)
 

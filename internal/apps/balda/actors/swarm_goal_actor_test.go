@@ -15,9 +15,9 @@ import (
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/swarm"
 	"github.com/rs/zerolog"
-	adkagent "google.golang.org/adk/agent"
-	adkrunner "google.golang.org/adk/runner"
-	adksession "google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	adkrunner "google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -670,7 +670,7 @@ func goalEventsAfterInitialFailure(finalValidatorText string) []goalTestEvent {
 }
 
 func (e goalTestEvent) build(invocationID string, fallbackValidatorText string) *adksession.Event {
-	ev := adksession.NewEvent(invocationID)
+	ev := adksession.NewEvent(context.Background(), invocationID)
 	switch e.kind {
 	case "step":
 		ev.CustomMetadata = map[string]any{

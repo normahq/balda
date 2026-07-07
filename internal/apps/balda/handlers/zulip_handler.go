@@ -29,7 +29,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"go.uber.org/fx"
-	"google.golang.org/adk/agent"
+	"google.golang.org/adk/v2/agent"
 	"google.golang.org/genai"
 )
 

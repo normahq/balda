@@ -11,9 +11,9 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/shutdown"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/runner"
-	adksession "google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 

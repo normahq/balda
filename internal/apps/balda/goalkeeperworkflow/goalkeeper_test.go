@@ -5,9 +5,9 @@ import (
 	"iter"
 	"testing"
 
-	adkagent "google.golang.org/adk/agent"
-	adkrunner "google.golang.org/adk/runner"
-	adksession "google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	adkrunner "google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -103,7 +103,7 @@ func mustNewTestAgent(
 }
 
 func textEvent(invocationID string, text string) *adksession.Event {
-	ev := adksession.NewEvent(invocationID)
+	ev := adksession.NewEvent(context.Background(), invocationID)
 	ev.Content = genai.NewContentFromText(text, genai.RoleModel)
 	return ev
 }

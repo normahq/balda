@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	adksession "google.golang.org/adk/session"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 const (

@@ -3,7 +3,7 @@ package progress
 import (
 	"strings"
 
-	adksession "google.golang.org/adk/session"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 // VisibleText returns non-thought text parts from an ADK event.

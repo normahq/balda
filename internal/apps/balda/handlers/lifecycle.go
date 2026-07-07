@@ -15,8 +15,8 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/sessionmcp"
 	"github.com/normahq/balda/internal/apps/workspacemcp"
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
-	"github.com/normahq/norma/pkg/runtime/mcpregistry"
+	"github.com/normahq/runtime/v2/agentconfig"
+	"github.com/normahq/runtime/v2/mcpregistry"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 )

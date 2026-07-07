@@ -8,7 +8,7 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/memory"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
-	adksession "google.golang.org/adk/session"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 type memoryRefreshKV struct {
@@ -78,7 +78,7 @@ func TestPrepareMemoryRunOptionsSkipsCurrentSessionVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	event := adksession.NewEvent("invocation-1")
+	event := adksession.NewEvent(context.Background(), "invocation-1")
 	event.Actions.StateDelta = map[string]any{
 		memory.MemoryVersionStateKey: memory.VersionStateValue(snapshot.Version),
 	}

@@ -27,15 +27,15 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
 	"github.com/normahq/balda/internal/apps/sessionmcp"
 	"github.com/normahq/balda/internal/git"
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
-	"github.com/normahq/norma/pkg/runtime/agentfactory"
-	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
-	"github.com/normahq/norma/pkg/runtime/mcpregistry"
+	"github.com/normahq/runtime/v2/agentconfig"
+	"github.com/normahq/runtime/v2/agentfactory"
+	runtimeconfig "github.com/normahq/runtime/v2/appconfig"
+	"github.com/normahq/runtime/v2/mcpregistry"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/runtime"
 	"github.com/tgbotkit/runtime/updatepoller"
 	"go.uber.org/fx"
-	adksession "google.golang.org/adk/session"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 type workspaceBaseBranchParams struct {

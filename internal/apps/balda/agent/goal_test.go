@@ -12,9 +12,9 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/goalkeeperworkflow"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
-	adkagent "google.golang.org/adk/agent"
-	adkrunner "google.golang.org/adk/runner"
-	adksession "google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	adkrunner "google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -737,7 +737,7 @@ func runGoalAgentEvents(
 }
 
 func goalTestTextEvent(invocationID string, text string) *adksession.Event {
-	ev := adksession.NewEvent(invocationID)
+	ev := adksession.NewEvent(context.Background(), invocationID)
 	ev.Content = genai.NewContentFromText(text, genai.RoleModel)
 	return ev
 }
@@ -749,7 +749,7 @@ func goalTestPartialTextEvent(invocationID string, text string) *adksession.Even
 }
 
 func goalTestEmptyEvent(invocationID string) *adksession.Event {
-	return adksession.NewEvent(invocationID)
+	return adksession.NewEvent(context.Background(), invocationID)
 }
 
 func newGoalSQLiteSessionService(t *testing.T) adksession.Service {

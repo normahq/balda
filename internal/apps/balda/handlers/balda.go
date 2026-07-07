@@ -28,8 +28,8 @@ import (
 	"github.com/tgbotkit/runtime/events"
 	"github.com/tgbotkit/runtime/messagetype"
 	"go.uber.org/fx"
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/runner"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
 	"google.golang.org/genai"
 )
 

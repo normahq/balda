@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/session"
 )
 
 func TestTopicSessionGetSessionIDReturnsTransportSessionID(t *testing.T) {
@@ -45,7 +45,7 @@ func TestTopicSessionRuntimeStateValueReadsCurrentSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	event := session.NewEvent("invocation-1")
+	event := session.NewEvent(context.Background(), "invocation-1")
 	event.Actions.StateDelta = map[string]any{"balda_memory_version": "2"}
 	if err := sessionSvc.AppendEvent(ctx, current.Session, event); err != nil {
 		t.Fatalf("AppendEvent() error = %v", err)

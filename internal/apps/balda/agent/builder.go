@@ -15,14 +15,14 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/paths"
 	"github.com/normahq/balda/internal/apps/balda/telegramfmt"
 	"github.com/normahq/balda/internal/git"
-	"github.com/normahq/norma/pkg/runtime/agentconfig"
-	"github.com/normahq/norma/pkg/runtime/agentfactory"
-	runtimeconfig "github.com/normahq/norma/pkg/runtime/appconfig"
-	"github.com/normahq/norma/pkg/runtime/sessionstate"
+	"github.com/normahq/runtime/v2/agentconfig"
+	"github.com/normahq/runtime/v2/agentfactory"
+	runtimeconfig "github.com/normahq/runtime/v2/appconfig"
+	"github.com/normahq/runtime/v2/sessionstate"
 	"go.uber.org/fx"
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/runner"
-	adksession "google.golang.org/adk/session"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 //go:embed system_instruction.gotmpl

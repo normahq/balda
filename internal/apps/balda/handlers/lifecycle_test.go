@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/normahq/balda/internal/apps/balda/session"
-	"github.com/normahq/norma/pkg/runtime/mcpregistry"
+	"github.com/normahq/runtime/v2/mcpregistry"
 	"github.com/rs/zerolog"
 )
 

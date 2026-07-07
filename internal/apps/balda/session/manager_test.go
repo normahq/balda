@@ -13,7 +13,7 @@ import (
 	baldaagent "github.com/normahq/balda/internal/apps/balda/agent"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/rs/zerolog"
-	adksession "google.golang.org/adk/session"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 func TestStopAllWithContext_CleansWorkspaceWhenRootContextCanceled(t *testing.T) {

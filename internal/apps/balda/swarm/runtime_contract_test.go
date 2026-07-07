@@ -40,7 +40,7 @@ func TestRuntimeCoreNoProviderImports(t *testing.T) {
 		}
 		for _, imp := range parsed.Imports {
 			pathValue := strings.Trim(imp.Path.Value, "\"")
-			if strings.HasPrefix(pathValue, "google.golang.org/adk/") {
+			if strings.HasPrefix(pathValue, "google.golang.org/adk/v2/") {
 				t.Fatalf("runtime.go import %q is disallowed in runtime core", pathValue)
 			}
 		}

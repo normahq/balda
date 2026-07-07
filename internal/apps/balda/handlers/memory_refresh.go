@@ -7,7 +7,7 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/memory"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
-	"google.golang.org/adk/runner"
+	"google.golang.org/adk/v2/runner"
 )
 
 func prepareMemoryRunOptions(ctx context.Context, store *memory.Store, ts *baldasession.TopicSession) ([]runner.RunOption, error) {

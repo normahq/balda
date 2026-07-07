@@ -20,9 +20,9 @@ import (
 	"github.com/normahq/balda/internal/git"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
-	adkagent "google.golang.org/adk/agent"
-	adkrunner "google.golang.org/adk/runner"
-	adksession "google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	adkrunner "google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 

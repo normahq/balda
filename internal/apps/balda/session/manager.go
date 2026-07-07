@@ -14,7 +14,7 @@ import (
 	"github.com/normahq/balda/internal/git"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
-	adksession "google.golang.org/adk/session"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 const cleanupTimeout = 10 * time.Second

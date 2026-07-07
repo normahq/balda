@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/agent/workflowagents/loopagent"
-	adksession "google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/agent/workflowagents/loopagent"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 const (
@@ -88,7 +88,7 @@ func runStepWithEvents(
 ) iter.Seq2[*adksession.Event, error] {
 	return func(yield func(*adksession.Event, error) bool) {
 		startedAt := time.Now()
-		if !yield(newStepEvent(ctx.InvocationID(), inner, spec, StepStarted, stepStats{}), nil) {
+		if !yield(newStepEvent(ctx, inner, spec, StepStarted, stepStats{}), nil) {
 			return
 		}
 
@@ -97,7 +97,7 @@ func runStepWithEvents(
 			if err != nil {
 				stats.err = err
 				stats.duration = time.Since(startedAt)
-				if !yield(newStepEvent(ctx.InvocationID(), inner, spec, StepFailed, stats), nil) {
+				if !yield(newStepEvent(ctx, inner, spec, StepFailed, stats), nil) {
 					return
 				}
 				yield(ev, err)
@@ -112,7 +112,7 @@ func runStepWithEvents(
 			}
 		}
 		stats.duration = time.Since(startedAt)
-		yield(newStepEvent(ctx.InvocationID(), inner, spec, StepCompleted, stats), nil)
+		yield(newStepEvent(ctx, inner, spec, StepCompleted, stats), nil)
 	}
 }
 
@@ -141,13 +141,13 @@ func (s *stepStats) record(ev *adksession.Event) {
 }
 
 func newStepEvent(
-	invocationID string,
+	ctx adkagent.InvocationContext,
 	inner adkagent.Agent,
 	spec stepSpec,
 	eventType string,
 	stats stepStats,
 ) *adksession.Event {
-	ev := adksession.NewEvent(invocationID)
+	ev := adksession.NewEvent(ctx, ctx.InvocationID())
 	ev.Author = RootAgentName
 	ev.CustomMetadata = map[string]any{
 		MetadataEventKey:  eventType,

@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	adkagent "google.golang.org/adk/agent"
-	adkrunner "google.golang.org/adk/runner"
-	adksession "google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	adkrunner "google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -390,7 +390,7 @@ func runGoalStep(
 	if invCtx, ok := ctx.(adkagent.InvocationContext); ok {
 		invocationID = invCtx.InvocationID()
 	}
-	if !yield(newGoalStepEvent(invocationID, agent, spec, goalStepStarted, goalStepStats{}), nil) {
+	if !yield(newGoalStepEvent(ctx, invocationID, agent, spec, goalStepStarted, goalStepStats{}), nil) {
 		return "", fmt.Errorf("goal step delivery stopped")
 	}
 
@@ -400,7 +400,7 @@ func runGoalStep(
 		if err != nil {
 			stats.err = err
 			stats.duration = time.Since(startedAt)
-			if !yield(newGoalStepEvent(invocationID, agent, spec, goalStepFailed, stats), nil) {
+			if !yield(newGoalStepEvent(ctx, invocationID, agent, spec, goalStepFailed, stats), nil) {
 				return latestVisibleOutput, err
 			}
 			yield(ev, err)
@@ -421,20 +421,21 @@ func runGoalStep(
 	if strings.HasPrefix(strings.TrimSpace(latestVisibleOutput), "verdict: pass") {
 		stats.escalated = true
 	}
-	if !yield(newGoalStepEvent(invocationID, agent, spec, goalStepCompleted, stats), nil) {
+	if !yield(newGoalStepEvent(ctx, invocationID, agent, spec, goalStepCompleted, stats), nil) {
 		return latestVisibleOutput, fmt.Errorf("goal step delivery stopped")
 	}
 	return latestVisibleOutput, nil
 }
 
 func newGoalStepEvent(
+	ctx context.Context,
 	invocationID string,
 	agent adkagent.Agent,
 	spec goalStepSpec,
 	eventType string,
 	stats goalStepStats,
 ) *adksession.Event {
-	ev := adksession.NewEvent(invocationID)
+	ev := adksession.NewEvent(ctx, invocationID)
 	ev.Author = goalkeeperRootAgentName
 	ev.CustomMetadata = map[string]any{
 		goalMetadataEventKey:  eventType,
@@ -573,6 +574,24 @@ type goalUserContentContext struct {
 
 func (c goalUserContentContext) UserContent() *genai.Content {
 	return c.userContent
+}
+
+func (c goalUserContentContext) WithContext(ctx context.Context) adkagent.InvocationContext {
+	if c.InvocationContext == nil {
+		return c
+	}
+	c.InvocationContext = c.InvocationContext.WithContext(ctx)
+	return c
+}
+
+func (c goalUserContentContext) WithICDelta(d *adkagent.InvocationContextDelta) adkagent.InvocationContext {
+	if c.InvocationContext != nil {
+		c.InvocationContext = c.InvocationContext.WithICDelta(d)
+	}
+	if d != nil && d.UserContent != nil {
+		c.userContent = *d.UserContent
+	}
+	return c
 }
 
 type closableGoalWorkflow struct {

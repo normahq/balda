@@ -6,7 +6,7 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	"github.com/tgbotkit/runtime/updatepoller"
-	adksession "google.golang.org/adk/session"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 const (

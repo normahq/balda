@@ -24,9 +24,9 @@ import (
 	"github.com/tgbotkit/client"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/runner"
-	adksession "google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -171,7 +171,7 @@ func TestRunTurn_SendsPlanUpdateDraftFromCustomMetadataInDM(t *testing.T) {
 	h.planUpdatesEnabled = true
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		plan := adksession.NewEvent(invocationID)
+		plan := adksession.NewEvent(context.Background(), invocationID)
 		plan.Partial = true
 		plan.CustomMetadata = map[string]any{
 			"acp_update_kind": "plan",
@@ -181,7 +181,7 @@ func TestRunTurn_SendsPlanUpdateDraftFromCustomMetadataInDM(t *testing.T) {
 			),
 		}
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 		done.TurnComplete = true
 
@@ -338,14 +338,14 @@ func TestRunTurn_SendsPlanUpdateMessagesInPublicChat(t *testing.T) {
 	h.planUpdatesEnabled = true
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		planOne := adksession.NewEvent(invocationID)
+		planOne := adksession.NewEvent(context.Background(), invocationID)
 		planOne.Partial = true
 		planOne.CustomMetadata = map[string]any{
 			"acp_update_kind": "plan",
 			"acp_plan":        newBaldaPlanSnapshot(map[string]any{"content": "Run tests", "status": "pending"}),
 		}
 
-		planTwo := adksession.NewEvent(invocationID)
+		planTwo := adksession.NewEvent(context.Background(), invocationID)
 		planTwo.Partial = true
 		planTwo.CustomMetadata = map[string]any{
 			"acp_update_kind": "plan",
@@ -355,7 +355,7 @@ func TestRunTurn_SendsPlanUpdateMessagesInPublicChat(t *testing.T) {
 			),
 		}
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 		done.TurnComplete = true
 
@@ -402,18 +402,18 @@ func TestRunTurn_TaskBackedProgressUsesDeliveryActor(t *testing.T) {
 	}
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		plan := adksession.NewEvent(invocationID)
+		plan := adksession.NewEvent(context.Background(), invocationID)
 		plan.Partial = true
 		plan.CustomMetadata = map[string]any{
 			"acp_update_kind": "plan",
 			"acp_plan":        newBaldaPlanSnapshot(map[string]any{"content": "Run tests", "status": "in_progress"}),
 		}
 
-		partial := adksession.NewEvent(invocationID)
+		partial := adksession.NewEvent(context.Background(), invocationID)
 		partial.Partial = true
 		partial.Content = genai.NewContentFromText("draft answer", genai.RoleModel)
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 		done.TurnComplete = true
 
@@ -470,19 +470,19 @@ func TestRunTurn_TaskBackedVisibleOutputOnlySendsFinalReply(t *testing.T) {
 	}
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		partialOne := adksession.NewEvent(invocationID)
+		partialOne := adksession.NewEvent(context.Background(), invocationID)
 		partialOne.Partial = true
 		partialOne.Content = genai.NewContentFromText("Hello", genai.RoleModel)
 
-		partialTwo := adksession.NewEvent(invocationID)
+		partialTwo := adksession.NewEvent(context.Background(), invocationID)
 		partialTwo.Partial = true
 		partialTwo.Content = genai.NewContentFromText("Hello there", genai.RoleModel)
 
-		partialThree := adksession.NewEvent(invocationID)
+		partialThree := adksession.NewEvent(context.Background(), invocationID)
 		partialThree.Partial = true
 		partialThree.Content = genai.NewContentFromText("Hello there friend", genai.RoleModel)
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.Content = genai.NewContentFromText("Hello there friend!", genai.RoleModel)
 		done.TurnComplete = true
 
@@ -529,11 +529,11 @@ func TestRunTurn_TaskBackedDuplicatePartialAndFinalOnlyDeliversOnce(t *testing.T
 	}
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		partial := adksession.NewEvent(invocationID)
+		partial := adksession.NewEvent(context.Background(), invocationID)
 		partial.Partial = true
 		partial.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 		done.TurnComplete = true
 
@@ -565,7 +565,7 @@ func TestRunTurn_SendsProgressAndGenericMessageForNonThoughtEventsWithoutFinalRe
 	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		toolCall := adksession.NewEvent(invocationID)
+		toolCall := adksession.NewEvent(context.Background(), invocationID)
 		toolCall.Content = &genai.Content{
 			Role: genai.RoleModel,
 			Parts: []*genai.Part{
@@ -573,11 +573,11 @@ func TestRunTurn_SendsProgressAndGenericMessageForNonThoughtEventsWithoutFinalRe
 			},
 		}
 
-		partial := adksession.NewEvent(invocationID)
+		partial := adksession.NewEvent(context.Background(), invocationID)
 		partial.Partial = true
 		partial.Content = genai.NewContentFromText("visible", genai.RoleModel)
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.TurnComplete = true
 
 		return []*adksession.Event{toolCall, partial, done}
@@ -721,28 +721,28 @@ func TestRunTurn_DoesNotFallBackToThinkingAfterPlanDraftInDM(t *testing.T) {
 	h.planUpdatesEnabled = true
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		thought := adksession.NewEvent(invocationID)
+		thought := adksession.NewEvent(context.Background(), invocationID)
 		thought.Partial = true
 		thought.Content = &genai.Content{
 			Role:  genai.RoleModel,
 			Parts: []*genai.Part{{Thought: true}},
 		}
 
-		plan := adksession.NewEvent(invocationID)
+		plan := adksession.NewEvent(context.Background(), invocationID)
 		plan.Partial = true
 		plan.CustomMetadata = map[string]any{
 			"acp_update_kind": "plan",
 			"acp_plan":        newBaldaPlanSnapshot(map[string]any{"content": "Run tests", "status": "in_progress"}),
 		}
 
-		thoughtTwo := adksession.NewEvent(invocationID)
+		thoughtTwo := adksession.NewEvent(context.Background(), invocationID)
 		thoughtTwo.Partial = true
 		thoughtTwo.Content = &genai.Content{
 			Role:  genai.RoleModel,
 			Parts: []*genai.Part{{Thought: true}},
 		}
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 		done.TurnComplete = true
 
@@ -805,14 +805,14 @@ func TestRunTurn_SkipsExactDuplicateFinalAfterStreamedText(t *testing.T) {
 	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		partial := adksession.NewEvent(invocationID)
+		partial := adksession.NewEvent(context.Background(), invocationID)
 		partial.Partial = true
 		partial.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 
-		final := adksession.NewEvent(invocationID)
+		final := adksession.NewEvent(context.Background(), invocationID)
 		final.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.TurnComplete = true
 
 		return []*adksession.Event{partial, final, done}
@@ -848,16 +848,16 @@ func TestRunTurn_MergesFinalResponseDeltaChunksOnTurnComplete(t *testing.T) {
 	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		chunkOne := adksession.NewEvent(invocationID)
+		chunkOne := adksession.NewEvent(context.Background(), invocationID)
 		chunkOne.Content = genai.NewContentFromText("Пункт списка1\n", genai.RoleModel)
 
-		chunkTwo := adksession.NewEvent(invocationID)
+		chunkTwo := adksession.NewEvent(context.Background(), invocationID)
 		chunkTwo.Content = genai.NewContentFromText("- Пункт списка2\n", genai.RoleModel)
 
-		chunkThree := adksession.NewEvent(invocationID)
+		chunkThree := adksession.NewEvent(context.Background(), invocationID)
 		chunkThree.Content = genai.NewContentFromText("- Пункт списка3", genai.RoleModel)
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.TurnComplete = true
 
 		return []*adksession.Event{chunkOne, chunkTwo, chunkThree, done}
@@ -890,16 +890,16 @@ func TestRunTurn_AppendsFinalResponseTextEventsOnTurnComplete(t *testing.T) {
 	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		chunkOne := adksession.NewEvent(invocationID)
+		chunkOne := adksession.NewEvent(context.Background(), invocationID)
 		chunkOne.Content = genai.NewContentFromText("Doing", genai.RoleModel)
 
-		chunkTwo := adksession.NewEvent(invocationID)
+		chunkTwo := adksession.NewEvent(context.Background(), invocationID)
 		chunkTwo.Content = genai.NewContentFromText("Doing well", genai.RoleModel)
 
-		chunkThree := adksession.NewEvent(invocationID)
+		chunkThree := adksession.NewEvent(context.Background(), invocationID)
 		chunkThree.Content = genai.NewContentFromText("Doing well.", genai.RoleModel)
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.TurnComplete = true
 
 		return []*adksession.Event{chunkOne, chunkTwo, chunkThree, done}
@@ -930,7 +930,7 @@ func TestRunTurn_SendsGenericMessageWhenOnlyNonFinalTextExistsOnTurnComplete(t *
 	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		nonFinalOne := adksession.NewEvent(invocationID)
+		nonFinalOne := adksession.NewEvent(context.Background(), invocationID)
 		nonFinalOne.Content = &genai.Content{
 			Role: genai.RoleModel,
 			Parts: []*genai.Part{
@@ -939,7 +939,7 @@ func TestRunTurn_SendsGenericMessageWhenOnlyNonFinalTextExistsOnTurnComplete(t *
 			},
 		}
 
-		nonFinalTwo := adksession.NewEvent(invocationID)
+		nonFinalTwo := adksession.NewEvent(context.Background(), invocationID)
 		nonFinalTwo.Content = &genai.Content{
 			Role: genai.RoleModel,
 			Parts: []*genai.Part{
@@ -948,7 +948,7 @@ func TestRunTurn_SendsGenericMessageWhenOnlyNonFinalTextExistsOnTurnComplete(t *
 			},
 		}
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.TurnComplete = true
 
 		return []*adksession.Event{nonFinalOne, nonFinalTwo, done}
@@ -987,7 +987,7 @@ func TestRunTurn_DoesNotLeakNonFinalProgressTextInPublicChat(t *testing.T) {
 	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		progressOne := adksession.NewEvent(invocationID)
+		progressOne := adksession.NewEvent(context.Background(), invocationID)
 		progressOne.Content = &genai.Content{
 			Role: genai.RoleModel,
 			Parts: []*genai.Part{
@@ -996,7 +996,7 @@ func TestRunTurn_DoesNotLeakNonFinalProgressTextInPublicChat(t *testing.T) {
 			},
 		}
 
-		progressTwo := adksession.NewEvent(invocationID)
+		progressTwo := adksession.NewEvent(context.Background(), invocationID)
 		progressTwo.Content = &genai.Content{
 			Role: genai.RoleModel,
 			Parts: []*genai.Part{
@@ -1005,10 +1005,10 @@ func TestRunTurn_DoesNotLeakNonFinalProgressTextInPublicChat(t *testing.T) {
 			},
 		}
 
-		final := adksession.NewEvent(invocationID)
+		final := adksession.NewEvent(context.Background(), invocationID)
 		final.Content = genai.NewContentFromText("Готово.\n\n- В PR 1762 поставил Approved.\n- Добавил комментарий.", genai.RoleModel)
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.TurnComplete = true
 
 		return []*adksession.Event{progressOne, progressTwo, final, done}
@@ -1051,11 +1051,11 @@ func TestRunTurn_SendsFinalTextFromTurnCompleteEvent(t *testing.T) {
 	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		progress := adksession.NewEvent(invocationID)
+		progress := adksession.NewEvent(context.Background(), invocationID)
 		progress.Partial = true
 		progress.Content = genai.NewContentFromText("working...", genai.RoleModel)
 
-		toolUpdate := adksession.NewEvent(invocationID)
+		toolUpdate := adksession.NewEvent(context.Background(), invocationID)
 		toolUpdate.Content = &genai.Content{
 			Role: genai.RoleModel,
 			Parts: []*genai.Part{
@@ -1071,7 +1071,7 @@ func TestRunTurn_SendsFinalTextFromTurnCompleteEvent(t *testing.T) {
 			},
 		}
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 		done.FinishReason = genai.FinishReasonStop
 		done.TurnComplete = true
@@ -1098,11 +1098,11 @@ func TestRunTurn_UsesPlanStateDeltaFallback(t *testing.T) {
 	h.planUpdatesEnabled = true
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		plan := adksession.NewEvent(invocationID)
+		plan := adksession.NewEvent(context.Background(), invocationID)
 		plan.Partial = true
 		plan.Actions.StateDelta["acp_plan"] = newBaldaPlanSnapshot(map[string]any{"content": "Run tests", "status": "pending"})
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 		done.TurnComplete = true
 
@@ -1129,21 +1129,21 @@ func TestRunTurn_DeduplicatesRepeatedPlanUpdates(t *testing.T) {
 	h.planUpdatesEnabled = true
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		planOne := adksession.NewEvent(invocationID)
+		planOne := adksession.NewEvent(context.Background(), invocationID)
 		planOne.Partial = true
 		planOne.CustomMetadata = map[string]any{
 			"acp_update_kind": "plan",
 			"acp_plan":        newBaldaPlanSnapshot(map[string]any{"content": "Run tests", "status": "pending"}),
 		}
 
-		planTwo := adksession.NewEvent(invocationID)
+		planTwo := adksession.NewEvent(context.Background(), invocationID)
 		planTwo.Partial = true
 		planTwo.CustomMetadata = map[string]any{
 			"acp_update_kind": "plan",
 			"acp_plan":        newBaldaPlanSnapshot(map[string]any{"content": "Run tests", "status": "pending"}),
 		}
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 		done.TurnComplete = true
 
@@ -1167,14 +1167,14 @@ func TestRunTurn_PlanUpdatesDisabledKeepsThinkingPlaceholderBehavior(t *testing.
 	h.planUpdatesEnabled = false
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		plan := adksession.NewEvent(invocationID)
+		plan := adksession.NewEvent(context.Background(), invocationID)
 		plan.Partial = true
 		plan.CustomMetadata = map[string]any{
 			"acp_update_kind": "plan",
 			"acp_plan":        newBaldaPlanSnapshot(map[string]any{"content": "Run tests", "status": "pending"}),
 		}
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 		done.TurnComplete = true
 
@@ -1211,7 +1211,7 @@ func TestRunTurn_DoesNotSendWithoutTurnComplete(t *testing.T) {
 	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		final := adksession.NewEvent(invocationID)
+		final := adksession.NewEvent(context.Background(), invocationID)
 		final.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 		return []*adksession.Event{final}
 	})
@@ -1239,15 +1239,15 @@ func TestRunTurn_SendsGenericMessageWhenOnlyPartialTextExistsOnTurnComplete(t *t
 	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		partialOne := adksession.NewEvent(invocationID)
+		partialOne := adksession.NewEvent(context.Background(), invocationID)
 		partialOne.Partial = true
 		partialOne.Content = genai.NewContentFromText("Doing", genai.RoleModel)
 
-		partialTwo := adksession.NewEvent(invocationID)
+		partialTwo := adksession.NewEvent(context.Background(), invocationID)
 		partialTwo.Partial = true
 		partialTwo.Content = genai.NewContentFromText(" well", genai.RoleModel)
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.TurnComplete = true
 
 		return []*adksession.Event{partialOne, partialTwo, done}
@@ -1279,19 +1279,19 @@ func TestRunTurn_SendsGenericMessageWhenOnlyPartialMarkdownChunksExistOnTurnComp
 	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		partialOne := adksession.NewEvent(invocationID)
+		partialOne := adksession.NewEvent(context.Background(), invocationID)
 		partialOne.Partial = true
 		partialOne.Content = genai.NewContentFromText("**Статус задачи**", genai.RoleModel)
 
-		partialTwo := adksession.NewEvent(invocationID)
+		partialTwo := adksession.NewEvent(context.Background(), invocationID)
 		partialTwo.Partial = true
 		partialTwo.Content = genai.NewContentFromText("\n", genai.RoleModel)
 
-		partialThree := adksession.NewEvent(invocationID)
+		partialThree := adksession.NewEvent(context.Background(), invocationID)
 		partialThree.Partial = true
 		partialThree.Content = genai.NewContentFromText("- **Task:** `balda-runtime`\n- **Status:** in progress", genai.RoleModel)
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.TurnComplete = true
 
 		return []*adksession.Event{partialOne, partialTwo, partialThree, done}
@@ -1323,7 +1323,7 @@ func TestRunTurn_SendsGenericMessageWhenOnlyThoughtOrPartialTextExistsOnTurnComp
 	h := newBaldaRunTurnHandlerWithChannel(channel, nil)
 
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		thought := adksession.NewEvent(invocationID)
+		thought := adksession.NewEvent(context.Background(), invocationID)
 		thought.Partial = true
 		thought.Content = &genai.Content{
 			Role: genai.RoleModel,
@@ -1332,11 +1332,11 @@ func TestRunTurn_SendsGenericMessageWhenOnlyThoughtOrPartialTextExistsOnTurnComp
 			},
 		}
 
-		partial := adksession.NewEvent(invocationID)
+		partial := adksession.NewEvent(context.Background(), invocationID)
 		partial.Partial = true
 		partial.Content = genai.NewContentFromText("visible", genai.RoleModel)
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.TurnComplete = true
 
 		return []*adksession.Event{thought, partial, done}
@@ -1389,7 +1389,7 @@ func TestRunTurn_SendsFinishReasonMessageOnEmptyTurnComplete(t *testing.T) {
 
 			h, tgClient := newBaldaRunTurnTestHandler(t, false)
 			adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-				done := adksession.NewEvent(invocationID)
+				done := adksession.NewEvent(context.Background(), invocationID)
 				done.FinishReason = tt.finishReason
 				done.TurnComplete = true
 
@@ -1418,7 +1418,7 @@ func TestRunTurn_AppendsProviderMessageExcerptForEmptyTurnComplete(t *testing.T)
 
 	h, tgClient := newBaldaRunTurnTestHandler(t, false)
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.FinishReason = genai.FinishReasonProhibitedContent
 		done.TurnComplete = true
 
@@ -1443,7 +1443,7 @@ func TestRunTurn_PrefersProviderErrorMessageOnEmptyTurnComplete(t *testing.T) {
 
 	h, tgClient := newBaldaRunTurnTestHandler(t, false)
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.ErrorCode = "provider_error"
 		done.ErrorMessage = "model gpt-5.3-codex is not available for this account"
 		done.FinishReason = genai.FinishReasonProhibitedContent
@@ -1563,9 +1563,9 @@ func TestRunTurnWithDelivery_AcceptsSlackLocator(t *testing.T) {
 		logger:          zerolog.Nop(),
 	}
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		reply := adksession.NewEvent(invocationID)
+		reply := adksession.NewEvent(context.Background(), invocationID)
 		reply.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.TurnComplete = true
 		return []*adksession.Event{reply, done}
 	})
@@ -1595,7 +1595,7 @@ func TestRunTurn_DoesNotAppendFinishReasonMessageWhenFinalTextExists(t *testing.
 
 	h, tgClient := newBaldaRunTurnTestHandler(t, true)
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 		done.FinishReason = genai.FinishReasonMaxTokens
 		done.TurnComplete = true
@@ -1619,22 +1619,22 @@ func newBaldaRunTurnTestRunner(t *testing.T) (*runner.Runner, string) {
 	t.Helper()
 
 	return newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
-		thoughtOne := adksession.NewEvent(invocationID)
+		thoughtOne := adksession.NewEvent(context.Background(), invocationID)
 		thoughtOne.Content = &genai.Content{
 			Role:  genai.RoleModel,
 			Parts: []*genai.Part{{Thought: true}},
 		}
 
-		thoughtTwo := adksession.NewEvent(invocationID)
+		thoughtTwo := adksession.NewEvent(context.Background(), invocationID)
 		thoughtTwo.Content = &genai.Content{
 			Role:  genai.RoleModel,
 			Parts: []*genai.Part{{Thought: true}},
 		}
 
-		reply := adksession.NewEvent(invocationID)
+		reply := adksession.NewEvent(context.Background(), invocationID)
 		reply.Content = genai.NewContentFromText(baldaRunTurnFinalAnswerText, genai.RoleModel)
 
-		done := adksession.NewEvent(invocationID)
+		done := adksession.NewEvent(context.Background(), invocationID)
 		done.TurnComplete = true
 
 		return []*adksession.Event{thoughtOne, thoughtTwo, reply, done}
