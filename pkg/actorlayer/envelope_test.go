@@ -1,6 +1,7 @@
 package actorlayer_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -36,27 +37,32 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestAssertEnvelope(t *testing.T) {
+func TestDecodeEnvelopeClassifiesInvalidEnvelopeAsDecodeError(t *testing.T) {
 	t.Parallel()
 
-	env := actorlayer.Envelope{
-		ID:          "env-1",
-		Namespace:   "test.command",
-		Kind:        "message",
-		From:        actorlayer.ActorAddress{Target: "system", Key: "source"},
-		To:          actorlayer.ActorAddress{Target: "session", Key: "1"},
-		PayloadJSON: `{"ok":true}`,
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "invalid json", raw: `{not-json`},
+		{name: "invalid envelope", raw: `{"id":"env-1"}`},
 	}
-	got, err := actorlayer.AssertEnvelope(env)
-	if err != nil {
-		t.Fatalf("AssertEnvelope() error = %v", err)
-	}
-	if got.ID != env.ID || got.Namespace != env.Namespace || got.Kind != env.Kind || got.From != env.From || got.To != env.To || got.PayloadJSON != env.PayloadJSON {
-		t.Fatalf("AssertEnvelope() = %#v, want %#v", got, env)
-	}
-	_, err = actorlayer.AssertEnvelope(struct{}{})
-	if err == nil || !strings.Contains(err.Error(), "unexpected actor envelope type") {
-		t.Fatalf("AssertEnvelope(struct{}{}) error = %v, want unexpected type error", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := actorlayer.DecodeEnvelope(tt.raw)
+			if err == nil {
+				t.Fatal("DecodeEnvelope() error = nil, want decode error")
+			}
+			var actorErr *actorlayer.ActorError
+			if !errors.As(err, &actorErr) || actorErr.Kind != actorlayer.ErrorKindDecode {
+				t.Fatalf("DecodeEnvelope() error = %v, want decode actor error", err)
+			}
+			if actorlayer.IsRetryableError(err) {
+				t.Fatal("IsRetryableError(decode error) = true, want false")
+			}
+		})
 	}
 }
 
@@ -124,6 +130,32 @@ func TestEncodeEnvelopeRejectsInvalidEnvelope(t *testing.T) {
 				t.Fatalf("EncodeEnvelope() error = %v, want %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestPayloadHelpers(t *testing.T) {
+	t.Parallel()
+
+	type payload struct {
+		OK   bool   `json:"ok"`
+		Name string `json:"name"`
+	}
+	raw, err := actorlayer.MarshalPayload(payload{OK: true, Name: "test"})
+	if err != nil {
+		t.Fatalf("MarshalPayload() error = %v", err)
+	}
+	var got payload
+	if err := actorlayer.UnmarshalPayload(raw, &got); err != nil {
+		t.Fatalf("UnmarshalPayload() error = %v", err)
+	}
+	if got != (payload{OK: true, Name: "test"}) {
+		t.Fatalf("UnmarshalPayload() = %#v, want ok/test", got)
+	}
+	if err := actorlayer.UnmarshalPayload(`{"ok":`, &got); err == nil || actorlayer.ClassifyError(err) != actorlayer.ErrorKindDecode {
+		t.Fatalf("UnmarshalPayload(invalid) error = %v, want decode error", err)
+	}
+	if err := actorlayer.UnmarshalPayload(raw, nil); err == nil || actorlayer.ClassifyError(err) != actorlayer.ErrorKindDecode {
+		t.Fatalf("UnmarshalPayload(nil) error = %v, want decode error", err)
 	}
 }
 

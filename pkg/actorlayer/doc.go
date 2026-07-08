@@ -6,6 +6,7 @@
 //
 // Actor addresses are normalized as case-insensitive full address strings in
 // registry and engine dispatch paths. PayloadJSON carries an encoded JSON
-// payload string. ReportTo is optional, but when present it must be a valid
-// actor address.
+// payload string; MarshalPayload and UnmarshalPayload provide the standard
+// helpers for that field. ReportTo is optional, but when present it must be a
+// valid actor address.
 package actorlayer

@@ -358,6 +358,14 @@ func TestRuntimeValidationPaths(t *testing.T) {
 	if _, err := engine.New(engine.Config{}); err == nil {
 		t.Fatal("New() error = nil, want missing resolver error")
 	}
+	var nilRuntime *engine.Runtime
+	if err := nilRuntime.Run(context.Background(), nil, func(context.Context, engine.Delivery) error { return nil }); err == nil {
+		t.Fatal("nil Runtime.Run() error = nil, want error")
+	}
+	if err := nilRuntime.Handle(context.Background(), newDelivery("nil-runtime", "lane"), func(context.Context, engine.Delivery) error { return nil }); err == nil {
+		t.Fatal("nil Runtime.Handle() error = nil, want error")
+	}
+	nilRuntime.EmitInProgress(context.Background(), newDelivery("nil-runtime-progress", "lane"))
 	runtime := newRuntimeForTest(t, &recordingSink{})
 	if err := runtime.Handle(context.Background(), nil, func(context.Context, engine.Delivery) error { return nil }); err != nil {
 		t.Fatalf("Handle(nil delivery) error = %v, want nil", err)

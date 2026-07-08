@@ -247,6 +247,9 @@ func New(cfg Config) (*Runtime, error) {
 }
 
 func (r *Runtime) Run(ctx context.Context, src Source, handler Handler) error {
+	if r == nil {
+		return fmt.Errorf("runtime engine is required")
+	}
 	if src == nil {
 		return fmt.Errorf("engine source is required")
 	}
@@ -261,6 +264,9 @@ func (r *Runtime) Run(ctx context.Context, src Source, handler Handler) error {
 func (r *Runtime) Handle(ctx context.Context, delivery Delivery, handler Handler) error {
 	if delivery == nil {
 		return nil
+	}
+	if r == nil {
+		return fmt.Errorf("runtime engine is required")
 	}
 	if handler == nil {
 		return fmt.Errorf("engine handler is required")

@@ -98,12 +98,30 @@ func EncodeEnvelope(e Envelope) (string, error) {
 func DecodeEnvelope(raw string) (Envelope, error) {
 	var env Envelope
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &env); err != nil {
-		return Envelope{}, fmt.Errorf("decode envelope: %w", err)
+		return Envelope{}, DecodeError(fmt.Errorf("decode envelope: %w", err))
 	}
 	if err := env.Validate(); err != nil {
-		return Envelope{}, err
+		return Envelope{}, DecodeError(err)
 	}
 	return env, nil
+}
+
+func MarshalPayload(payload any) (string, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal actor payload: %w", err)
+	}
+	return string(data), nil
+}
+
+func UnmarshalPayload(raw string, dst any) error {
+	if dst == nil {
+		return DecodeError(fmt.Errorf("payload destination is required"))
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), dst); err != nil {
+		return DecodeError(fmt.Errorf("unmarshal actor payload: %w", err))
+	}
+	return nil
 }
 
 func DedupeKeyOrID(env Envelope) string {
@@ -111,12 +129,4 @@ func DedupeKeyOrID(env Envelope) string {
 		return trimmed
 	}
 	return strings.TrimSpace(env.ID)
-}
-
-func AssertEnvelope(envelope any) (Envelope, error) {
-	env, ok := envelope.(Envelope)
-	if !ok {
-		return Envelope{}, DecodeError(fmt.Errorf("unexpected actor envelope type %T", envelope))
-	}
-	return env, nil
 }
