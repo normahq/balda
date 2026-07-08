@@ -217,11 +217,7 @@ func (a *Actor) Address() string {
 	return actorlayer.WildcardAddress(swarm.ActorTypeGoalkeeper)
 }
 
-func (a *Actor) Handle(ctx context.Context, envelope any) error {
-	env, err := actorlayer.AssertEnvelope(envelope)
-	if err != nil {
-		return err
-	}
+func (a *Actor) Handle(ctx context.Context, env actorlayer.Envelope) error {
 	if strings.TrimSpace(env.Namespace) != swarm.NamespaceGoalkeeperCommand {
 		return actorlayer.PolicyError(fmt.Errorf("unsupported goal namespace %q", env.Namespace))
 	}

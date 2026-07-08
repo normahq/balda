@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/normahq/balda/pkg/actorlayer"
 	"github.com/normahq/balda/pkg/actorlayer/dispatch"
 )
 
@@ -13,7 +14,7 @@ type testActor struct {
 
 func (a testActor) Address() string { return a.address }
 
-func (testActor) Handle(context.Context, any) error { return nil }
+func (testActor) Handle(context.Context, actorlayer.Envelope) error { return nil }
 
 func TestMemoryRegistryZeroValueRegistersAndResolves(t *testing.T) {
 	t.Parallel()

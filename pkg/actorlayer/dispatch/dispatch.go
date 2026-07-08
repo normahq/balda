@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/normahq/balda/pkg/actorlayer"
 )
 
 // Actor is an addressable message handler.
 type Actor interface {
 	Address() string
-	Handle(ctx context.Context, envelope any) error
+	Handle(ctx context.Context, envelope actorlayer.Envelope) error
 }
 
 // Registry resolves actors by normalized address.

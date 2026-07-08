@@ -103,6 +103,12 @@ func (s *recordingSink) types() []engine.EventType {
 	return out
 }
 
+func (s *recordingSink) snapshot() []engine.Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]engine.Event(nil), s.events...)
+}
+
 func TestRuntimeHandleAcksSuccessfulDelivery(t *testing.T) {
 	t.Parallel()
 
@@ -119,6 +125,29 @@ func TestRuntimeHandleAcksSuccessfulDelivery(t *testing.T) {
 	}
 	if got, want := sink.types(), []engine.EventType{engine.EventRunning, engine.EventAcked}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("events = %v, want %v", got, want)
+	}
+	for _, event := range sink.snapshot() {
+		if event.EnvelopeID != "ack" {
+			t.Fatalf("event envelope id = %q, want %q", event.EnvelopeID, "ack")
+		}
+		if event.Namespace != "test.command" {
+			t.Fatalf("event namespace = %q, want %q", event.Namespace, "test.command")
+		}
+		if event.Kind != "message" {
+			t.Fatalf("event kind = %q, want %q", event.Kind, "message")
+		}
+		if event.LaneKey != "lane-1" {
+			t.Fatalf("event lane key = %q, want %q", event.LaneKey, "lane-1")
+		}
+		if event.From != (engine.ActorAddress{Target: "test", Key: "source"}) {
+			t.Fatalf("event from = %#v, want test/source", event.From)
+		}
+		if event.To != (engine.ActorAddress{Target: "session", Key: "lane-1"}) {
+			t.Fatalf("event to = %#v, want session/lane-1", event.To)
+		}
+		if event.Attempt != 1 {
+			t.Fatalf("event attempt = %d, want 1", event.Attempt)
+		}
 	}
 }
 
@@ -242,7 +271,8 @@ func TestRuntimeHandleDeadLettersRetryExhaustion(t *testing.T) {
 func TestRuntimeSerializesSameLane(t *testing.T) {
 	t.Parallel()
 
-	runtime := newRuntimeForTest(t, &recordingSink{})
+	sink := &recordingSink{}
+	runtime := newRuntimeForTest(t, sink)
 	firstEntered := make(chan struct{})
 	releaseFirst := make(chan struct{})
 	secondEntered := make(chan struct{})
@@ -262,6 +292,9 @@ func TestRuntimeSerializesSameLane(t *testing.T) {
 		firstDone <- runtime.Handle(context.Background(), newDelivery("first", "same"), handler)
 	}()
 	waitForClosed(t, firstEntered, "first delivery entered")
+	if got, want := sink.types(), []engine.EventType{engine.EventRunning}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("events after first entered = %v, want %v", got, want)
+	}
 
 	secondDone := make(chan error, 1)
 	go func() {
@@ -272,6 +305,9 @@ func TestRuntimeSerializesSameLane(t *testing.T) {
 	case <-secondEntered:
 		t.Fatal("second same-lane delivery entered before first completed")
 	case <-time.After(20 * time.Millisecond):
+	}
+	if got, want := sink.types(), []engine.EventType{engine.EventRunning}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("events while second queued = %v, want %v", got, want)
 	}
 	close(releaseFirst)
 	if err := <-firstDone; err != nil {
@@ -331,6 +367,74 @@ func TestRuntimeValidationPaths(t *testing.T) {
 	}
 	if err := runtime.Run(context.Background(), nil, func(context.Context, engine.Delivery) error { return nil }); err == nil {
 		t.Fatal("Run(nil source) error = nil, want error")
+	}
+}
+
+func TestRuntimeHandleRejectsInvalidEnvelopeBeforeExecution(t *testing.T) {
+	t.Parallel()
+
+	sink := &recordingSink{}
+	runtime := newRuntimeForTest(t, sink)
+	delivery := newDelivery("invalid-runtime", "lane")
+	delivery.env.PayloadJSON = "{not-json"
+	called := false
+	err := runtime.Handle(context.Background(), delivery, func(context.Context, engine.Delivery) error {
+		called = true
+		return nil
+	})
+	if err == nil {
+		t.Fatal("Handle() error = nil, want invalid envelope error")
+	}
+	var actorErr *actorlayer.ActorError
+	if !errors.As(err, &actorErr) || actorErr.Kind != actorlayer.ErrorKindDecode {
+		t.Fatalf("Handle() error = %v, want decode actor error", err)
+	}
+	if called {
+		t.Fatal("handler was called for invalid envelope")
+	}
+	if delivery.acked || delivery.retryReason != "" || delivery.deadLetterReason != "" {
+		t.Fatalf("delivery settled = ack:%v retry:%q deadletter:%q, want unsettled", delivery.acked, delivery.retryReason, delivery.deadLetterReason)
+	}
+	if got := sink.types(); len(got) != 0 {
+		t.Fatalf("events = %v, want none", got)
+	}
+}
+
+func TestRuntimeHandleCanceledContextDoesNotEmitRunning(t *testing.T) {
+	t.Parallel()
+
+	sink := &recordingSink{}
+	runtime := newRuntimeForTest(t, sink)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := runtime.Handle(ctx, newDelivery("canceled", "lane"), func(context.Context, engine.Delivery) error {
+		t.Fatal("handler was called for canceled context")
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Handle() error = %v, want context canceled", err)
+	}
+	if got := sink.types(); len(got) != 0 {
+		t.Fatalf("events = %v, want none", got)
+	}
+}
+
+func TestRuntimeEmitInProgressIncludesDeliveryMetadata(t *testing.T) {
+	t.Parallel()
+
+	sink := &recordingSink{}
+	runtime := newRuntimeForTest(t, sink)
+	runtime.EmitInProgress(context.Background(), newDelivery("progress", "lane"))
+	events := sink.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("events length = %d, want 1", len(events))
+	}
+	event := events[0]
+	if event.Type != engine.EventInProgress {
+		t.Fatalf("event type = %q, want %q", event.Type, engine.EventInProgress)
+	}
+	if event.EnvelopeID != "progress" || event.LaneKey != "lane" || event.To.Key != "lane" {
+		t.Fatalf("event metadata = %#v, want progress/lane", event)
 	}
 }
 
@@ -405,7 +509,7 @@ type recordingActor struct {
 
 func (a *recordingActor) Address() string { return a.address }
 
-func (a *recordingActor) Handle(context.Context, any) error {
+func (a *recordingActor) Handle(context.Context, actorlayer.Envelope) error {
 	a.calls++
 	return nil
 }

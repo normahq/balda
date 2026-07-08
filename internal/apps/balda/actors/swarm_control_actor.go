@@ -109,11 +109,7 @@ func (a *taskControlActor) Address() string {
 	return "system:control"
 }
 
-func (a *taskControlActor) Handle(ctx context.Context, envelope any) error {
-	env, err := actorlayer.AssertEnvelope(envelope)
-	if err != nil {
-		return err
-	}
+func (a *taskControlActor) Handle(ctx context.Context, env actorlayer.Envelope) error {
 	if strings.TrimSpace(env.Namespace) != swarm.NamespaceTaskControl {
 		return actorlayer.PolicyError(fmt.Errorf("unsupported control namespace %q", env.Namespace))
 	}

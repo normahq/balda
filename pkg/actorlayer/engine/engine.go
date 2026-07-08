@@ -44,6 +44,12 @@ const (
 
 type Event struct {
 	Type        EventType
+	EnvelopeID  string
+	Namespace   string
+	Kind        string
+	LaneKey     string
+	From        ActorAddress
+	To          ActorAddress
 	Reason      string
 	RetryDelay  time.Duration
 	Attempt     int
@@ -118,9 +124,6 @@ func (r *DispatchRuntime) Handle(ctx context.Context, delivery Delivery) error {
 	if r == nil || r.runtime == nil {
 		return fmt.Errorf("runtime engine is required")
 	}
-	if err := validateDeliveryEnvelope(delivery); err != nil {
-		return err
-	}
 	return r.runtime.Handle(ctx, delivery, r.handleDelivery)
 }
 
@@ -132,9 +135,6 @@ func (r *DispatchRuntime) Run(ctx context.Context, source Source) error {
 		return fmt.Errorf("engine source is required")
 	}
 	return source.Run(ctx, func(ctx context.Context, delivery Delivery) error {
-		if err := validateDeliveryEnvelope(delivery); err != nil {
-			return err
-		}
 		return r.runtime.Handle(ctx, delivery, r.handleDelivery)
 	})
 }
@@ -265,7 +265,9 @@ func (r *Runtime) Handle(ctx context.Context, delivery Delivery, handler Handler
 	if handler == nil {
 		return fmt.Errorf("engine handler is required")
 	}
-	r.emit(ctx, Event{Type: EventRunning, Attempt: delivery.Attempt(), MaxAttempts: delivery.MaxAttempts()})
+	if err := validateDeliveryEnvelope(delivery); err != nil {
+		return err
+	}
 	laneKey := r.cfg.Resolver.LaneKey(delivery)
 	l := r.acquireLane(laneKey)
 	defer r.releaseLane(laneKey, l)
@@ -277,12 +279,13 @@ func (r *Runtime) Handle(ctx context.Context, delivery Delivery, handler Handler
 	default:
 	}
 
+	r.emit(ctx, eventForDelivery(EventRunning, delivery, laneKey))
 	err := handler(ctx, delivery)
 	if err == nil {
 		if err := delivery.Ack(ctx); err != nil {
 			return err
 		}
-		r.emit(ctx, Event{Type: EventAcked, Attempt: delivery.Attempt(), MaxAttempts: delivery.MaxAttempts()})
+		r.emit(ctx, eventForDelivery(EventAcked, delivery, laneKey))
 		return nil
 	}
 	if !r.cfg.Retry.IsRetryable(err) {
@@ -290,7 +293,9 @@ func (r *Runtime) Handle(ctx context.Context, delivery Delivery, handler Handler
 		if err := delivery.DeadLetter(ctx, reason); err != nil {
 			return err
 		}
-		r.emit(ctx, Event{Type: EventDeadLettered, Reason: reason, Attempt: delivery.Attempt(), MaxAttempts: delivery.MaxAttempts()})
+		event := eventForDelivery(EventDeadLettered, delivery, laneKey)
+		event.Reason = reason
+		r.emit(ctx, event)
 		return nil
 	}
 	if r.cfg.Retry.RetryExhausted(delivery) {
@@ -298,14 +303,19 @@ func (r *Runtime) Handle(ctx context.Context, delivery Delivery, handler Handler
 		if err := delivery.DeadLetter(ctx, reason); err != nil {
 			return err
 		}
-		r.emit(ctx, Event{Type: EventDeadLettered, Reason: reason, Attempt: delivery.Attempt(), MaxAttempts: delivery.MaxAttempts()})
+		event := eventForDelivery(EventDeadLettered, delivery, laneKey)
+		event.Reason = reason
+		r.emit(ctx, event)
 		return nil
 	}
 	delay := r.cfg.Retry.Backoff(max(delivery.Attempt()-1, 0))
 	if settleErr := delivery.Retry(ctx, delay, err.Error()); settleErr != nil {
 		return settleErr
 	}
-	r.emit(ctx, Event{Type: EventRetrying, Reason: err.Error(), RetryDelay: delay, Attempt: delivery.Attempt(), MaxAttempts: delivery.MaxAttempts()})
+	event := eventForDelivery(EventRetrying, delivery, laneKey)
+	event.Reason = err.Error()
+	event.RetryDelay = delay
+	r.emit(ctx, event)
 	return nil
 }
 
@@ -331,7 +341,14 @@ func (r *Runtime) EmitInProgress(ctx context.Context, delivery Delivery) {
 	if delivery == nil {
 		return
 	}
-	r.emit(ctx, Event{Type: EventInProgress, Attempt: delivery.Attempt(), MaxAttempts: delivery.MaxAttempts()})
+	if err := validateDeliveryEnvelope(delivery); err != nil {
+		return
+	}
+	laneKey := ""
+	if r != nil && r.cfg.Resolver != nil {
+		laneKey = r.cfg.Resolver.LaneKey(delivery)
+	}
+	r.emit(ctx, eventForDelivery(EventInProgress, delivery, laneKey))
 }
 
 func (r *Runtime) emit(ctx context.Context, event Event) {
@@ -381,4 +398,27 @@ func (r *Runtime) pruneLanesLocked(now time.Time) {
 			delete(r.lanes, key)
 		}
 	}
+}
+
+func eventForDelivery(eventType EventType, delivery Delivery, laneKey string) Event {
+	env := delivery.Envelope()
+	return Event{
+		Type:        eventType,
+		EnvelopeID:  strings.TrimSpace(env.ID),
+		Namespace:   strings.TrimSpace(env.Namespace),
+		Kind:        strings.TrimSpace(env.Kind),
+		LaneKey:     normalizeLaneKey(laneKey),
+		From:        env.From,
+		To:          env.To,
+		Attempt:     delivery.Attempt(),
+		MaxAttempts: delivery.MaxAttempts(),
+	}
+}
+
+func normalizeLaneKey(key string) string {
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" {
+		return unknownLaneKey
+	}
+	return trimmed
 }

@@ -24,11 +24,7 @@ type testActor struct {
 }
 
 func (a *testActor) Address() string { return a.address }
-func (a *testActor) Handle(ctx context.Context, envelope any) error {
-	env, err := actorlayer.AssertEnvelope(envelope)
-	if err != nil {
-		return err
-	}
+func (a *testActor) Handle(ctx context.Context, env actorlayer.Envelope) error {
 	a.calls++
 	if a.run != nil {
 		return a.run(ctx, env)
@@ -171,12 +167,6 @@ func TestRuntimeAddressOf(t *testing.T) {
 			haveAddr: "session:s-1",
 		},
 	}
-
-	t.Run("type error", func(t *testing.T) {
-		if _, err := actorlayer.AssertEnvelope(struct{ v string }{v: "not-an-envelope"}); err == nil || !strings.Contains(err.Error(), "unexpected actor envelope type") {
-			t.Fatalf("actorlayer.AssertEnvelope() error = %v, want unexpected actor envelope type", err)
-		}
-	})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

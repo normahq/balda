@@ -58,11 +58,7 @@ func (e *memoryActorExecutor) Address() string {
 	return actorlayer.WildcardAddress(swarm.ActorTypeMemory)
 }
 
-func (e *memoryActorExecutor) Handle(ctx context.Context, envelope any) error {
-	env, err := actorlayer.AssertEnvelope(envelope)
-	if err != nil {
-		return err
-	}
+func (e *memoryActorExecutor) Handle(ctx context.Context, env actorlayer.Envelope) error {
 	if strings.TrimSpace(env.Namespace) != swarm.NamespaceMemoryCommand {
 		return actorlayer.PolicyError(fmt.Errorf("unsupported memory namespace %q", env.Namespace))
 	}

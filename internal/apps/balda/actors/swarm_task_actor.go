@@ -214,11 +214,7 @@ func (e *taskActorExecutor) Address() string {
 	return actorlayer.WildcardAddress(swarm.ActorTypeTask)
 }
 
-func (e *taskActorExecutor) Handle(ctx context.Context, envelope any) error {
-	env, err := actorlayer.AssertEnvelope(envelope)
-	if err != nil {
-		return err
-	}
+func (e *taskActorExecutor) Handle(ctx context.Context, env actorlayer.Envelope) error {
 	var payload taskEnvelopePayload
 	if err := json.Unmarshal([]byte(env.PayloadJSON), &payload); err != nil {
 		return actorlayer.PermanentError(fmt.Errorf("decode task payload: %w", err))
