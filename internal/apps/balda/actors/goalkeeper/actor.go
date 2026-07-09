@@ -591,8 +591,7 @@ func (a *Actor) runWorkflow(
 				result.validatorOutput = appendVisibleText(result.validatorOutput, text)
 				result.latestValidatorOutput = appendVisibleText(result.latestValidatorOutput, text)
 			}
-			message := renderGoalStepMessage(payload.DeliveryProfile, iteration, normalizeGoalMaxIterations(payload.MaxIterations), currentStep, "update", text)
-			if err := a.recordStepProgress(ctx, payload, currentStep, iteration, progressKindOutput, message, &deliverySeq); err != nil {
+			if err := a.recordStepProgress(ctx, payload, currentStep, iteration, progressKindOutput, text, &deliverySeq); err != nil {
 				return result, err
 			}
 			state.deliveredOutput = true
@@ -638,19 +637,24 @@ func (a *Actor) recordStepCompleted(
 	state *stepProgressState,
 	deliverySeq *int,
 ) error {
-	if iteration <= 0 {
-		iteration = 1
+	text := ""
+	if state != nil && !state.deliveredOutput {
+		text = state.lastVisibleText
 	}
-	message := renderGoalStepMessage(payload.DeliveryProfile, iteration, normalizeGoalMaxIterations(payload.MaxIterations), step, "completed", "")
-	if state != nil && !state.deliveredOutput && state.lastVisibleText != "" {
-		message = renderGoalStepMessage(payload.DeliveryProfile, iteration, normalizeGoalMaxIterations(payload.MaxIterations), step, "completed", state.lastVisibleText)
-	}
-	if err := a.recordStepProgress(ctx, payload, step, iteration, progressKindCompleted, message, deliverySeq); err != nil {
+	if err := a.recordGoalProgress(ctx, newGoalProgressUpdate(
+		payload,
+		step,
+		iteration,
+		baldaexecution.GoalProgressKindCompleted,
+		text,
+		nil,
+		nextDeliverySequence(deliverySeq),
+	)); err != nil {
 		return err
 	}
 	if err := a.tasks.AppendEvent(ctx, payload.JobID, baldajobs.TaskEventAgentResult, actorName, "", map[string]any{
 		"step":      step,
-		"iteration": iteration,
+		"iteration": normalizeGoalIteration(iteration),
 	}); err != nil {
 		return actorlayer.TransientError(err)
 	}
@@ -666,41 +670,15 @@ func (a *Actor) recordStepPlanUpdate(
 	text string,
 	deliverySeq *int,
 ) error {
-	if deliverySeq != nil {
-		(*deliverySeq)++
-	}
-	message := redactSecrets(strings.TrimSpace(text))
-	if message == "" {
-		return nil
-	}
-	loc := normalizeGoalDeliveryLocator(payload.Locator)
-	suffix := fmt.Sprintf("progress:%s:%s:%d:%03d", progressKindPlan, step, iteration, valueOrZero(deliverySeq))
-	env, err := deliverycmd.ProgressPlanUpdateEnvelope(
-		strings.TrimSpace(payload.JobID),
-		actorlayer.ActorAddress{Target: baldaexecution.ActorTypeGoalkeeper, Key: payload.JobID},
-		loc,
-		deliveryfmt.ProgressPolicy{},
-		true,
-		0,
+	return a.recordGoalProgress(ctx, newGoalProgressUpdate(
+		payload,
+		step,
+		iteration,
+		baldaexecution.GoalProgressKindPlan,
+		text,
 		&plan,
-		message,
-		suffix,
-	)
-	if err != nil {
-		return actorlayer.PermanentError(fmt.Errorf("build goal plan update envelope: %w", err))
-	}
-	if _, err := a.dispatcher.Dispatch(ctx, env); err != nil {
-		return actorlayer.TransientError(err)
-	}
-	if err := a.tasks.AppendEvent(ctx, payload.JobID, baldajobs.TaskEventAgentProgress, actorName, "", map[string]any{
-		"step":      step,
-		"iteration": iteration,
-		"kind":      progressKindPlan,
-		"text":      message,
-	}); err != nil {
-		return actorlayer.TransientError(err)
-	}
-	return nil
+		nextDeliverySequence(deliverySeq),
+	))
 }
 
 func (a *Actor) recordStepProgress(
@@ -712,19 +690,26 @@ func (a *Actor) recordStepProgress(
 	text string,
 	deliverySeq *int,
 ) error {
-	if deliverySeq != nil {
-		(*deliverySeq)++
+	return a.recordGoalProgress(ctx, newGoalProgressUpdate(
+		payload,
+		step,
+		iteration,
+		baldaexecution.GoalProgressKind(strings.TrimSpace(kind)),
+		text,
+		nil,
+		nextDeliverySequence(deliverySeq),
+	))
+}
+
+func (a *Actor) recordGoalProgress(ctx context.Context, update baldaexecution.GoalProgressUpdate) error {
+	switch update.Kind {
+	case baldaexecution.GoalProgressKindOutput, baldaexecution.GoalProgressKindCompleted:
+		update.Text = renderGoalProgressText(update)
 	}
-	suffix := fmt.Sprintf("progress:%s:%s:%d:%03d", kind, step, iteration, valueOrZero(deliverySeq))
-	if err := a.deliver(ctx, payload.JobID, payload, text, suffix); err != nil {
+	if err := dispatchGoalProgress(ctx, a.dispatcher, update); err != nil {
 		return err
 	}
-	if err := a.tasks.AppendEvent(ctx, payload.JobID, baldajobs.TaskEventAgentProgress, actorName, "", map[string]any{
-		"step":      step,
-		"iteration": iteration,
-		"kind":      kind,
-		"text":      redactSecrets(strings.TrimSpace(text)),
-	}); err != nil {
+	if err := a.tasks.AppendEvent(ctx, update.JobID, baldajobs.TaskEventAgentProgress, actorName, "", goalProgressEventPayload(update)); err != nil {
 		return actorlayer.TransientError(err)
 	}
 	return nil
@@ -1156,6 +1141,14 @@ func exportStatusIsRoutineSuccess(status string) bool {
 	default:
 		return false
 	}
+}
+
+func nextDeliverySequence(value *int) int {
+	if value == nil {
+		return 0
+	}
+	*value = *value + 1
+	return *value
 }
 
 func valueOrZero(value *int) int {
