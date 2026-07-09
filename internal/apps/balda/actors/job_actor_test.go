@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/pkg/actorlayer"
@@ -21,7 +21,7 @@ func TestTaskActorDispatchesWebhookSessionTurn(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	_, bus, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
 	exec := &jobActorExecutor{tasks: tasks, dispatcher: dispatcher}
 	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
 	env, taskID, err := WebhookJobEnvelope(SessionTurnPayload{
@@ -39,14 +39,14 @@ func TestTaskActorDispatchesWebhookSessionTurn(t *testing.T) {
 	if err := exec.Handle(ctx, env); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
-	published := lastPublishedCommandTo(t, bus, baldaruntime.ActorTypeSession, locator.SessionID)
-	if published.TaskID != taskID {
-		t.Fatalf("published task id = %q, want %q", published.TaskID, taskID)
+	published := lastPublishedCommandTo(t, bus, baldaexecution.ActorTypeSession, locator.SessionID)
+	if baldaexecution.EnvelopeJobID(published) != taskID {
+		t.Fatalf("published task id = %q, want %q", baldaexecution.EnvelopeJobID(published), taskID)
 	}
-	if got, want := published.Namespace, baldaruntime.NamespaceWebhookInbound; got != want {
+	if got, want := published.Namespace, baldaexecution.NamespaceWebhookInbound; got != want {
 		t.Fatalf("published namespace = %q, want %q", got, want)
 	}
-	if got, want := published.Kind, baldaruntime.KindWebhookEvent; got != want {
+	if got, want := published.Kind, baldaexecution.KindWebhookEvent; got != want {
 		t.Fatalf("published kind = %q, want %q", got, want)
 	}
 	task, ok, err := tasks.Get(ctx, taskID)
@@ -56,8 +56,35 @@ func TestTaskActorDispatchesWebhookSessionTurn(t *testing.T) {
 	if !ok {
 		t.Fatalf("task %q not found", taskID)
 	}
-	if task.Status != baldastate.SwarmTaskStatusRunning {
-		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusRunning)
+	if task.Status != baldastate.JobStatusRunning {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusRunning)
+	}
+}
+
+func TestTaskActorRejectsWebhookSessionTurnWithoutEnvelopeJobID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, _, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
+	exec := &jobActorExecutor{tasks: tasks, dispatcher: dispatcher}
+	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
+	env, _, err := WebhookJobEnvelope(SessionTurnPayload{
+		Text:    "handle webhook",
+		Locator: locator,
+		UserID:  "101",
+		Source:  sessionTurnSourceWebhook,
+	}, "github", "delivery-1")
+	if err != nil {
+		t.Fatalf("WebhookJobEnvelope() error = %v", err)
+	}
+	env.Meta = nil
+
+	err = exec.Handle(ctx, env)
+	if err == nil {
+		t.Fatal("Handle() error = nil, want policy error")
+	}
+	if got, want := actorlayer.ClassifyError(err), actorlayer.ErrorKindPolicy; got != want {
+		t.Fatalf("Handle() error kind = %q, want %q (err=%v)", got, want, err)
 	}
 }
 
@@ -65,7 +92,7 @@ func TestTaskActorRejectsNonWebhookSessionTurnTask(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, _, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	_, _, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
 	exec := &jobActorExecutor{tasks: tasks, dispatcher: dispatcher}
 	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
 	data, err := json.Marshal(jobEnvelopePayload{
@@ -83,11 +110,10 @@ func TestTaskActorRejectsNonWebhookSessionTurnTask(t *testing.T) {
 
 	err = exec.Handle(ctx, actorlayer.Envelope{
 		ID:          "task-1",
-		Namespace:   baldaruntime.NamespaceHumanInbound,
-		Kind:        baldaruntime.KindMessage,
-		To:          actorlayer.ActorAddress{Target: baldaruntime.ActorTypeJob, Key: "turn-1"},
+		Namespace:   baldaexecution.NamespaceHumanInbound,
+		Kind:        baldaexecution.KindMessage,
+		To:          actorlayer.ActorAddress{Target: baldaexecution.ActorTypeJob, Key: "turn-1"},
 		SessionID:   locator.SessionID,
-		TaskID:      "turn-1",
 		PayloadJSON: string(data),
 	})
 	if err == nil {
@@ -102,7 +128,7 @@ func TestScheduledJobEnvelopeDispatchesSessionTurn(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	_, bus, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
 	exec := &jobActorExecutor{tasks: tasks, dispatcher: dispatcher}
 	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
 	env, err := ScheduledJobEnvelope("daily", "summarize", locator, nil, "101", 0, "tick-1")
@@ -112,9 +138,9 @@ func TestScheduledJobEnvelopeDispatchesSessionTurn(t *testing.T) {
 	if err := exec.Handle(ctx, env); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
-	published := lastPublishedCommandTo(t, bus, baldaruntime.ActorTypeSession, locator.SessionID)
-	if published.Namespace != baldaruntime.NamespaceScheduleInbound {
-		t.Fatalf("published namespace = %q, want %q", published.Namespace, baldaruntime.NamespaceScheduleInbound)
+	published := lastPublishedCommandTo(t, bus, baldaexecution.ActorTypeSession, locator.SessionID)
+	if published.Namespace != baldaexecution.NamespaceScheduleInbound {
+		t.Fatalf("published namespace = %q, want %q", published.Namespace, baldaexecution.NamespaceScheduleInbound)
 	}
 }
 
@@ -131,7 +157,7 @@ func lastPublishedCommandTo(t *testing.T, bus *recordingHandlerCommandBus, targe
 	return actorlayer.Envelope{}
 }
 
-func newTaskActorSwarmServices(t *testing.T, ctx context.Context) (baldastate.Provider, *recordingHandlerCommandBus, actortransport.Dispatcher, *baldajobs.JobService, any) {
+func newTaskActorRuntimeServices(t *testing.T, ctx context.Context) (baldastate.Provider, *recordingHandlerCommandBus, actortransport.Dispatcher, *baldajobs.JobService, any) {
 	t.Helper()
 	provider, err := baldastate.NewSQLiteProvider(ctx, ":memory:")
 	if err != nil {
@@ -147,7 +173,7 @@ func newTaskActorSwarmServices(t *testing.T, ctx context.Context) (baldastate.Pr
 		fx.Supply(
 			fx.Annotate(provider, fx.As(new(baldastate.Provider))),
 			zerolog.Nop(),
-			baldaruntime.Config{},
+			baldaexecution.Config{},
 		),
 		fx.Provide(func() actortransport.Dispatcher { return bus }),
 		fx.Provide(func() actortransport.EventPublisher { return bus }),

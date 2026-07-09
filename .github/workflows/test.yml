@@ -62,7 +62,7 @@ jobs:
         with:
           go-version-file: 'go.mod'
       - name: Projection replay tests
-        run: go test -race -count=15 ./internal/apps/balda/swarm -run 'TestEventProjectorReplayAfterRestartRemainsIdempotent'
+        run: go test -race -count=15 ./internal/apps/balda/execution -run 'TestEventProjectorReplayAfterRestartRemainsIdempotent'
 
   structural-contracts:
     runs-on: ubuntu-latest

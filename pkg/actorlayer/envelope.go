@@ -53,7 +53,6 @@ type Envelope struct {
 	From          ActorAddress      `json:"from"`
 	To            ActorAddress      `json:"to"`
 	SessionID     string            `json:"session_id,omitempty"`
-	TaskID        string            `json:"task_id,omitempty"`
 	CorrelationID string            `json:"correlation_id,omitempty"`
 	CausationID   string            `json:"causation_id,omitempty"`
 	Priority      int               `json:"priority,omitempty"`

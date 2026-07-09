@@ -15,7 +15,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/pkg/actorlayer"
 	actortransport "github.com/normahq/balda/pkg/actorlayer/transport"
@@ -773,7 +773,7 @@ func TestZulipBaldaHandlerCancelRejectsArgsWithoutPublishingControl(t *testing.T
 		t.Fatalf("payloads = %+v, want cancel usage reply", payloads)
 	}
 	for _, env := range dispatcher.commands {
-		if env.Namespace == baldaruntime.NamespaceJobControl {
+		if env.Namespace == baldaexecution.NamespaceJobControl {
 			t.Fatalf("published job control command for invalid /cancel: %+v", env)
 		}
 	}
@@ -899,7 +899,7 @@ func TestZulipBaldaHandlerMessagePublishesDirectSessionTurn(t *testing.T) {
 	var env actorlayer.Envelope
 	found := false
 	for _, candidate := range dispatcher.commands {
-		if candidate.To.Target != baldaruntime.ActorTypeSession {
+		if candidate.To.Target != baldaexecution.ActorTypeSession {
 			continue
 		}
 		env = candidate
@@ -1029,7 +1029,7 @@ func TestZulipBaldaHandlerReturnsDeliveryErrorWhenRuntimeMissing(t *testing.T) {
 		t.Fatal("deliverZulipAgentReply() error = nil, want missing runtime error")
 	}
 	if got := err.Error(); !strings.Contains(got, "deliver zulip response") ||
-		!strings.Contains(got, "swarm runtime is unavailable") {
+		!strings.Contains(got, "runtime runtime is unavailable") {
 		t.Fatalf("deliverZulipAgentReply() error = %q, want wrapped missing runtime error", got)
 	}
 }
@@ -1246,9 +1246,9 @@ func (d *recordingZulipDispatcher) Dispatch(_ context.Context, env actorlayer.En
 		return nil, d.err
 	}
 	return &actortransport.DispatchReceipt{
-		Stream:   baldaruntime.DefaultCommandStream,
+		Stream:   baldaexecution.DefaultCommandStream,
 		Sequence: uint64(len(d.commands)),
-		Subject:  baldaruntime.SubjectForEnvelope(env),
+		Subject:  baldaexecution.SubjectForEnvelope(env),
 		MsgID:    actorlayer.DedupeKeyOrID(env),
 	}, nil
 }
@@ -1257,7 +1257,7 @@ func zulipDeliveryPayloads(t *testing.T, envs []actorlayer.Envelope) []actors.De
 	t.Helper()
 	payloads := make([]actors.DeliveryPayload, 0, len(envs))
 	for _, env := range envs {
-		if env.To.Target != baldaruntime.ActorTypeDelivery {
+		if env.To.Target != baldaexecution.ActorTypeDelivery {
 			continue
 		}
 		var payload actors.DeliveryPayload

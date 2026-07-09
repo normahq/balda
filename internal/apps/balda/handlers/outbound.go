@@ -22,7 +22,7 @@ var (
 
 func dispatchOutbound(ctx context.Context, dispatcher actortransport.Dispatcher, env actorlayer.Envelope) error {
 	if dispatcher == nil {
-		return fmt.Errorf("swarm runtime is unavailable")
+		return fmt.Errorf("runtime runtime is unavailable")
 	}
 	_, err := dispatcher.Dispatch(ctx, env)
 	return err
@@ -72,24 +72,24 @@ func sendTyping(ctx context.Context, dispatcher actortransport.Dispatcher, from 
 	return dispatchOutbound(ctx, dispatcher, env)
 }
 
-func sendProgressActivity(ctx context.Context, dispatcher actortransport.Dispatcher, taskID string, from actorlayer.ActorAddress, locator baldasession.SessionLocator, policy deliveryfmt.ProgressPolicy, sequence int, dedupeSuffix string) error {
-	env, err := actors.ProgressActivityDeliveryEnvelope(taskID, from, locator, policy, sequence, dedupeSuffix)
+func sendProgressActivity(ctx context.Context, dispatcher actortransport.Dispatcher, jobID string, from actorlayer.ActorAddress, locator baldasession.SessionLocator, policy deliveryfmt.ProgressPolicy, sequence int, dedupeSuffix string) error {
+	env, err := actors.ProgressActivityDeliveryEnvelope(jobID, from, locator, policy, sequence, dedupeSuffix)
 	if err != nil {
 		return err
 	}
 	return dispatchOutbound(ctx, dispatcher, env)
 }
 
-func sendProgressThinking(ctx context.Context, dispatcher actortransport.Dispatcher, taskID string, from actorlayer.ActorAddress, locator baldasession.SessionLocator, policy deliveryfmt.ProgressPolicy, visible bool, draftID int, text string, sequence int, dedupeSuffix string) error {
-	env, err := actors.ProgressThinkingDeliveryEnvelope(taskID, from, locator, policy, visible, draftID, text, sequence, dedupeSuffix)
+func sendProgressThinking(ctx context.Context, dispatcher actortransport.Dispatcher, jobID string, from actorlayer.ActorAddress, locator baldasession.SessionLocator, policy deliveryfmt.ProgressPolicy, visible bool, draftID int, text string, sequence int, dedupeSuffix string) error {
+	env, err := actors.ProgressThinkingDeliveryEnvelope(jobID, from, locator, policy, visible, draftID, text, sequence, dedupeSuffix)
 	if err != nil {
 		return err
 	}
 	return dispatchOutbound(ctx, dispatcher, env)
 }
 
-func sendProgressPlanUpdate(ctx context.Context, dispatcher actortransport.Dispatcher, taskID string, from actorlayer.ActorAddress, locator baldasession.SessionLocator, policy deliveryfmt.ProgressPolicy, visible bool, draftID int, plan *progress.PlanSnapshot, text string, dedupeSuffix string) error {
-	env, err := actors.ProgressPlanUpdateDeliveryEnvelope(taskID, from, locator, policy, visible, draftID, plan, text, dedupeSuffix)
+func sendProgressPlanUpdate(ctx context.Context, dispatcher actortransport.Dispatcher, jobID string, from actorlayer.ActorAddress, locator baldasession.SessionLocator, policy deliveryfmt.ProgressPolicy, visible bool, draftID int, plan *progress.PlanSnapshot, text string, dedupeSuffix string) error {
+	env, err := actors.ProgressPlanUpdateDeliveryEnvelope(jobID, from, locator, policy, visible, draftID, plan, text, dedupeSuffix)
 	if err != nil {
 		return err
 	}

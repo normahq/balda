@@ -188,11 +188,11 @@ balda:
 	if !doc.Balda.NATS.Embedded {
 		t.Fatal("nats.embedded = false, want true from defaults")
 	}
-	if doc.Balda.Swarm.Commands.Stream != "" {
-		t.Fatalf("swarm.commands.stream = %q, want omitted from defaults YAML", doc.Balda.Swarm.Commands.Stream)
+	if doc.Balda.Execution.Commands.Stream != "" {
+		t.Fatalf("swarm.commands.stream = %q, want omitted from defaults YAML", doc.Balda.Execution.Commands.Stream)
 	}
-	if doc.Balda.Swarm.Commands.Consumer != "" {
-		t.Fatalf("swarm.commands.consumer = %q, want omitted from defaults YAML", doc.Balda.Swarm.Commands.Consumer)
+	if doc.Balda.Execution.Commands.Consumer != "" {
+		t.Fatalf("swarm.commands.consumer = %q, want omitted from defaults YAML", doc.Balda.Execution.Commands.Consumer)
 	}
 }
 

@@ -7,10 +7,10 @@ import (
 
 	"github.com/ipfans/fxlogger"
 	baldaagent "github.com/normahq/balda/internal/apps/balda/agent"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/internal/apps/balda/handlers"
 	"github.com/normahq/balda/internal/apps/balda/memory"
 	"github.com/normahq/balda/internal/apps/balda/paths"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/telegramfmt"
@@ -58,8 +58,8 @@ func PreflightRuntime(
 		return err
 	}
 	inboundWebhookConfig := buildInboundWebhookConfig(cfg.Balda)
-	swarmConfig := swarmConfigFromBalda(cfg.Balda)
-	if err := validateRuntimeConfigLint(swarmConfig, inboundWebhookConfig); err != nil {
+	executionConfig := executionConfigFromBalda(cfg.Balda)
+	if err := validateExecutionConfigLint(executionConfig, inboundWebhookConfig); err != nil {
 		return err
 	}
 	if err := validateZulipConfig(cfg.Balda.Zulip); err != nil {
@@ -205,23 +205,23 @@ func PreflightRuntime(
 	return nil
 }
 
-func swarmConfigFromBalda(cfg BaldaConfig) baldaruntime.Config {
-	swarmConfig := baldaruntime.Config{
-		Commands: baldaruntime.CommandConfig{
-			Stream:        strings.TrimSpace(cfg.Swarm.Commands.Stream),
-			Consumer:      strings.TrimSpace(cfg.Swarm.Commands.Consumer),
-			AckWait:       strings.TrimSpace(cfg.Swarm.Commands.AckWait),
-			MaxDeliver:    cfg.Swarm.Commands.MaxDeliver,
-			MaxAckPending: cfg.Swarm.Commands.MaxAckPending,
-			FetchBatch:    cfg.Swarm.Commands.FetchBatch,
-			FetchWait:     strings.TrimSpace(cfg.Swarm.Commands.FetchWait),
+func executionConfigFromBalda(cfg BaldaConfig) baldaexecution.Config {
+	executionConfig := baldaexecution.Config{
+		Commands: baldaexecution.CommandConfig{
+			Stream:        strings.TrimSpace(cfg.Execution.Commands.Stream),
+			Consumer:      strings.TrimSpace(cfg.Execution.Commands.Consumer),
+			AckWait:       strings.TrimSpace(cfg.Execution.Commands.AckWait),
+			MaxDeliver:    cfg.Execution.Commands.MaxDeliver,
+			MaxAckPending: cfg.Execution.Commands.MaxAckPending,
+			FetchBatch:    cfg.Execution.Commands.FetchBatch,
+			FetchWait:     strings.TrimSpace(cfg.Execution.Commands.FetchWait),
 		},
-		Events: baldaruntime.EventStreamConfig{Stream: strings.TrimSpace(cfg.Swarm.Events.Stream)},
-		DLQ:    baldaruntime.DLQConfig{Stream: strings.TrimSpace(cfg.Swarm.DLQ.Stream)},
+		Events: baldaexecution.EventStreamConfig{Stream: strings.TrimSpace(cfg.Execution.Events.Stream)},
+		DLQ:    baldaexecution.DLQConfig{Stream: strings.TrimSpace(cfg.Execution.DLQ.Stream)},
 	}
-	normalized, err := swarmConfig.Normalized()
+	normalized, err := executionConfig.Normalized()
 	if err != nil {
-		return swarmConfig
+		return executionConfig
 	}
 	return normalized
 }

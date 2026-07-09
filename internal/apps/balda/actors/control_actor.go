@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/pkg/actorlayer"
 	actortransport "github.com/normahq/balda/pkg/actorlayer/transport"
@@ -112,7 +112,7 @@ func (a *jobControlActor) Address() string {
 }
 
 func (a *jobControlActor) Handle(ctx context.Context, env actorlayer.Envelope) error {
-	if strings.TrimSpace(env.Namespace) != baldaruntime.NamespaceJobControl {
+	if strings.TrimSpace(env.Namespace) != baldaexecution.NamespaceJobControl {
 		return actorlayer.PolicyError(fmt.Errorf("unsupported control namespace %q", env.Namespace))
 	}
 	var payload jobControlPayload
@@ -135,7 +135,7 @@ func (a *jobControlActor) Handle(ctx context.Context, env actorlayer.Envelope) e
 }
 
 func (a *jobControlActor) cancelTask(ctx context.Context, env actorlayer.Envelope, payload jobControlPayload) error {
-	taskID := firstNonEmpty(payload.JobID, env.TaskID)
+	taskID := strings.TrimSpace(payload.JobID)
 	if taskID == "" {
 		return actorlayer.PolicyError(fmt.Errorf("job id is required"))
 	}
@@ -331,12 +331,12 @@ func controlEnvelope(locator baldasession.SessionLocator, action string, taskID 
 	id := uuid.NewString()
 	return actorlayer.Envelope{
 		ID:          id,
-		Namespace:   baldaruntime.NamespaceJobControl,
-		Kind:        baldaruntime.KindCancel,
+		Namespace:   baldaexecution.NamespaceJobControl,
+		Kind:        baldaexecution.KindCancel,
 		From:        actorlayer.ActorAddress{Target: "telegram", Key: firstNonEmpty(requestedBy, locator.AddressKey, "unknown")},
 		To:          actorlayer.SystemAddress("control"),
 		SessionID:   locator.SessionID,
-		TaskID:      strings.TrimSpace(taskID),
+		Meta:        baldaexecution.WithJobIDMeta(nil, taskID),
 		Priority:    100,
 		DedupeKey:   "control:" + strings.TrimSpace(action) + ":" + id,
 		PayloadJSON: string(data),

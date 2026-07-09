@@ -10,7 +10,7 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/rs/zerolog"
 )
@@ -25,7 +25,7 @@ func TestScheduledTaskSchedulerDispatchTask_PublishesCommandAndReschedules(t *te
 	dueAt := now.Add(-time.Second)
 
 	record := baldastate.ScheduledTaskRecord{
-		TaskID:       "task-1",
+		JobID:        "task-1",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
@@ -50,10 +50,10 @@ func TestScheduledTaskSchedulerDispatchTask_PublishesCommandAndReschedules(t *te
 		t.Fatalf("published commands = %d, want 1", got)
 	}
 	command := bus.commands[0]
-	if got, want := command.Namespace, baldaruntime.NamespaceScheduleInbound; got != want {
+	if got, want := command.Namespace, baldaexecution.NamespaceScheduleInbound; got != want {
 		t.Fatalf("namespace = %q, want %q", got, want)
 	}
-	if got, want := command.Kind, baldaruntime.KindScheduledJob; got != want {
+	if got, want := command.Kind, baldaexecution.KindScheduledJob; got != want {
 		t.Fatalf("kind = %q, want %q", got, want)
 	}
 	if command.ID == "" {
@@ -62,12 +62,12 @@ func TestScheduledTaskSchedulerDispatchTask_PublishesCommandAndReschedules(t *te
 	if got, want := command.SessionID, locator.SessionID; got != want {
 		t.Fatalf("session_id = %q, want %q", got, want)
 	}
-	wantKey := record.TaskID + "@" + dueAt.UTC().Format(time.RFC3339Nano)
+	wantKey := record.JobID + "@" + dueAt.UTC().Format(time.RFC3339Nano)
 	if got, want := command.DedupeKey, wantKey; got != want {
 		t.Fatalf("dedupe_key = %q, want %q", got, want)
 	}
 
-	updated, ok, err := store.GetByID(ctx, record.TaskID)
+	updated, ok, err := store.GetByID(ctx, record.JobID)
 	if err != nil {
 		t.Fatalf("GetByID() error = %v", err)
 	}
@@ -94,7 +94,7 @@ func TestScheduledTaskSchedulerDispatchTask_PublishesWithoutRestoringSession(t *
 	now := time.Date(2026, time.May, 14, 12, 30, 0, 0, time.UTC)
 
 	record := baldastate.ScheduledTaskRecord{
-		TaskID:       "task-restore",
+		JobID:        "task-restore",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
@@ -183,7 +183,7 @@ func TestScheduledTaskSchedulerDispatchTask_IdempotentForSameDueSlot(t *testing.
 	dueAt := now.Add(-time.Second)
 
 	record := baldastate.ScheduledTaskRecord{
-		TaskID:       "task-idempotent",
+		JobID:        "task-idempotent",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
@@ -210,14 +210,14 @@ func TestScheduledTaskSchedulerDispatchTask_IdempotentForSameDueSlot(t *testing.
 		t.Fatalf("published commands after duplicate dispatch = %d, want 1", got)
 	}
 
-	updated, ok, err := store.GetByID(ctx, record.TaskID)
+	updated, ok, err := store.GetByID(ctx, record.JobID)
 	if err != nil {
 		t.Fatalf("GetByID() error = %v", err)
 	}
 	if !ok {
 		t.Fatal("GetByID() = not found, want found")
 	}
-	wantKey := record.TaskID + "@" + dueAt.UTC().Format(time.RFC3339Nano)
+	wantKey := record.JobID + "@" + dueAt.UTC().Format(time.RFC3339Nano)
 	if got, want := updated.LastDispatchKey, wantKey; got != want {
 		t.Fatalf("LastDispatchKey = %q, want %q", got, want)
 	}
@@ -232,7 +232,7 @@ func TestScheduledTaskSchedulerMarkFailure_RetryThenPause(t *testing.T) {
 	start := time.Date(2026, time.May, 14, 14, 0, 0, 0, time.UTC)
 
 	record := baldastate.ScheduledTaskRecord{
-		TaskID:       "task-fail",
+		JobID:        "task-fail",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
@@ -255,10 +255,10 @@ func TestScheduledTaskSchedulerMarkFailure_RetryThenPause(t *testing.T) {
 	}
 
 	firstCause := errors.New("boom one")
-	if err := scheduler.markFailure(ctx, record.TaskID, firstCause); !errors.Is(err, firstCause) {
+	if err := scheduler.markFailure(ctx, record.JobID, firstCause); !errors.Is(err, firstCause) {
 		t.Fatalf("markFailure() error = %v, want %v", err, firstCause)
 	}
-	afterFirst, ok, err := store.GetByID(ctx, record.TaskID)
+	afterFirst, ok, err := store.GetByID(ctx, record.JobID)
 	if err != nil {
 		t.Fatalf("GetByID() after first failure error = %v", err)
 	}
@@ -280,10 +280,10 @@ func TestScheduledTaskSchedulerMarkFailure_RetryThenPause(t *testing.T) {
 
 	clock.now = start.Add(10 * time.Second)
 	secondCause := errors.New("boom two")
-	if err := scheduler.markFailure(ctx, record.TaskID, secondCause); !errors.Is(err, secondCause) {
+	if err := scheduler.markFailure(ctx, record.JobID, secondCause); !errors.Is(err, secondCause) {
 		t.Fatalf("markFailure() second error = %v, want %v", err, secondCause)
 	}
-	afterSecond, ok, err := store.GetByID(ctx, record.TaskID)
+	afterSecond, ok, err := store.GetByID(ctx, record.JobID)
 	if err != nil {
 		t.Fatalf("GetByID() after second failure error = %v", err)
 	}
@@ -308,7 +308,7 @@ func TestScheduledTaskSchedulerRecordExecutionFailureDoesNotScheduleRetry(t *tes
 	nextRun := start.Add(30 * time.Minute)
 
 	record := baldastate.ScheduledTaskRecord{
-		TaskID:       "task-exec-fail",
+		JobID:        "task-exec-fail",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
@@ -332,10 +332,10 @@ func TestScheduledTaskSchedulerRecordExecutionFailureDoesNotScheduleRetry(t *tes
 	}
 
 	cause := errors.New("actor execution failed")
-	if err := scheduler.RecordExecutionFailure(ctx, record.TaskID, cause); !errors.Is(err, cause) {
+	if err := scheduler.RecordExecutionFailure(ctx, record.JobID, cause); !errors.Is(err, cause) {
 		t.Fatalf("RecordExecutionFailure() error = %v, want %v", err, cause)
 	}
-	got, ok, err := store.GetByID(ctx, record.TaskID)
+	got, ok, err := store.GetByID(ctx, record.JobID)
 	if err != nil {
 		t.Fatalf("GetByID() error = %v", err)
 	}
@@ -362,7 +362,7 @@ func TestScheduledTaskSchedulerReconcileConfiguredTasks_UpsertsAndDeletes(t *tes
 	locator := baldatelegram.NewLocator(9001, 222)
 
 	orphaned := baldastate.ScheduledTaskRecord{
-		TaskID:       "orphaned-task",
+		JobID:        "orphaned-task",
 		SessionID:    locator.SessionID,
 		ChannelType:  locator.ChannelType,
 		AddressKey:   locator.AddressKey,
@@ -432,7 +432,7 @@ func TestScheduledTaskSchedulerReconcileConfiguredTasks_UpsertsAndDeletes(t *tes
 		t.Fatalf("NextRunAt = %s, want %s", got, want)
 	}
 
-	_, orphanedExists, err := store.GetByID(ctx, orphaned.TaskID)
+	_, orphanedExists, err := store.GetByID(ctx, orphaned.JobID)
 	if err != nil {
 		t.Fatalf("GetByID(orphaned) error = %v", err)
 	}

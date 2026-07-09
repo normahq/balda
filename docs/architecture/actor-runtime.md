@@ -17,16 +17,16 @@ Status: active
 
 ## Related tests
 
-- `internal/apps/balda/runtime/host_test.go`
-- `internal/apps/balda/actors/swarm_session_actor_test.go`
-- `internal/apps/balda/actors/swarm_goal_actor_test.go`
-- `internal/apps/balda/actors/swarm_control_actor_test.go`
-- `internal/apps/balda/actors/swarm_delivery_actor_test.go`
+- `internal/apps/balda/execution/host_test.go`
+- `internal/apps/balda/actors/session_actor_test.go`
+- `internal/apps/balda/actors/goal_actor_test.go`
+- `internal/apps/balda/actors/control_actor_test.go`
+- `internal/apps/balda/actors/delivery_actor_test.go`
 - `internal/apps/balda/handlers/command_test.go`
 
 ## Related packages
 
-- `internal/apps/balda/runtime`
+- `internal/apps/balda/execution`
 - `internal/apps/balda/jobs`
 - `internal/apps/balda/actors`
 - `internal/apps/balda/handlers`
@@ -73,7 +73,7 @@ Status: active
 
 ### Balda implementation map
 
-- Actor dispatch and lane execution are composed in `internal/apps/balda/runtime/host.go`, backed by `github.com/normahq/balda/pkg/actorlayer/engine.DispatchRuntime`. Balda keeps its runtime ownership explicit inside `runtime` through focused files for the host loop (`host.go`), lane/address policy (`lane_policy.go`), heartbeat visibility policy (`heartbeat.go`), dead-letter side effects (`deadletter.go`), and delivery wrapping/context (`delivery_wrapper.go`).
+- Actor dispatch and lane execution are composed in `internal/apps/balda/execution/host.go`, backed by `github.com/normahq/balda/pkg/actorlayer/engine.DispatchRuntime`. Balda keeps its runtime ownership explicit inside `execution` through focused files for the host loop (`host.go`), lane/address policy (`lane_policy.go`), heartbeat visibility policy (`heartbeat.go`), dead-letter side effects (`deadletter.go`), and delivery wrapping/context (`delivery_wrapper.go`).
 - Balda product actor definitions live in `internal/apps/balda/actors` and are registered through `actors.Module`.
 - Telegram/Zulip/Slack/webhook/scheduler ingress lives in `internal/apps/balda/handlers`; handlers publish actor commands through actorlayer transport contracts and do not own actor behavior or actor registration.
 - Session/provider runtime ownership lives in `internal/apps/balda/agent` and `internal/apps/balda/session`; all sessions use the configured `balda.provider`.

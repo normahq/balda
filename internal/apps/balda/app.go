@@ -17,11 +17,11 @@ import (
 	baldaslack "github.com/normahq/balda/internal/apps/balda/channel/slack"
 	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
 	natsbus "github.com/normahq/balda/internal/apps/balda/eventbus/nats"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/internal/apps/balda/handlers"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
 	"github.com/normahq/balda/internal/apps/balda/memory"
 	"github.com/normahq/balda/internal/apps/balda/paths"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	"github.com/normahq/balda/internal/apps/balda/shutdown"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/telegramfmt"
@@ -139,20 +139,20 @@ func Module(
 		})
 	}
 	inboundWebhookConfig := buildInboundWebhookConfig(cfg.Balda)
-	swarmConfig := baldaruntime.Config{
-		Commands: baldaruntime.CommandConfig{
-			Stream:        strings.TrimSpace(cfg.Balda.Swarm.Commands.Stream),
-			Consumer:      strings.TrimSpace(cfg.Balda.Swarm.Commands.Consumer),
-			AckWait:       strings.TrimSpace(cfg.Balda.Swarm.Commands.AckWait),
-			MaxDeliver:    cfg.Balda.Swarm.Commands.MaxDeliver,
-			MaxAckPending: cfg.Balda.Swarm.Commands.MaxAckPending,
-			FetchBatch:    cfg.Balda.Swarm.Commands.FetchBatch,
-			FetchWait:     strings.TrimSpace(cfg.Balda.Swarm.Commands.FetchWait),
+	executionConfig := baldaexecution.Config{
+		Commands: baldaexecution.CommandConfig{
+			Stream:        strings.TrimSpace(cfg.Balda.Execution.Commands.Stream),
+			Consumer:      strings.TrimSpace(cfg.Balda.Execution.Commands.Consumer),
+			AckWait:       strings.TrimSpace(cfg.Balda.Execution.Commands.AckWait),
+			MaxDeliver:    cfg.Balda.Execution.Commands.MaxDeliver,
+			MaxAckPending: cfg.Balda.Execution.Commands.MaxAckPending,
+			FetchBatch:    cfg.Balda.Execution.Commands.FetchBatch,
+			FetchWait:     strings.TrimSpace(cfg.Balda.Execution.Commands.FetchWait),
 		},
-		Events: baldaruntime.EventStreamConfig{Stream: strings.TrimSpace(cfg.Balda.Swarm.Events.Stream)},
-		DLQ:    baldaruntime.DLQConfig{Stream: strings.TrimSpace(cfg.Balda.Swarm.DLQ.Stream)},
+		Events: baldaexecution.EventStreamConfig{Stream: strings.TrimSpace(cfg.Balda.Execution.Events.Stream)},
+		DLQ:    baldaexecution.DLQConfig{Stream: strings.TrimSpace(cfg.Balda.Execution.DLQ.Stream)},
 	}
-	swarmConfig, err = swarmConfig.Normalized()
+	executionConfig, err = executionConfig.Normalized()
 	if err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}
@@ -160,7 +160,7 @@ func Module(
 	if err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}
-	if err := validateRuntimeConfigLint(swarmConfig, inboundWebhookConfig); err != nil {
+	if err := validateExecutionConfigLint(executionConfig, inboundWebhookConfig); err != nil {
 		return fx.Module("balda", fx.Error(err))
 	}
 	if err := validateZulipConfig(cfg.Balda.Zulip); err != nil {
@@ -187,7 +187,7 @@ func Module(
 			scheduledTaskSchedulerConfig,
 			inboundWebhookConfig,
 			eventBusConfig,
-			swarmConfig,
+			executionConfig,
 		),
 		fx.Provide(
 			fx.Annotate(
@@ -440,7 +440,7 @@ func Module(
 		}),
 		tgbotkit.Module,
 		natsbus.Module,
-		baldaruntime.Module,
+		baldaexecution.Module,
 		baldajobs.Module,
 		actors.Module,
 		handlers.Module,
@@ -586,13 +586,13 @@ func validateSessionPersistence(raw string) (string, error) {
 	}
 }
 
-func validateRuntimeConfigLint(swarmCfg baldaruntime.Config, webhookCfg handlers.InboundWebhookConfig) error {
+func validateExecutionConfigLint(executionCfg baldaexecution.Config, webhookCfg handlers.InboundWebhookConfig) error {
 	errs := make([]string, 0)
 
 	streamNames := map[string]string{
-		"balda.baldaruntime.commands.stream": swarmCfg.Commands.Stream,
-		"balda.baldaruntime.events.stream":   swarmCfg.Events.Stream,
-		"balda.baldaruntime.dlq.stream":      swarmCfg.DLQ.Stream,
+		"balda.execution.commands.stream": executionCfg.Commands.Stream,
+		"balda.execution.events.stream":   executionCfg.Events.Stream,
+		"balda.execution.dlq.stream":      executionCfg.DLQ.Stream,
 	}
 	for field, value := range streamNames {
 		if err := validateIdentifierValue(field, value); err != nil {
@@ -603,23 +603,23 @@ func validateRuntimeConfigLint(swarmCfg baldaruntime.Config, webhookCfg handlers
 	for _, value := range streamNames {
 		normalized := strings.ToLower(strings.TrimSpace(value))
 		if _, ok := seenStreamNames[normalized]; ok {
-			errs = append(errs, "balda.baldaruntime.commands.stream, balda.baldaruntime.events.stream, and balda.baldaruntime.dlq.stream must be distinct")
+			errs = append(errs, "balda.execution.commands.stream, balda.execution.events.stream, and balda.execution.dlq.stream must be distinct")
 			break
 		}
 		seenStreamNames[normalized] = struct{}{}
 	}
 
 	consumerNames := map[string]string{
-		"balda.baldaruntime.commands.consumer": swarmCfg.Commands.Consumer,
-		"balda.baldaruntime.events.consumer":   baldaruntime.DefaultEventProjectorConsumer,
+		"balda.execution.commands.consumer": executionCfg.Commands.Consumer,
+		"balda.execution.events.consumer":   baldaexecution.DefaultEventProjectorConsumer,
 	}
 	for field, value := range consumerNames {
 		if err := validateIdentifierValue(field, value); err != nil {
 			errs = append(errs, err.Error())
 		}
 	}
-	if strings.EqualFold(strings.TrimSpace(swarmCfg.Commands.Consumer), strings.TrimSpace(baldaruntime.DefaultEventProjectorConsumer)) {
-		errs = append(errs, "balda.baldaruntime.commands.consumer must differ from balda.baldaruntime.events.consumer")
+	if strings.EqualFold(strings.TrimSpace(executionCfg.Commands.Consumer), strings.TrimSpace(baldaexecution.DefaultEventProjectorConsumer)) {
+		errs = append(errs, "balda.execution.commands.consumer must differ from balda.execution.events.consumer")
 	}
 
 	if webhookCfg.Enabled {

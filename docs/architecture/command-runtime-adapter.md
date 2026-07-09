@@ -16,14 +16,14 @@ Status: active
 ## Related tests
 
 - `internal/apps/balda/eventbus/nats/connection_test.go`
-- `internal/apps/balda/runtime/subjects_test.go`
-- `internal/apps/balda/runtime/config_test.go`
+- `internal/apps/balda/execution/subjects_test.go`
+- `internal/apps/balda/execution/config_test.go`
 - `internal/apps/balda/handlers/inbound_webhook_test.go`
 
 ## Related packages
 
 - `internal/apps/balda/eventbus/nats`
-- `internal/apps/balda/runtime`
+- `internal/apps/balda/execution`
 - `internal/apps/balda/handlers`
 
 ## Update triggers

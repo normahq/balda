@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/pkg/actorlayer"
 )
@@ -47,15 +47,15 @@ func TestJobServiceAppendEventPublishesDurableEvent(t *testing.T) {
 	if err := service.AppendEvent(ctx, "task-1", TaskEventAgentProgress, "agent:executor", "msg-1", map[string]any{"text": "working"}); err != nil {
 		t.Fatalf("AppendEvent() error = %v", err)
 	}
-	if len(bus.subjects) != 1 || bus.subjects[0] != baldaruntime.SubjectEventJobUpdated {
-		t.Fatalf("subjects = %+v, want %q", bus.subjects, baldaruntime.SubjectEventJobUpdated)
+	if len(bus.subjects) != 1 || bus.subjects[0] != baldaexecution.SubjectEventJobUpdated {
+		t.Fatalf("subjects = %+v, want %q", bus.subjects, baldaexecution.SubjectEventJobUpdated)
 	}
-	if len(bus.envs) != 1 || bus.envs[0].TaskID != "task-1" || bus.envs[0].Meta["event_type"] != TaskEventAgentProgress {
+	if len(bus.envs) != 1 || baldaexecution.EnvelopeJobID(bus.envs[0]) != "task-1" || bus.envs[0].Meta["event_type"] != TaskEventAgentProgress {
 		t.Fatalf("envs = %+v, want job event envelope", bus.envs)
 	}
-	events, err := provider.Swarm().ListTaskEvents(ctx, "task-1")
+	events, err := provider.Jobs().ListJobEvents(ctx, "task-1")
 	if err != nil {
-		t.Fatalf("ListTaskEvents() error = %v", err)
+		t.Fatalf("ListJobEvents() error = %v", err)
 	}
 	if len(events) != 0 {
 		t.Fatalf("projected events = %+v, want no direct SQLite projection writes", events)
@@ -77,8 +77,8 @@ func TestJobServiceAppendEventPublishesDeliveryFailedSubject(t *testing.T) {
 	if err := service.AppendEvent(ctx, "task-1", TaskEventDeliveryFailed, "delivery.actor", "msg-1", map[string]any{"reason": "telegram send failed"}); err != nil {
 		t.Fatalf("AppendEvent() error = %v", err)
 	}
-	if len(bus.subjects) != 1 || bus.subjects[0] != baldaruntime.SubjectEventDeliveryFailed {
-		t.Fatalf("subjects = %+v, want %q", bus.subjects, baldaruntime.SubjectEventDeliveryFailed)
+	if len(bus.subjects) != 1 || bus.subjects[0] != baldaexecution.SubjectEventDeliveryFailed {
+		t.Fatalf("subjects = %+v, want %q", bus.subjects, baldaexecution.SubjectEventDeliveryFailed)
 	}
 }
 
@@ -129,7 +129,7 @@ func TestJobServiceCreateIgnoresEventPublishFailureAfterStateMutation(t *testing
 	if err != nil {
 		t.Fatalf("NewJobService() error = %v", err)
 	}
-	record := baldastate.SwarmTaskRecord{ID: "task-created", SessionID: "s-1", Objective: "create task"}
+	record := baldastate.JobRecord{ID: "task-created", SessionID: "s-1", Objective: "create task"}
 	created, err := service.Create(ctx, record, "task.actor", map[string]any{"objective": record.Objective})
 	if err != nil {
 		t.Fatalf("Create(first) error = %v, want nil because job event publication is visibility-only", err)
@@ -163,13 +163,13 @@ func TestJobServiceMarkStatusIgnoresEventPublishFailureAfterStateMutation(t *tes
 		t.Fatalf("NewSQLiteProvider() error = %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Close() })
-	if _, err := provider.Swarm().CreateTask(ctx, baldastate.SwarmTaskRecord{
+	if _, err := provider.Jobs().CreateJob(ctx, baldastate.JobRecord{
 		ID:        "task-running",
 		SessionID: "s-1",
 		Objective: "run task",
-		Status:    baldastate.SwarmTaskStatusCreated,
+		Status:    baldastate.JobStatusCreated,
 	}); err != nil {
-		t.Fatalf("CreateTask() error = %v", err)
+		t.Fatalf("CreateJob() error = %v", err)
 	}
 	bus := &recordingTaskCommandBus{errs: []error{errors.New("event stream unavailable")}}
 	service, err := NewJobService(jobServiceParams{StateProvider: provider, Bus: bus})
@@ -177,15 +177,15 @@ func TestJobServiceMarkStatusIgnoresEventPublishFailureAfterStateMutation(t *tes
 		t.Fatalf("NewJobService() error = %v", err)
 	}
 
-	if err := service.MarkStatus(ctx, "task-running", baldastate.SwarmTaskStatusRunning, "task.actor", "msg-1", "", map[string]any{"step": "start"}); err != nil {
+	if err := service.MarkStatus(ctx, "task-running", baldastate.JobStatusRunning, "task.actor", "msg-1", "", map[string]any{"step": "start"}); err != nil {
 		t.Fatalf("MarkStatus() error = %v, want nil because job event publication is visibility-only", err)
 	}
 	task, ok, err := service.Get(ctx, "task-running")
 	if err != nil || !ok {
 		t.Fatalf("Get() task = %+v found=%v err=%v", task, ok, err)
 	}
-	if task.Status != baldastate.SwarmTaskStatusRunning {
-		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusRunning)
+	if task.Status != baldastate.JobStatusRunning {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusRunning)
 	}
 	if len(bus.envs) != 1 || bus.envs[0].Meta["event_type"] != JobEventStarted {
 		t.Fatalf("published events = %+v, want one job.started visibility attempt", bus.envs)
@@ -199,13 +199,13 @@ func TestJobServiceSetResultIgnoresEventPublishFailureAfterStateMutation(t *test
 		t.Fatalf("NewSQLiteProvider() error = %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Close() })
-	if _, err := provider.Swarm().CreateTask(ctx, baldastate.SwarmTaskRecord{
+	if _, err := provider.Jobs().CreateJob(ctx, baldastate.JobRecord{
 		ID:        "task-completed",
 		SessionID: "s-1",
 		Objective: "complete task",
-		Status:    baldastate.SwarmTaskStatusRunning,
+		Status:    baldastate.JobStatusRunning,
 	}); err != nil {
-		t.Fatalf("CreateTask() error = %v", err)
+		t.Fatalf("CreateJob() error = %v", err)
 	}
 	bus := &recordingTaskCommandBus{errs: []error{errors.New("event stream unavailable")}}
 	service, err := NewJobService(jobServiceParams{StateProvider: provider, Bus: bus})
@@ -214,15 +214,15 @@ func TestJobServiceSetResultIgnoresEventPublishFailureAfterStateMutation(t *test
 	}
 
 	result := map[string]any{"summary": "done"}
-	if err := service.SetResult(ctx, "task-completed", result, baldastate.SwarmTaskStatusCompleted, "task.actor", ""); err != nil {
+	if err := service.SetResult(ctx, "task-completed", result, baldastate.JobStatusCompleted, "task.actor", ""); err != nil {
 		t.Fatalf("SetResult() error = %v, want nil because job event publication is visibility-only", err)
 	}
 	task, ok, err := service.Get(ctx, "task-completed")
 	if err != nil || !ok {
 		t.Fatalf("Get() task = %+v found=%v err=%v", task, ok, err)
 	}
-	if task.Status != baldastate.SwarmTaskStatusCompleted {
-		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusCompleted)
+	if task.Status != baldastate.JobStatusCompleted {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusCompleted)
 	}
 	if task.ResultJSON == "" {
 		t.Fatal("job result json is empty, want persisted result despite event publish failure")
@@ -239,13 +239,13 @@ func TestJobServiceMarkStatusIgnoresStaleTerminalTransition(t *testing.T) {
 		t.Fatalf("NewSQLiteProvider() error = %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Close() })
-	if _, err := provider.Swarm().CreateTask(ctx, baldastate.SwarmTaskRecord{
+	if _, err := provider.Jobs().CreateJob(ctx, baldastate.JobRecord{
 		ID:        "task-deadlettered",
 		SessionID: "s-1",
 		Objective: "deadlettered task",
-		Status:    baldastate.SwarmTaskStatusDeadLettered,
+		Status:    baldastate.JobStatusDeadLettered,
 	}); err != nil {
-		t.Fatalf("CreateTask() error = %v", err)
+		t.Fatalf("CreateJob() error = %v", err)
 	}
 	bus := &recordingTaskCommandBus{}
 	service, err := NewJobService(jobServiceParams{StateProvider: provider, Bus: bus})
@@ -253,15 +253,15 @@ func TestJobServiceMarkStatusIgnoresStaleTerminalTransition(t *testing.T) {
 		t.Fatalf("NewJobService() error = %v", err)
 	}
 
-	if err := service.MarkStatus(ctx, "task-deadlettered", baldastate.SwarmTaskStatusFailed, "task.actor", "msg-1", "runner failed", nil); err != nil {
+	if err := service.MarkStatus(ctx, "task-deadlettered", baldastate.JobStatusFailed, "task.actor", "msg-1", "runner failed", nil); err != nil {
 		t.Fatalf("MarkStatus() error = %v, want nil for stale terminal finalization", err)
 	}
 	task, ok, err := service.Get(ctx, "task-deadlettered")
 	if err != nil || !ok {
 		t.Fatalf("Get() task = %+v found=%v err=%v", task, ok, err)
 	}
-	if task.Status != baldastate.SwarmTaskStatusDeadLettered {
-		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusDeadLettered)
+	if task.Status != baldastate.JobStatusDeadLettered {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusDeadLettered)
 	}
 	if len(bus.envs) != 0 {
 		t.Fatalf("published events = %+v, want no visibility event for stale terminal finalization", bus.envs)
@@ -275,14 +275,14 @@ func TestJobServiceSetResultIgnoresStaleTerminalTransition(t *testing.T) {
 		t.Fatalf("NewSQLiteProvider() error = %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Close() })
-	if _, err := provider.Swarm().CreateTask(ctx, baldastate.SwarmTaskRecord{
+	if _, err := provider.Jobs().CreateJob(ctx, baldastate.JobRecord{
 		ID:         "task-deadlettered-result",
 		SessionID:  "s-1",
 		Objective:  "deadlettered task",
-		Status:     baldastate.SwarmTaskStatusDeadLettered,
+		Status:     baldastate.JobStatusDeadLettered,
 		ResultJSON: `{"status":"deadlettered"}`,
 	}); err != nil {
-		t.Fatalf("CreateTask() error = %v", err)
+		t.Fatalf("CreateJob() error = %v", err)
 	}
 	bus := &recordingTaskCommandBus{}
 	service, err := NewJobService(jobServiceParams{StateProvider: provider, Bus: bus})
@@ -290,15 +290,15 @@ func TestJobServiceSetResultIgnoresStaleTerminalTransition(t *testing.T) {
 		t.Fatalf("NewJobService() error = %v", err)
 	}
 
-	if err := service.SetResult(ctx, "task-deadlettered-result", map[string]any{"status": "failed"}, baldastate.SwarmTaskStatusFailed, "task.actor", "runner failed"); err != nil {
+	if err := service.SetResult(ctx, "task-deadlettered-result", map[string]any{"status": "failed"}, baldastate.JobStatusFailed, "task.actor", "runner failed"); err != nil {
 		t.Fatalf("SetResult() error = %v, want nil for stale terminal finalization", err)
 	}
 	task, ok, err := service.Get(ctx, "task-deadlettered-result")
 	if err != nil || !ok {
 		t.Fatalf("Get() task = %+v found=%v err=%v", task, ok, err)
 	}
-	if task.Status != baldastate.SwarmTaskStatusDeadLettered {
-		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusDeadLettered)
+	if task.Status != baldastate.JobStatusDeadLettered {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusDeadLettered)
 	}
 	if task.ResultJSON != `{"status":"deadlettered"}` {
 		t.Fatalf("job result = %q, want original deadlettered result preserved", task.ResultJSON)

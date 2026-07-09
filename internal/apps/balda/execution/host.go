@@ -1,4 +1,4 @@
-package runtime
+package execution
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 )
 
 type DeadLetterRecorder interface {
-	DeadLetter(ctx context.Context, taskID string, actor string, messageID string, reason string) error
+	DeadLetter(ctx context.Context, jobID string, actor string, messageID string, reason string) error
 }
 
 type ActorHost struct {
@@ -31,7 +31,7 @@ type ActorHost struct {
 	wg     sync.WaitGroup
 }
 
-type runtimeParams struct {
+type executionParams struct {
 	fx.In
 
 	LC     fx.Lifecycle
@@ -39,10 +39,10 @@ type runtimeParams struct {
 	Events actortransport.EventPublisher `optional:"true"`
 	Jobs   DeadLetterRecorder            `optional:"true"`
 	Logger zerolog.Logger
-	Actors []dispatch.Actor `group:"balda_swarm_actors"`
+	Actors []dispatch.Actor `group:"balda_product_actors"`
 }
 
-func NewActorHost(params runtimeParams) (*ActorHost, error) {
+func NewActorHost(params executionParams) (*ActorHost, error) {
 	if params.Source == nil {
 		return nil, fmt.Errorf("actor delivery source is required")
 	}
@@ -56,12 +56,12 @@ func NewActorHost(params runtimeParams) (*ActorHost, error) {
 		source:        params.Source,
 		events:        params.Events,
 		jobs:          params.Jobs,
-		logger:        params.Logger.With().Str("component", "balda.runtime.host").Logger(),
+		logger:        params.Logger.With().Str("component", "balda.execution.host").Logger(),
 		heartbeatTick: heartbeatInterval,
 	}
 	engine, err := actorengine.NewDispatchRuntime(actorengine.RuntimeConfig{
 		Registry:  registry,
-		AddressOf: runtimeAddressOf,
+		AddressOf: executionAddressOf,
 		LaneKey:   actorLaneKeyFromEnvelope,
 		Sink:      r,
 		Retry: actorengine.RetryPolicy{
@@ -90,7 +90,7 @@ func (r *ActorHost) Start(context.Context) error {
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
-	source := runtimeSource{source: r.source, prepareFn: r.prepareDelivery}
+	source := executionSource{source: r.source, prepareFn: r.prepareDelivery}
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
@@ -119,12 +119,12 @@ func (r *ActorHost) Stop(ctx context.Context) error {
 	}
 }
 
-type runtimeSource struct {
+type executionSource struct {
 	source    actorengine.Source
 	prepareFn func(context.Context, actorengine.Delivery) (context.Context, func(), actorengine.Delivery)
 }
 
-func (s runtimeSource) Run(ctx context.Context, handler actorengine.Handler) error {
+func (s executionSource) Run(ctx context.Context, handler actorengine.Handler) error {
 	if s.source == nil {
 		return fmt.Errorf("actor delivery source is required")
 	}
@@ -132,7 +132,7 @@ func (s runtimeSource) Run(ctx context.Context, handler actorengine.Handler) err
 		return fmt.Errorf("runtime handler is required")
 	}
 	if s.prepareFn == nil {
-		return fmt.Errorf("runtime command delivery factory is required")
+		return fmt.Errorf("execution command delivery factory is required")
 	}
 	return s.source.Run(ctx, func(ctx context.Context, delivery actorengine.Delivery) error {
 		if delivery == nil {

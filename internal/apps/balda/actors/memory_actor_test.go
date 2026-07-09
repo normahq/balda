@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/internal/apps/balda/memory"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 )
 
 func TestMemoryRememberEnvelopeRoutesToMemorySubject(t *testing.T) {
@@ -17,11 +17,11 @@ func TestMemoryRememberEnvelopeRoutesToMemorySubject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MemoryRememberEnvelope() error = %v", err)
 	}
-	if got := baldaruntime.SubjectForEnvelope(env); got != baldaruntime.SubjectCommandMemory {
-		t.Fatalf("SubjectForEnvelope() = %q, want %q", got, baldaruntime.SubjectCommandMemory)
+	if got := baldaexecution.SubjectForEnvelope(env); got != baldaexecution.SubjectCommandMemory {
+		t.Fatalf("SubjectForEnvelope() = %q, want %q", got, baldaexecution.SubjectCommandMemory)
 	}
-	if env.To.Target != baldaruntime.ActorTypeMemory {
-		t.Fatalf("env.To.Target = %q, want %q", env.To.Target, baldaruntime.ActorTypeMemory)
+	if env.To.Target != baldaexecution.ActorTypeMemory {
+		t.Fatalf("env.To.Target = %q, want %q", env.To.Target, baldaexecution.ActorTypeMemory)
 	}
 }
 
@@ -49,8 +49,8 @@ func TestMemoryActorRememberWritesMemoryAndPublishesVersionEvent(t *testing.T) {
 	if len(bus.eventSubjects) != 1 {
 		t.Fatalf("published events = %d, want 1", len(bus.eventSubjects))
 	}
-	if bus.eventSubjects[0] != baldaruntime.SubjectEventMemoryUpdated {
-		t.Fatalf("event subject = %q, want %q", bus.eventSubjects[0], baldaruntime.SubjectEventMemoryUpdated)
+	if bus.eventSubjects[0] != baldaexecution.SubjectEventMemoryUpdated {
+		t.Fatalf("event subject = %q, want %q", bus.eventSubjects[0], baldaexecution.SubjectEventMemoryUpdated)
 	}
 	if strings.Contains(bus.eventEnvs[0].PayloadJSON, "remember actor fact") {
 		t.Fatalf("memory updated event leaked fact payload: %s", bus.eventEnvs[0].PayloadJSON)

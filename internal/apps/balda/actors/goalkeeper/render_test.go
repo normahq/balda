@@ -259,7 +259,7 @@ func TestRenderReviewableOutcomeKeepsExplicitNotVerified(t *testing.T) {
 	}
 }
 
-func taskRecordWithResult(t *testing.T, goalReached bool, exportStatus string, notVerified string, exportReason string, outcomeNotVerified string, nextAction string) baldastate.SwarmTaskRecord {
+func taskRecordWithResult(t *testing.T, goalReached bool, exportStatus string, notVerified string, exportReason string, outcomeNotVerified string, nextAction string) baldastate.JobRecord {
 	t.Helper()
 
 	return taskRecordWithOutcome(t, goalReached, exportStatus, map[string]string{
@@ -272,7 +272,7 @@ func taskRecordWithResult(t *testing.T, goalReached bool, exportStatus string, n
 	})
 }
 
-func taskRecordWithOutcome(t *testing.T, goalReached bool, exportStatus string, outcome map[string]string) baldastate.SwarmTaskRecord {
+func taskRecordWithOutcome(t *testing.T, goalReached bool, exportStatus string, outcome map[string]string) baldastate.JobRecord {
 	t.Helper()
 
 	result := map[string]any{
@@ -295,11 +295,11 @@ func taskRecordWithOutcome(t *testing.T, goalReached bool, exportStatus string, 
 	if err != nil {
 		t.Fatalf("marshal result: %v", err)
 	}
-	status := baldastate.SwarmTaskStatusCompleted
+	status := baldastate.JobStatusCompleted
 	if !goalReached {
-		status = baldastate.SwarmTaskStatusFailed
+		status = baldastate.JobStatusFailed
 	}
-	return baldastate.SwarmTaskRecord{
+	return baldastate.JobRecord{
 		Status:     status,
 		Objective:  "objective",
 		ResultJSON: string(data),

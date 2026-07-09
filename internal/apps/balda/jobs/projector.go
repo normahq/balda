@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/pkg/actorlayer"
 	actortransport "github.com/normahq/balda/pkg/actorlayer/transport"
@@ -17,7 +17,7 @@ import (
 
 type EventProjector struct {
 	consumer actortransport.EventConsumer
-	store    baldastate.SwarmStore
+	store    baldastate.JobStore
 	logger   zerolog.Logger
 
 	cancel context.CancelFunc
@@ -42,7 +42,7 @@ func NewEventProjector(params eventProjectorParams) (*EventProjector, error) {
 	}
 	p := &EventProjector{
 		consumer: params.Consumer,
-		store:    params.StateProvider.Swarm(),
+		store:    params.StateProvider.Jobs(),
 		logger:   params.Logger.With().Str("component", "balda.jobs.projector").Logger(),
 	}
 	params.LC.Append(fx.Hook{OnStart: p.Start, OnStop: p.Stop})
@@ -87,8 +87,8 @@ func (p *EventProjector) Project(ctx context.Context, subject string, env actorl
 	if p == nil || p.store == nil {
 		return nil
 	}
-	taskID := strings.TrimSpace(env.TaskID)
-	if taskID == "" {
+	jobID := baldaexecution.EnvelopeJobID(env)
+	if jobID == "" {
 		return nil
 	}
 	eventType := ""
@@ -99,31 +99,31 @@ func (p *EventProjector) Project(ctx context.Context, subject string, env actorl
 	}
 	if eventType == "" {
 		switch strings.TrimSpace(subject) {
-		case baldaruntime.SubjectEventCommandAccepted:
+		case baldaexecution.SubjectEventCommandAccepted:
 			eventType = "command.accepted"
-		case baldaruntime.SubjectEventCommandRunning:
+		case baldaexecution.SubjectEventCommandRunning:
 			eventType = "command.running"
-		case baldaruntime.SubjectEventCommandInProgress:
+		case baldaexecution.SubjectEventCommandInProgress:
 			eventType = "command.in_progress"
-		case baldaruntime.SubjectEventCommandAcked:
+		case baldaexecution.SubjectEventCommandAcked:
 			eventType = "command.acked"
-		case baldaruntime.SubjectEventCommandRetrying:
+		case baldaexecution.SubjectEventCommandRetrying:
 			eventType = "command.retrying"
-		case baldaruntime.SubjectEventCommandDeadLettered:
+		case baldaexecution.SubjectEventCommandDeadLettered:
 			eventType = "command.deadlettered"
-		case baldaruntime.SubjectEventCommandNoop:
+		case baldaexecution.SubjectEventCommandNoop:
 			eventType = "command.noop"
-		case baldaruntime.SubjectEventCommandDecodeFailed:
+		case baldaexecution.SubjectEventCommandDecodeFailed:
 			eventType = "command.decode_failed"
-		case baldaruntime.SubjectEventJobCreated:
+		case baldaexecution.SubjectEventJobCreated:
 			eventType = JobEventCreated
-		case baldaruntime.SubjectEventJobUpdated:
+		case baldaexecution.SubjectEventJobUpdated:
 			eventType = JobEventAssigned
-		case baldaruntime.SubjectEventJobCompleted:
+		case baldaexecution.SubjectEventJobCompleted:
 			eventType = JobEventCompleted
-		case baldaruntime.SubjectEventDeliverySent:
+		case baldaexecution.SubjectEventDeliverySent:
 			eventType = TaskEventDeliverySent
-		case baldaruntime.SubjectEventDeliveryFailed:
+		case baldaexecution.SubjectEventDeliveryFailed:
 			eventType = TaskEventDeliveryFailed
 		}
 	}
@@ -140,9 +140,9 @@ func (p *EventProjector) Project(ctx context.Context, subject string, env actorl
 	if messageID == "" {
 		messageID = strings.TrimSpace(env.CausationID)
 	}
-	return p.store.AppendTaskEvent(ctx, baldastate.SwarmTaskEventRecord{
+	return p.store.AppendJobEvent(ctx, baldastate.JobEventRecord{
 		ID:          strings.TrimSpace(env.ID),
-		TaskID:      taskID,
+		JobID:       jobID,
 		EventType:   eventType,
 		Actor:       actor,
 		MessageID:   messageID,

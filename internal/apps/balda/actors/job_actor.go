@@ -11,8 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/pkg/actorlayer"
@@ -110,6 +110,7 @@ func WebhookJobEnvelope(payload SessionTurnPayload, routeName string, requestID 
 		part = "inbound"
 	}
 	jobID := "webhook-" + part + "-" + shortJobHash(dedupeBase)
+	payload.JobID = jobID
 	payload.DedupeKey = dedupeBase + ":session"
 	data, err := json.Marshal(jobEnvelopePayload{
 		Kind:        jobPayloadKindWebhookSessionTurn,
@@ -120,12 +121,12 @@ func WebhookJobEnvelope(payload SessionTurnPayload, routeName string, requestID 
 	}
 	return actorlayer.Envelope{
 		ID:          uuid.NewString(),
-		Namespace:   baldaruntime.NamespaceWebhookInbound,
-		Kind:        baldaruntime.KindWebhookEvent,
+		Namespace:   baldaexecution.NamespaceWebhookInbound,
+		Kind:        baldaexecution.KindWebhookEvent,
 		From:        actorlayer.ActorAddress{Target: "webhook", Key: firstNonEmpty(routeName, requestID, "inbound")},
-		To:          actorlayer.ActorAddress{Target: baldaruntime.ActorTypeJob, Key: jobID},
+		To:          actorlayer.ActorAddress{Target: baldaexecution.ActorTypeJob, Key: jobID},
 		SessionID:   payload.Locator.SessionID,
-		TaskID:      jobID,
+		Meta:        baldaexecution.WithJobIDMeta(nil, jobID),
 		Priority:    80,
 		DedupeKey:   dedupeBase + ":job",
 		PayloadJSON: string(data),
@@ -159,12 +160,12 @@ func ScheduledJobEnvelope(
 	jobID := "scheduled-" + strings.TrimSpace(scheduledJobID) + "-" + strings.TrimSpace(dispatchKey)
 	return actorlayer.Envelope{
 		ID:          uuid.NewString(),
-		Namespace:   baldaruntime.NamespaceScheduleInbound,
-		Kind:        baldaruntime.KindScheduledJob,
+		Namespace:   baldaexecution.NamespaceScheduleInbound,
+		Kind:        baldaexecution.KindScheduledJob,
 		From:        actorlayer.ActorAddress{Target: "schedule", Key: strings.TrimSpace(scheduledJobID)},
-		To:          actorlayer.ActorAddress{Target: baldaruntime.ActorTypeJob, Key: jobID},
+		To:          actorlayer.ActorAddress{Target: baldaexecution.ActorTypeJob, Key: jobID},
 		SessionID:   locator.SessionID,
-		TaskID:      jobID,
+		Meta:        baldaexecution.WithJobIDMeta(nil, jobID),
 		DedupeKey:   strings.TrimSpace(dispatchKey),
 		PayloadJSON: string(data),
 	}, nil
@@ -176,7 +177,7 @@ func shortJobHash(value string) string {
 }
 
 func (e *jobActorExecutor) Address() string {
-	return actorlayer.WildcardAddress(baldaruntime.ActorTypeJob)
+	return actorlayer.WildcardAddress(baldaexecution.ActorTypeJob)
 }
 
 func (e *jobActorExecutor) Handle(ctx context.Context, env actorlayer.Envelope) error {
@@ -196,7 +197,7 @@ func (e *jobActorExecutor) Handle(ctx context.Context, env actorlayer.Envelope) 
 		if payload.SessionTurn == nil {
 			return actorlayer.PolicyError(fmt.Errorf("session turn job payload is required"))
 		}
-		if !strings.EqualFold(env.Namespace, baldaruntime.NamespaceWebhookInbound) {
+		if !strings.EqualFold(env.Namespace, baldaexecution.NamespaceWebhookInbound) {
 			return actorlayer.PolicyError(fmt.Errorf("session turn jobs are reserved for durable webhook delivery"))
 		}
 		return e.dispatchWebhookSessionTurn(ctx, env, *payload.SessionTurn)
@@ -206,22 +207,28 @@ func (e *jobActorExecutor) Handle(ctx context.Context, env actorlayer.Envelope) 
 }
 
 func (e *jobActorExecutor) dispatchWebhookSessionTurn(ctx context.Context, env actorlayer.Envelope, payload SessionTurnPayload) error {
-	jobID := firstNonEmpty(env.TaskID, env.To.Key)
-	if jobID != "" && e.tasks != nil {
+	jobID := strings.TrimSpace(baldaexecution.EnvelopeJobID(env))
+	if jobID == "" {
+		return actorlayer.PolicyError(fmt.Errorf("job id is required"))
+	}
+	if payloadJobID := strings.TrimSpace(payload.JobID); payloadJobID != "" && payloadJobID != jobID {
+		return actorlayer.PolicyError(fmt.Errorf("webhook session job id mismatch: envelope=%q payload=%q", jobID, payloadJobID))
+	}
+	if e.tasks != nil {
 		if _, ok, err := e.tasks.Get(ctx, jobID); err != nil {
 			return actorlayer.TransientError(err)
 		} else if ok {
 			return nil
 		}
-		created, err := e.tasks.Create(ctx, baldastate.SwarmTaskRecord{
+		created, err := e.tasks.Create(ctx, baldastate.JobRecord{
 			ID:            jobID,
 			SessionID:     strings.TrimSpace(payload.Locator.SessionID),
-			ParentTaskID:  strings.TrimSpace(payload.ParentJobID),
+			ParentJobID:   strings.TrimSpace(payload.ParentJobID),
 			Title:         webhookJobTitle(),
 			Objective:     strings.TrimSpace(payload.Text),
-			Status:        baldastate.SwarmTaskStatusCreated,
-			OwnerActor:    baldaruntime.ActorTypeJob + ":" + jobID,
-			AssignedActor: baldaruntime.ActorTypeSession + ":" + payload.Locator.SessionID,
+			Status:        baldastate.JobStatusCreated,
+			OwnerActor:    baldaexecution.ActorTypeJob + ":" + jobID,
+			AssignedActor: baldaexecution.ActorTypeSession + ":" + payload.Locator.SessionID,
 			Priority:      webhookJobPriority(),
 			CreatedBy:     strings.TrimSpace(payload.UserID),
 		}, "job.actor", payload)
@@ -237,7 +244,6 @@ func (e *jobActorExecutor) dispatchWebhookSessionTurn(ctx context.Context, env a
 	if err != nil {
 		return actorlayer.PermanentError(err)
 	}
-	sessionEnv.TaskID = jobID
 	sessionEnv.CorrelationID = firstNonEmpty(env.CorrelationID, jobID)
 	sessionEnv.CausationID = env.ID
 	if strings.TrimSpace(sessionEnv.DedupeKey) != "" {
@@ -247,7 +253,7 @@ func (e *jobActorExecutor) dispatchWebhookSessionTurn(ctx context.Context, env a
 		return actorlayer.TransientError(err)
 	}
 	if jobID != "" && e.tasks != nil {
-		if err := e.tasks.MarkStatus(ctx, jobID, baldastate.SwarmTaskStatusRunning, "job.actor", env.ID, "", nil); err != nil {
+		if err := e.tasks.MarkStatus(ctx, jobID, baldastate.JobStatusRunning, "job.actor", env.ID, "", nil); err != nil {
 			return actorlayer.TransientError(err)
 		}
 	}
@@ -263,7 +269,7 @@ func webhookJobPriority() int {
 }
 
 func (e *jobActorExecutor) startScheduledJob(ctx context.Context, env actorlayer.Envelope, payload scheduledJobPayload) error {
-	jobID := firstNonEmpty(env.TaskID, env.To.Key)
+	jobID := strings.TrimSpace(baldaexecution.EnvelopeJobID(env))
 	content := strings.TrimSpace(payload.Content)
 	if jobID == "" {
 		return actorlayer.PolicyError(fmt.Errorf("job id is required"))
@@ -280,15 +286,15 @@ func (e *jobActorExecutor) startScheduledJob(ctx context.Context, env actorlayer
 		} else if ok {
 			return nil
 		}
-		created, err := e.tasks.Create(ctx, baldastate.SwarmTaskRecord{
+		created, err := e.tasks.Create(ctx, baldastate.JobRecord{
 			ID:            jobID,
 			SessionID:     strings.TrimSpace(payload.Locator.SessionID),
-			ParentTaskID:  strings.TrimSpace(payload.ParentJobID),
+			ParentJobID:   strings.TrimSpace(payload.ParentJobID),
 			Title:         "Scheduled job: " + strings.TrimSpace(payload.JobID),
 			Objective:     content,
-			Status:        baldastate.SwarmTaskStatusCreated,
-			OwnerActor:    baldaruntime.ActorTypeJob + ":" + jobID,
-			AssignedActor: baldaruntime.ActorTypeSession + ":" + payload.Locator.SessionID,
+			Status:        baldastate.JobStatusCreated,
+			OwnerActor:    baldaexecution.ActorTypeJob + ":" + jobID,
+			AssignedActor: baldaexecution.ActorTypeSession + ":" + payload.Locator.SessionID,
 			Priority:      50,
 			CreatedBy:     strings.TrimSpace(payload.UserID),
 		}, "job.actor", payload)
@@ -300,6 +306,7 @@ func (e *jobActorExecutor) startScheduledJob(ctx context.Context, env actorlayer
 		}
 	}
 	sessionPayload := SessionTurnPayload{
+		JobID:          jobID,
 		Text:           content,
 		Locator:        payload.Locator,
 		ReportTo:       payload.ReportTo,
@@ -318,7 +325,6 @@ func (e *jobActorExecutor) startScheduledJob(ctx context.Context, env actorlayer
 	if err != nil {
 		return actorlayer.PermanentError(err)
 	}
-	sessionEnv.TaskID = jobID
 	sessionEnv.CorrelationID = firstNonEmpty(env.CorrelationID, jobID)
 	sessionEnv.CausationID = env.ID
 	if strings.TrimSpace(sessionEnv.DedupeKey) != "" {
@@ -328,7 +334,7 @@ func (e *jobActorExecutor) startScheduledJob(ctx context.Context, env actorlayer
 		return actorlayer.TransientError(err)
 	}
 	if e.tasks != nil {
-		if err := e.tasks.MarkStatus(ctx, jobID, baldastate.SwarmTaskStatusRunning, "job.actor", env.ID, "", nil); err != nil {
+		if err := e.tasks.MarkStatus(ctx, jobID, baldastate.JobStatusRunning, "job.actor", env.ID, "", nil); err != nil {
 			return actorlayer.TransientError(err)
 		}
 	}

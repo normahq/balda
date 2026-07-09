@@ -20,7 +20,7 @@ type sqliteProvider struct {
 	runtimeSession *sqliteRuntimeSessionService
 	session        *sqliteSessionStore
 	tasks          *sqliteScheduledTaskStore
-	swarm          *sqliteSwarmStore
+	runtime        *sqliteJobStore
 	offset         *sqliteOffsetStore
 	collab         *auth.CollaboratorStore
 }
@@ -159,7 +159,7 @@ func NewSQLiteProvider(ctx context.Context, path string) (Provider, error) {
 		runtimeSession: &sqliteRuntimeSessionService{db: db},
 		session:        &sqliteSessionStore{db: db},
 		tasks:          &sqliteScheduledTaskStore{db: db},
-		swarm:          &sqliteSwarmStore{db: db},
+		runtime:        &sqliteJobStore{db: db},
 		offset:         &sqliteOffsetStore{db: db},
 	}
 	provider.collab = auth.NewCollaboratorStore(provider)
@@ -186,8 +186,8 @@ func (p *sqliteProvider) ScheduledTasks() ScheduledTaskStore {
 	return p.tasks
 }
 
-func (p *sqliteProvider) Swarm() SwarmStore {
-	return p.swarm
+func (p *sqliteProvider) Jobs() JobStore {
+	return p.runtime
 }
 
 func (p *sqliteProvider) PollingOffsetStore() updatepoller.OffsetStore {

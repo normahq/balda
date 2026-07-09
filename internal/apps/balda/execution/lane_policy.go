@@ -1,4 +1,4 @@
-package runtime
+package execution
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"github.com/normahq/balda/pkg/actorlayer"
 )
 
-func runtimeAddressOf(env actorlayer.Envelope) (string, error) {
+func executionAddressOf(env actorlayer.Envelope) (string, error) {
 	to := env.To
 	to.Target = canonicalActorTarget(to.Target)
 	addr, err := to.String()
@@ -22,22 +22,22 @@ func runtimeAddressOf(env actorlayer.Envelope) (string, error) {
 
 func actorLaneKeyFromEnvelope(env actorlayer.Envelope) string {
 	namespace := canonicalNamespace(env.Namespace)
-	taskID := strings.TrimSpace(env.TaskID)
-	if taskID != "" {
+	jobID := EnvelopeJobID(env)
+	if jobID != "" {
 		switch namespace {
 		case NamespaceJobControl,
 			NamespaceGoalkeeperCommand,
 			NamespaceHumanInbound,
 			NamespaceWebhookInbound,
 			NamespaceScheduleInbound:
-			return "job:" + taskID
+			return "job:" + jobID
 		case NamespaceAgentResult:
 			if strings.EqualFold(strings.TrimSpace(env.To.Target), ActorTypeDelivery) {
 				if address := strings.TrimSpace(env.To.Key); address != "" {
 					return "delivery:" + address
 				}
 			}
-			return "job:" + taskID
+			return "job:" + jobID
 		}
 	}
 	switch namespace {
@@ -50,7 +50,7 @@ func actorLaneKeyFromEnvelope(env actorlayer.Envelope) string {
 			return "session:" + sessionID
 		}
 	}
-	if to, err := runtimeAddressOf(env); err == nil {
+	if to, err := executionAddressOf(env); err == nil {
 		return to
 	}
 	return strings.TrimSpace(env.ID)

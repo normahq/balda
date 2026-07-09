@@ -21,7 +21,7 @@ var Module = fx.Module("balda_actors",
 				return &sessionActorExecutor{turns: params.Turns, runner: params.Runner, tasks: params.Tasks, scheduler: params.Scheduler}
 			},
 			fx.As(new(dispatch.Actor)),
-			fx.ResultTags(`group:"balda_swarm_actors"`),
+			fx.ResultTags(`group:"balda_product_actors"`),
 		),
 		fx.Annotate(
 			func(params jobActorExecutorParams) dispatch.Actor {
@@ -32,7 +32,7 @@ var Module = fx.Module("balda_actors",
 				}
 			},
 			fx.As(new(dispatch.Actor)),
-			fx.ResultTags(`group:"balda_swarm_actors"`),
+			fx.ResultTags(`group:"balda_product_actors"`),
 		),
 		fx.Annotate(
 			func(params struct {
@@ -59,7 +59,7 @@ var Module = fx.Module("balda_actors",
 				})
 			},
 			fx.As(new(dispatch.Actor)),
-			fx.ResultTags(`group:"balda_swarm_actors"`),
+			fx.ResultTags(`group:"balda_product_actors"`),
 		),
 		fx.Annotate(
 			func(params memoryActorExecutorParams) dispatch.Actor {
@@ -69,7 +69,7 @@ var Module = fx.Module("balda_actors",
 				}
 			},
 			fx.As(new(dispatch.Actor)),
-			fx.ResultTags(`group:"balda_swarm_actors"`),
+			fx.ResultTags(`group:"balda_product_actors"`),
 		),
 		fx.Annotate(
 			func(params jobDeliveryActorParams) dispatch.Actor {
@@ -80,7 +80,7 @@ var Module = fx.Module("balda_actors",
 				}
 			},
 			fx.As(new(dispatch.Actor)),
-			fx.ResultTags(`group:"balda_swarm_actors"`),
+			fx.ResultTags(`group:"balda_product_actors"`),
 		),
 		fx.Annotate(
 			func(params jobControlActorParams) dispatch.Actor {
@@ -93,7 +93,7 @@ var Module = fx.Module("balda_actors",
 				}
 			},
 			fx.As(new(dispatch.Actor)),
-			fx.ResultTags(`group:"balda_swarm_actors"`),
+			fx.ResultTags(`group:"balda_product_actors"`),
 		),
 	),
 )

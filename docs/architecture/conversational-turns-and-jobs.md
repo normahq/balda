@@ -17,9 +17,9 @@ That coupling makes the runtime harder to reason about. It also encourages trans
 Balda keeps `actorlayer` as the single transport and execution boundary, but splits runtime intent into two distinct paths:
 
 - Ordinary conversational turns dispatch directly from ingress to the session actor through `balda.v1.cmd.session` envelopes.
-- Durable job-like work continues to use job-backed orchestration through the job actor and `swarm_tasks`.
+- Durable job-like work continues to use job-backed orchestration through the job actor and the legacy `execution_tasks` persistence layer.
 
-`swarm_tasks` stays as the durable orchestration/read-model layer for true jobs, not as a mandatory wrapper for every user message.
+The legacy `execution_tasks` table stays as the durable orchestration/read-model layer for true jobs, not as a mandatory wrapper for every user message.
 
 ## Target layering
 
@@ -43,7 +43,7 @@ Properties:
 - intermediate and final replies are separate delivery envelopes;
 - semantic progress such as thinking or plan snapshots must be emitted as separate session-owned deliveries, not sent inline from ingress/handler code;
 - transport-specific UX signals such as Telegram `typing` are derived delivery behavior, not first-class runtime progress semantics;
-- no `swarm_tasks` row is required for a normal interactive turn.
+- no `execution_tasks` row is required for a normal interactive turn.
 
 ### Durable jobs
 
@@ -71,8 +71,8 @@ Delivery is no longer modeled as one universal persistence rule for every user-v
 
 - The runtime model becomes easier to explain: sessions are sessions, jobs are jobs.
 - Telegram, Slack, and Zulip conversational ingress can share the same direct session-dispatch model without affecting goals, schedules, or webhooks.
-- Documentation must stop describing `swarm_tasks` and the delivery outbox as mandatory for every conversational reply.
-- Operational tooling should continue to focus `swarm_tasks` on real job lifecycle management.
+- Documentation must stop describing `execution_tasks` and the delivery outbox as mandatory for every conversational reply.
+- Operational tooling should continue to focus the legacy `execution_tasks` persistence on real job lifecycle management.
 
 ## Migration plan
 

@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/normahq/balda/internal/apps/balda/actors"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
 	"github.com/normahq/balda/internal/apps/balda/memory"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/pkg/actorlayer"
 	actortransport "github.com/normahq/balda/pkg/actorlayer/transport"
@@ -23,7 +23,7 @@ import (
 type BaldaSessionTurnRunner struct {
 	sessionManager     *baldasession.Manager
 	actorDispatcher    actortransport.Dispatcher
-	taskService        *baldajobs.JobService
+	jobService         *baldajobs.JobService
 	memoryStore        *memory.Store
 	planUpdatesEnabled bool
 	logger             zerolog.Logger
@@ -45,7 +45,7 @@ func NewBaldaSessionTurnRunner(params sessionTurnRunnerParams) *BaldaSessionTurn
 	return &BaldaSessionTurnRunner{
 		sessionManager:     params.SessionManager,
 		actorDispatcher:    params.Dispatcher,
-		taskService:        params.JobService,
+		jobService:         params.JobService,
 		memoryStore:        params.MemoryStore,
 		planUpdatesEnabled: params.PlanUpdatesEnabled,
 		logger:             params.Logger.With().Str("component", "balda.session_turn_runner").Logger(),
@@ -100,11 +100,11 @@ func (r *BaldaSessionTurnRunner) RunSessionTurnPayload(ctx context.Context, payl
 	if payload.ReportTo != nil {
 		deliveryLocator = *payload.ReportTo
 	}
-	outboundFrom := actorlayer.ActorAddress{Target: baldaruntime.ActorTypeSession, Key: ts.GetSessionID()}
+	outboundFrom := actorlayer.ActorAddress{Target: baldaexecution.ActorTypeSession, Key: ts.GetSessionID()}
 	handler := &BaldaHandler{
 		sessionManager:     r.sessionManager,
 		actorDispatcher:    r.actorDispatcher,
-		taskService:        r.taskService,
+		jobService:         r.jobService,
 		memoryStore:        r.memoryStore,
 		planUpdatesEnabled: r.planUpdatesEnabled,
 		logger:             r.logger,

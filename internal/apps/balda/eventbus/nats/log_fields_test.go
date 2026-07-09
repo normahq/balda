@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/pkg/actorlayer"
 	"github.com/rs/zerolog"
 )
@@ -13,7 +13,7 @@ import (
 func TestWithDeliveryKeyAddsFieldForDeliveryActor(t *testing.T) {
 	var buf bytes.Buffer
 	logger := zerolog.New(&buf)
-	env := actorlayer.Envelope{To: actorlayer.ActorAddress{Target: baldaruntime.ActorTypeDelivery, Key: "telegram:user-1"}}
+	env := actorlayer.Envelope{To: actorlayer.ActorAddress{Target: baldaexecution.ActorTypeDelivery, Key: "telegram:user-1"}}
 	withDeliveryKey(logger.Info(), env).Msg("test")
 
 	var payload map[string]any
@@ -28,7 +28,7 @@ func TestWithDeliveryKeyAddsFieldForDeliveryActor(t *testing.T) {
 func TestWithDeliveryKeySkipsNonDeliveryActor(t *testing.T) {
 	var buf bytes.Buffer
 	logger := zerolog.New(&buf)
-	env := actorlayer.Envelope{To: actorlayer.ActorAddress{Target: baldaruntime.ActorTypeJob, Key: "task:123"}}
+	env := actorlayer.Envelope{To: actorlayer.ActorAddress{Target: baldaexecution.ActorTypeJob, Key: "task:123"}}
 	withDeliveryKey(logger.Info(), env).Msg("test")
 
 	var payload map[string]any

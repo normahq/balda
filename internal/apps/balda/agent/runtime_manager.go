@@ -218,15 +218,15 @@ func (m *RuntimeManager) PrepareGoalRun(
 	if userID == "" {
 		return nil, fmt.Errorf("goal user id is required")
 	}
-	taskID := strings.TrimSpace(cfg.JobID)
-	if taskID == "" {
+	jobID := strings.TrimSpace(cfg.JobID)
+	if jobID == "" {
 		return nil, fmt.Errorf("goal job id is required")
 	}
 	sourceSessionID := strings.TrimSpace(cfg.SourceSessionID)
 	if sourceSessionID == "" {
 		return nil, fmt.Errorf("source session id is required")
 	}
-	goalSessionID := taskID
+	goalSessionID := jobID
 	workerSessionID := goalSessionID + "-worker"
 	validatorSessionID := goalSessionID + "-validator"
 	branchName := ""
@@ -236,16 +236,16 @@ func (m *RuntimeManager) PrepareGoalRun(
 		return GoalExportResult{Status: GoalExportStatusNotExported, Reason: GoalExportReasonDisabled}, nil
 	}
 	if m.workspaceEnabled {
-		branchName = goalWorkspaceBranchName(taskID)
+		branchName = goalWorkspaceBranchName(jobID)
 		workspace, err := m.goalWorkspaces.EnsureWorkspace(
 			ctx,
-			taskID,
+			jobID,
 			branchName,
-			m.goalWorkspaces.CanonicalWorkspaceDir(taskID),
+			m.goalWorkspaces.CanonicalWorkspaceDir(jobID),
 		)
 		if err != nil {
 			if errors.Is(err, ErrWorkspaceCollision) {
-				workspace, err = m.goalWorkspaces.ForceRemountCanonicalWorkspace(ctx, taskID, branchName)
+				workspace, err = m.goalWorkspaces.ForceRemountCanonicalWorkspace(ctx, jobID, branchName)
 			}
 			if err != nil {
 				return nil, fmt.Errorf("create goal workspace: %w", err)
@@ -272,7 +272,7 @@ func (m *RuntimeManager) PrepareGoalRun(
 				validatorOutput,
 			)
 			if commitErr != nil {
-				m.logger.Warn().Err(commitErr).Str("job_id", taskID).Msg("failed to generate goal export commit message; using fallback")
+				m.logger.Warn().Err(commitErr).Str("job_id", jobID).Msg("failed to generate goal export commit message; using fallback")
 			}
 			commitMessage = normalizeGoalCommitMessage(objective, commitMessage)
 			if err := m.goalWorkspaces.Export(ctx, workspaceDir, branchName, commitMessage); err != nil {
@@ -520,8 +520,8 @@ func (b childRuntimeBase) buildGoalCommitMessage(
 	return output, nil
 }
 
-func goalWorkspaceBranchName(taskID string) string {
-	return "norma/balda/goal/" + strings.TrimSpace(taskID)
+func goalWorkspaceBranchName(jobID string) string {
+	return "norma/balda/goal/" + strings.TrimSpace(jobID)
 }
 
 func (m *RuntimeManager) close() error {

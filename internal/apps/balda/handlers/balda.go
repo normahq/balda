@@ -14,11 +14,11 @@ import (
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
 	"github.com/normahq/balda/internal/apps/balda/memory"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
 	"github.com/normahq/balda/internal/apps/balda/progress"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
 	"github.com/normahq/balda/internal/apps/balda/welcome"
@@ -49,7 +49,7 @@ type BaldaHandler struct {
 	sessionManager     *baldasession.Manager
 	turnDispatcher     actors.TurnQueue
 	actorDispatcher    actortransport.Dispatcher
-	taskService        *baldajobs.JobService
+	jobService         *baldajobs.JobService
 	memoryStore        *memory.Store
 	messenger          *messenger.Messenger
 	tgClient           client.ClientWithResponsesInterface
@@ -231,7 +231,7 @@ func (h *BaldaHandler) onMessage(ctx context.Context, event *events.MessageEvent
 		messageCtx.DeliveryOptions,
 		messageCtx.ProgressPolicy,
 	); err != nil {
-		if baldaruntime.IsCommandQueueFull(err) {
+		if baldaexecution.IsCommandQueueFull(err) {
 			_ = sendPlain(ctx, h.actorDispatcher, baldaHandlerActorAddress, locator, "Session command queue is full. Please wait or use /cancel.")
 			return nil
 		}
@@ -285,13 +285,13 @@ func (h *BaldaHandler) outboundActorAddress(sessionID string) actorlayer.ActorAd
 	return baldaHandlerActorAddress
 }
 
-func (h *BaldaHandler) runTurnTaskWithDelivery(
+func (h *BaldaHandler) runTurnJobWithDelivery(
 	ctx context.Context,
 	text string,
 	r *runner.Runner,
 	userID string,
 	sessionID string,
-	taskID string,
+	jobID string,
 	agentSessionID string,
 	locator baldasession.SessionLocator,
 	messageID int,
@@ -299,16 +299,16 @@ func (h *BaldaHandler) runTurnTaskWithDelivery(
 	progressPolicy baldachannel.ProgressPolicy,
 	deliver bool,
 ) error {
-	return h.runTurnTaskWithDeliveryOptions(ctx, text, r, userID, sessionID, taskID, agentSessionID, locator, messageID, topicID, deliveryfmt.Options{ProgressPolicy: progressPolicy}, deliver)
+	return h.runTurnJobWithDeliveryOptions(ctx, text, r, userID, sessionID, jobID, agentSessionID, locator, messageID, topicID, deliveryfmt.Options{ProgressPolicy: progressPolicy}, deliver)
 }
 
-func (h *BaldaHandler) runTurnTaskWithDeliveryOptions(
+func (h *BaldaHandler) runTurnJobWithDeliveryOptions(
 	ctx context.Context,
 	text string,
 	r *runner.Runner,
 	userID string,
 	sessionID string,
-	taskID string,
+	jobID string,
 	agentSessionID string,
 	locator baldasession.SessionLocator,
 	messageID int,
@@ -320,7 +320,7 @@ func (h *BaldaHandler) runTurnTaskWithDeliveryOptions(
 	if !deliver {
 		deliveryOptions.ProgressPolicy = deliveryfmt.ProgressPolicy{}
 	}
-	err := h.runTurnWithDeliveryOptions(ctx, text, r, userID, sessionID, taskID, agentSessionID, locator, messageID, deliveryOptions, deliver, runOpts...)
+	err := h.runTurnWithDeliveryOptions(ctx, text, r, userID, sessionID, jobID, agentSessionID, locator, messageID, deliveryOptions, deliver, runOpts...)
 	if err == nil {
 		return nil
 	}
@@ -425,14 +425,14 @@ func (h *BaldaHandler) runTurnWithDelivery(
 	r *runner.Runner,
 	userID string,
 	sessionID string,
-	taskID string,
+	jobID string,
 	agentSessionID string,
 	locator baldasession.SessionLocator,
 	messageID int,
 	progressPolicy baldachannel.ProgressPolicy,
 	deliver bool,
 ) error {
-	return h.runTurnWithDeliveryOptions(ctx, text, r, userID, sessionID, taskID, agentSessionID, locator, messageID, deliveryfmt.Options{ProgressPolicy: progressPolicy}, deliver)
+	return h.runTurnWithDeliveryOptions(ctx, text, r, userID, sessionID, jobID, agentSessionID, locator, messageID, deliveryfmt.Options{ProgressPolicy: progressPolicy}, deliver)
 }
 
 func (h *BaldaHandler) runTurnWithDeliveryOptions(
@@ -441,7 +441,7 @@ func (h *BaldaHandler) runTurnWithDeliveryOptions(
 	r *runner.Runner,
 	userID string,
 	sessionID string,
-	taskID string,
+	jobID string,
 	agentSessionID string,
 	locator baldasession.SessionLocator,
 	messageID int,
@@ -463,7 +463,7 @@ func (h *BaldaHandler) runTurnWithDeliveryOptions(
 
 	userContent := genai.NewContentFromText(text, genai.RoleUser)
 	draftID := messageID + 1
-	taskBackedDelivery := deliver && strings.TrimSpace(taskID) != "" && h.actorDispatcher != nil
+	jobBackedDelivery := deliver && strings.TrimSpace(jobID) != "" && h.actorDispatcher != nil
 	deliveryOptions = deliveryfmt.NormalizeOptions(deliveryOptions)
 	progressPolicy := deliveryOptions.ProgressPolicy
 	deliveryProfile := deliveryOptions.Profile
@@ -473,8 +473,8 @@ func (h *BaldaHandler) runTurnWithDeliveryOptions(
 		Str("address_key", locator.AddressKey).
 		Int("topic_id", topicID).
 		Str("session_id", sessionID).
-		Str("job_id", strings.TrimSpace(taskID)).
-		Bool("task_backed_delivery", taskBackedDelivery).
+		Str("job_id", strings.TrimSpace(jobID)).
+		Bool("job_backed_delivery", jobBackedDelivery).
 		Str("agent_session_id", agentSessionID).
 		Str("transport_user_id", userID).
 		Logger().
@@ -541,14 +541,14 @@ func (h *BaldaHandler) runTurnWithDeliveryOptions(
 			if hasPlanUpdate && planProgressText != "" && planProgressText != lastPlanProgressText {
 				visiblePlanUpdate := h.planUpdatesEnabled
 				deliverySeq++
-				if err := sendProgressPlanUpdate(ctx, h.actorDispatcher, taskID, outboundFrom, locator, progressPolicy, visiblePlanUpdate, draftID, &planProgress, planProgressText, fmt.Sprintf("progress:plan:%03d", deliverySeq)); err != nil {
-					if taskBackedDelivery {
+				if err := sendProgressPlanUpdate(ctx, h.actorDispatcher, jobID, outboundFrom, locator, progressPolicy, visiblePlanUpdate, draftID, &planProgress, planProgressText, fmt.Sprintf("progress:plan:%03d", deliverySeq)); err != nil {
+					if jobBackedDelivery {
 						return err
 					}
 					log.Warn().Err(err).Int("topic_id", topicID).Msg("failed to dispatch plan progress delivery")
 				} else {
-					if taskBackedDelivery {
-						if err := h.appendTaskEvent(ctx, taskID, baldajobs.TaskEventAgentProgress, "session.actor", "", map[string]any{
+					if jobBackedDelivery {
+						if err := h.appendJobEvent(ctx, jobID, baldajobs.TaskEventAgentProgress, "session.actor", "", map[string]any{
 							"kind": "plan",
 							"text": strings.TrimSpace(planProgressText),
 						}); err != nil {
@@ -565,8 +565,8 @@ func (h *BaldaHandler) runTurnWithDeliveryOptions(
 			if hasThoughtUpdate {
 				visibleThinking := progressPolicy.Thinking && strings.TrimSpace(reasoningText) != "" && !planDraftActive && !hasVisibleResponseText
 				deliverySeq++
-				if err := sendProgressThinking(ctx, h.actorDispatcher, taskID, outboundFrom, locator, progressPolicy, visibleThinking, draftID, reasoningText, thinkingIdx, fmt.Sprintf("progress:thinking:%03d", deliverySeq)); err != nil {
-					if taskBackedDelivery {
+				if err := sendProgressThinking(ctx, h.actorDispatcher, jobID, outboundFrom, locator, progressPolicy, visibleThinking, draftID, reasoningText, thinkingIdx, fmt.Sprintf("progress:thinking:%03d", deliverySeq)); err != nil {
+					if jobBackedDelivery {
 						return err
 					}
 					log.Warn().Err(err).Int("topic_id", topicID).Msg("failed to dispatch thinking progress delivery")
@@ -579,8 +579,8 @@ func (h *BaldaHandler) runTurnWithDeliveryOptions(
 			}
 			if !sentProgress {
 				deliverySeq++
-				if err := sendProgressActivity(ctx, h.actorDispatcher, taskID, outboundFrom, locator, progressPolicy, deliverySeq, fmt.Sprintf("progress:activity:%03d", deliverySeq)); err != nil {
-					if taskBackedDelivery {
+				if err := sendProgressActivity(ctx, h.actorDispatcher, jobID, outboundFrom, locator, progressPolicy, deliverySeq, fmt.Sprintf("progress:activity:%03d", deliverySeq)); err != nil {
+					if jobBackedDelivery {
 						return err
 					}
 					log.Warn().Err(err).Int("topic_id", topicID).Msg("failed to dispatch activity progress delivery")
@@ -688,11 +688,11 @@ func (h *BaldaHandler) runTurnWithDeliveryOptions(
 			case !deliver:
 				responseSource = "fire_and_forget"
 			case strings.TrimSpace(responseText) != "":
-				if taskBackedDelivery {
-					if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, deliveryProfile, responseText, "final"); err != nil {
+				if jobBackedDelivery {
+					if err := h.dispatchJobDelivery(ctx, jobID, locator, sessionID, deliveryProfile, responseText, "final"); err != nil {
 						return err
 					}
-					if err := h.appendTaskEvent(ctx, taskID, baldajobs.TaskEventAgentResult, "session.actor", "", map[string]any{
+					if err := h.appendJobEvent(ctx, jobID, baldajobs.TaskEventAgentResult, "session.actor", "", map[string]any{
 						"text": strings.TrimSpace(responseText),
 					}); err != nil {
 						return err
@@ -711,11 +711,11 @@ func (h *BaldaHandler) runTurnWithDeliveryOptions(
 					terminalMessage = terminalTurnMessage(terminalFinishReason)
 				}
 				if terminalMessage != "" {
-					if taskBackedDelivery {
-						if err := h.dispatchTaskDelivery(ctx, taskID, locator, sessionID, deliveryProfile, terminalMessage, "terminal"); err != nil {
+					if jobBackedDelivery {
+						if err := h.dispatchJobDelivery(ctx, jobID, locator, sessionID, deliveryProfile, terminalMessage, "terminal"); err != nil {
 							return err
 						}
-						if err := h.appendTaskEvent(ctx, taskID, baldajobs.TaskEventAgentResult, "session.actor", "", map[string]any{
+						if err := h.appendJobEvent(ctx, jobID, baldajobs.TaskEventAgentResult, "session.actor", "", map[string]any{
 							"text":          strings.TrimSpace(terminalMessage),
 							"finish_reason": strings.TrimSpace(string(terminalFinishReason)),
 						}); err != nil {
@@ -798,9 +798,9 @@ func terminalTurnMessage(reason genai.FinishReason) string {
 	}
 }
 
-func (h *BaldaHandler) dispatchTaskDelivery(
+func (h *BaldaHandler) dispatchJobDelivery(
 	ctx context.Context,
-	taskID string,
+	jobID string,
 	locator baldasession.SessionLocator,
 	sessionID string,
 	profile deliveryfmt.Profile,
@@ -808,9 +808,9 @@ func (h *BaldaHandler) dispatchTaskDelivery(
 	dedupeSuffix string,
 ) error {
 	if h == nil || h.actorDispatcher == nil {
-		return fmt.Errorf("swarm runtime is unavailable")
+		return fmt.Errorf("runtime runtime is unavailable")
 	}
-	env, err := actors.AgentReplyDeliveryEnvelopeWithProfileAndSettlement(taskID, actorlayer.ActorAddress{Target: baldaruntime.ActorTypeSession, Key: sessionID}, locator, profile, deliverycmd.SettlementOutbox, text, dedupeSuffix)
+	env, err := actors.AgentReplyDeliveryEnvelopeWithProfileAndSettlement(jobID, actorlayer.ActorAddress{Target: baldaexecution.ActorTypeSession, Key: sessionID}, locator, profile, deliverycmd.SettlementOutbox, text, dedupeSuffix)
 	if err != nil {
 		return err
 	}
@@ -818,16 +818,16 @@ func (h *BaldaHandler) dispatchTaskDelivery(
 	return err
 }
 
-func (h *BaldaHandler) appendTaskEvent(
+func (h *BaldaHandler) appendJobEvent(
 	ctx context.Context,
-	taskID string,
+	jobID string,
 	eventType string,
 	actor string,
 	messageID string,
 	payload any,
 ) error {
-	if h == nil || h.taskService == nil || strings.TrimSpace(taskID) == "" {
+	if h == nil || h.jobService == nil || strings.TrimSpace(jobID) == "" {
 		return nil
 	}
-	return h.taskService.AppendEvent(ctx, taskID, eventType, actor, messageID, payload)
+	return h.jobService.AppendEvent(ctx, jobID, eventType, actor, messageID, payload)
 }

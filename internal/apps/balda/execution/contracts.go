@@ -1,5 +1,5 @@
 // Package runtime contains Balda's actor runtime host and transport-facing contracts.
-package runtime
+package execution
 
 const (
 	ActorTypeSystem     = "system"

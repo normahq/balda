@@ -10,11 +10,12 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/actors/goalkeeper"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
 	"github.com/normahq/balda/internal/apps/balda/progress"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
+	"github.com/normahq/balda/pkg/actorlayer"
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/v2/agent"
 	adkrunner "google.golang.org/adk/v2/runner"
@@ -22,11 +23,47 @@ import (
 	"google.golang.org/genai"
 )
 
+func TestGoalKeeperActorRejectsMismatchedEnvelopeAndPayloadJobID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, _, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
+	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
+	ts := newBaldaTopicSession(t, locator.SessionID)
+	setUnexportedField(t, ts, "userID", "101")
+	setUnexportedField(t, ts, "agentSessionID", "adk-session-1")
+	setUnexportedField(t, ts, "workspaceDir", t.TempDir())
+	manager := newBaldaSessionManagerWithSession(t, locator, ts)
+	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
+		JobService:         tasks,
+		Dispatcher:         dispatcher,
+		SessionManager:     manager,
+		GoalRunPreparer:    &fakeGoalRunPreparer{t: t, finalValidatorText: "verdict: pass"},
+		JobRuns:            NewJobRunRegistry(),
+		MaxIterations:      1,
+		PlanUpdatesEnabled: false,
+		Logger:             zerolog.Nop(),
+	})
+	env, err := goalkeeper.GoalTaskEnvelope(locator, "ship release", "101", 1)
+	if err != nil {
+		t.Fatalf("GoalTaskEnvelope() error = %v", err)
+	}
+	env.Meta = baldaexecution.WithJobIDMeta(nil, "other-job")
+
+	err = actor.Handle(ctx, env)
+	if err == nil {
+		t.Fatal("Handle() error = nil, want policy error")
+	}
+	if got, want := actorlayer.ClassifyError(err), actorlayer.ErrorKindPolicy; got != want {
+		t.Fatalf("Handle() error kind = %q, want %q (err=%v)", got, want, err)
+	}
+}
+
 func TestGoalKeeperActorCompletesPassingRun(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	_, bus, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
 	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")
@@ -52,15 +89,15 @@ func TestGoalKeeperActorCompletesPassingRun(t *testing.T) {
 	if err := actor.Handle(ctx, env); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
-	task, ok, err := tasks.Get(ctx, env.TaskID)
+	task, ok, err := tasks.Get(ctx, baldaexecution.EnvelopeJobID(env))
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("task %q not found", env.TaskID)
+		t.Fatalf("task %q not found", baldaexecution.EnvelopeJobID(env))
 	}
-	if task.Status != baldastate.SwarmTaskStatusCompleted {
-		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusCompleted)
+	if task.Status != baldastate.JobStatusCompleted {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusCompleted)
 	}
 	if !strings.Contains(task.ResultJSON, `"goal_reached":true`) {
 		t.Fatalf("job result = %s, want goal_reached true", task.ResultJSON)
@@ -71,10 +108,10 @@ func TestGoalKeeperActorCompletesPassingRun(t *testing.T) {
 	if runtimeBuilder.cleanupCalls != 1 {
 		t.Fatalf("cleanupCalls = %d, want 1", runtimeBuilder.cleanupCalls)
 	}
-	if got := lastPublishedCommandTo(t, bus, baldaruntime.ActorTypeDelivery, locator.DeliveryActorKey()); got.Kind != jobPayloadKindDelivery {
+	if got := lastPublishedCommandTo(t, bus, baldaexecution.ActorTypeDelivery, locator.DeliveryActorKey()); got.Kind != jobPayloadKindDelivery {
 		t.Fatalf("last delivery = %+v, want delivery command", got)
 	}
-	payloads := deliveryPayloadsForTask(t, bus, env.TaskID)
+	payloads := deliveryPayloadsForTask(t, bus, baldaexecution.EnvelopeJobID(env))
 	if len(payloads) == 0 {
 		t.Fatalf("delivery payloads = %v, want at least one", payloads)
 	}
@@ -95,7 +132,7 @@ func TestGoalKeeperActorCompletesPassingRunWithoutWorkspaceExport(t *testing.T) 
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	_, bus, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
 	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")
@@ -125,15 +162,15 @@ func TestGoalKeeperActorCompletesPassingRunWithoutWorkspaceExport(t *testing.T) 
 	if err := actor.Handle(ctx, env); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
-	task, ok, err := tasks.Get(ctx, env.TaskID)
+	task, ok, err := tasks.Get(ctx, baldaexecution.EnvelopeJobID(env))
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("task %q not found", env.TaskID)
+		t.Fatalf("task %q not found", baldaexecution.EnvelopeJobID(env))
 	}
-	if task.Status != baldastate.SwarmTaskStatusCompleted {
-		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusCompleted)
+	if task.Status != baldastate.JobStatusCompleted {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusCompleted)
 	}
 	for _, want := range []string{`"status":"not_exported"`, `"reason":"workspace_disabled"`} {
 		if !strings.Contains(task.ResultJSON, want) {
@@ -143,7 +180,7 @@ func TestGoalKeeperActorCompletesPassingRunWithoutWorkspaceExport(t *testing.T) 
 	if runtimeBuilder.exportedMessage != "" {
 		t.Fatalf("exportedMessage = %q, want empty when export is skipped", runtimeBuilder.exportedMessage)
 	}
-	texts := deliveryTextsForTask(t, bus, env.TaskID)
+	texts := deliveryTextsForTask(t, bus, baldaexecution.EnvelopeJobID(env))
 	if got := countContains(texts, "Export: skipped (workspace mode disabled)."); got != 0 {
 		t.Fatalf("skipped export deliveries = %d, want 0\n%v", got, texts)
 	}
@@ -153,7 +190,7 @@ func TestGoalKeeperActorUsesLatestValidatorVerdictForCompletion(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	_, bus, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
 	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")
@@ -181,15 +218,15 @@ func TestGoalKeeperActorUsesLatestValidatorVerdictForCompletion(t *testing.T) {
 	if err := actor.Handle(ctx, env); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
-	task, ok, err := tasks.Get(ctx, env.TaskID)
+	task, ok, err := tasks.Get(ctx, baldaexecution.EnvelopeJobID(env))
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("task %q not found", env.TaskID)
+		t.Fatalf("task %q not found", baldaexecution.EnvelopeJobID(env))
 	}
-	if task.Status != baldastate.SwarmTaskStatusCompleted {
-		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusCompleted)
+	if task.Status != baldastate.JobStatusCompleted {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusCompleted)
 	}
 	if runtimeBuilder.finalizeWorkerOutput != "final worker result" {
 		t.Fatalf("Finalize worker output = %q, want latest worker result", runtimeBuilder.finalizeWorkerOutput)
@@ -224,7 +261,7 @@ func TestGoalKeeperActorUsesLatestValidatorVerdictForCompletion(t *testing.T) {
 	if !strings.Contains(result.ReviewableOutcome.Validation, "final pass") {
 		t.Fatalf("reviewable validation = %q, want latest validator pass evidence", result.ReviewableOutcome.Validation)
 	}
-	finalPayloads := deliveryPayloadsForTask(t, bus, env.TaskID)
+	finalPayloads := deliveryPayloadsForTask(t, bus, baldaexecution.EnvelopeJobID(env))
 	finalText := finalPayloads[len(finalPayloads)-1].Text
 	if !strings.Contains(finalText, "final worker result") {
 		t.Fatalf("final delivery = %q, want latest worker result", finalText)
@@ -238,7 +275,7 @@ func TestGoalKeeperActorFinalFailureUsesLatestValidatorOutput(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	_, bus, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
 	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")
@@ -266,15 +303,15 @@ func TestGoalKeeperActorFinalFailureUsesLatestValidatorOutput(t *testing.T) {
 	if err := actor.Handle(ctx, env); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
-	task, ok, err := tasks.Get(ctx, env.TaskID)
+	task, ok, err := tasks.Get(ctx, baldaexecution.EnvelopeJobID(env))
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("task %q not found", env.TaskID)
+		t.Fatalf("task %q not found", baldaexecution.EnvelopeJobID(env))
 	}
-	if task.Status != baldastate.SwarmTaskStatusFailed {
-		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusFailed)
+	if task.Status != baldastate.JobStatusFailed {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusFailed)
 	}
 
 	var result struct {
@@ -299,7 +336,7 @@ func TestGoalKeeperActorFinalFailureUsesLatestValidatorOutput(t *testing.T) {
 	if !strings.Contains(result.ReviewableOutcome.Validation, "final failure") {
 		t.Fatalf("reviewable validation = %q, want latest validator failure evidence", result.ReviewableOutcome.Validation)
 	}
-	finalPayloads := deliveryPayloadsForTask(t, bus, env.TaskID)
+	finalPayloads := deliveryPayloadsForTask(t, bus, baldaexecution.EnvelopeJobID(env))
 	finalText := finalPayloads[len(finalPayloads)-1].Text
 	if !strings.Contains(finalText, "final failure") {
 		t.Fatalf("final delivery = %q, want latest validator failure", finalText)
@@ -313,20 +350,20 @@ func TestGoalKeeperActorRejectsSecondActiveGoalInSession(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	_, bus, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
 	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")
 	setUnexportedField(t, ts, "agentSessionID", "adk-session-1")
 	setUnexportedField(t, ts, "workspaceDir", t.TempDir())
 	manager := newBaldaSessionManagerWithSession(t, locator, ts)
-	if _, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+	if _, err := tasks.Create(ctx, baldastate.JobRecord{
 		ID:            "goal-existing",
 		SessionID:     locator.SessionID,
 		Objective:     "existing goal",
-		Status:        baldastate.SwarmTaskStatusRunning,
-		OwnerActor:    baldaruntime.ActorTypeGoalkeeper + ":goal-existing",
-		AssignedActor: baldaruntime.ActorTypeGoalkeeper + ":goal-existing",
+		Status:        baldastate.JobStatusRunning,
+		OwnerActor:    baldaexecution.ActorTypeGoalkeeper + ":goal-existing",
+		AssignedActor: baldaexecution.ActorTypeGoalkeeper + ":goal-existing",
 	}, "test", nil); err != nil {
 		t.Fatalf("Create existing goal task: %v", err)
 	}
@@ -349,20 +386,20 @@ func TestGoalKeeperActorRejectsSecondActiveGoalInSession(t *testing.T) {
 		t.Fatalf("Handle() error = %v", err)
 	}
 
-	task, ok, err := tasks.Get(ctx, env.TaskID)
+	task, ok, err := tasks.Get(ctx, baldaexecution.EnvelopeJobID(env))
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("task %q not found", env.TaskID)
+		t.Fatalf("task %q not found", baldaexecution.EnvelopeJobID(env))
 	}
-	if task.Status != baldastate.SwarmTaskStatusCanceled {
-		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusCanceled)
+	if task.Status != baldastate.JobStatusCanceled {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusCanceled)
 	}
 	if runtimeBuilder.buildCalls != 0 {
 		t.Fatalf("buildCalls = %d, want 0", runtimeBuilder.buildCalls)
 	}
-	texts := deliveryTextsForTask(t, bus, env.TaskID)
+	texts := deliveryTextsForTask(t, bus, baldaexecution.EnvelopeJobID(env))
 	if got := countMatches(texts, "A goal run is already active for this session."); got != 1 {
 		t.Fatalf("already-active deliveries = %d, want 1\n%v", got, texts)
 	}
@@ -372,7 +409,7 @@ func TestGoalKeeperActorDeliversWorkerProgressAndDedupesRepeatedOutput(t *testin
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	_, bus, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
 	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")
@@ -409,7 +446,7 @@ func TestGoalKeeperActorDeliversWorkerProgressAndDedupesRepeatedOutput(t *testin
 		t.Fatalf("Handle() error = %v", err)
 	}
 
-	texts := deliveryTextsForTask(t, bus, env.TaskID)
+	texts := deliveryTextsForTask(t, bus, baldaexecution.EnvelopeJobID(env))
 	joined := strings.Join(texts, "\n---\n")
 	for _, want := range []string{
 		"Goal iteration 1/3: worker started.",
@@ -426,7 +463,7 @@ func TestGoalKeeperActorDeliversWorkerProgressAndDedupesRepeatedOutput(t *testin
 	}
 	var progressKinds []string
 	for _, event := range bus.eventEnvs {
-		if event.Meta["event_type"] != baldajobs.TaskEventAgentProgress || event.TaskID != env.TaskID {
+		if event.Meta["event_type"] != baldajobs.TaskEventAgentProgress || baldaexecution.EnvelopeJobID(event) != baldaexecution.EnvelopeJobID(env) {
 			continue
 		}
 		var payload map[string]any
@@ -446,7 +483,7 @@ func TestGoalKeeperActorDeliversPlanUpdatesWhenEnabled(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, dispatcher, tasks, _ := newTaskActorSwarmServices(t, ctx)
+	_, bus, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
 	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")
@@ -484,7 +521,7 @@ func TestGoalKeeperActorDeliversPlanUpdatesWhenEnabled(t *testing.T) {
 		t.Fatalf("Handle() error = %v", err)
 	}
 
-	payloads := deliveryPayloadsForTask(t, bus, env.TaskID)
+	payloads := deliveryPayloadsForTask(t, bus, baldaexecution.EnvelopeJobID(env))
 	planPayloads := 0
 	for _, payload := range payloads {
 		if payload.Mode != DeliveryModeProgress || payload.Progress == nil || payload.Progress.Kind != DeliveryProgressPlanUpdate {
@@ -503,7 +540,7 @@ func TestGoalKeeperActorDeliversPlanUpdatesWhenEnabled(t *testing.T) {
 		}
 	}
 	if planPayloads != 1 {
-		texts := deliveryTextsForTask(t, bus, env.TaskID)
+		texts := deliveryTextsForTask(t, bus, baldaexecution.EnvelopeJobID(env))
 		t.Fatalf("plan update deliveries = %d, want 1\n%v", planPayloads, texts)
 	}
 }
@@ -611,7 +648,7 @@ func TestGoalKeeperActorPreservesWorkspaceOnExportFailure(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorRuntimeServices(t, ctx)
 	_ = provider
 	_ = bus
 	_ = allocator
@@ -643,15 +680,15 @@ func TestGoalKeeperActorPreservesWorkspaceOnExportFailure(t *testing.T) {
 	if err := actor.Handle(ctx, env); err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
-	task, ok, err := tasks.Get(ctx, env.TaskID)
+	task, ok, err := tasks.Get(ctx, baldaexecution.EnvelopeJobID(env))
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("task %q not found", env.TaskID)
+		t.Fatalf("task %q not found", baldaexecution.EnvelopeJobID(env))
 	}
-	if task.Status != baldastate.SwarmTaskStatusFailed {
-		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusFailed)
+	if task.Status != baldastate.JobStatusFailed {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusFailed)
 	}
 	if !strings.Contains(task.ResultJSON, `"status":"export_failed"`) {
 		t.Fatalf("job result = %s, want export_failed status", task.ResultJSON)
@@ -761,7 +798,7 @@ func deliveryPayloadsForTask(t *testing.T, bus *recordingHandlerCommandBus, task
 	t.Helper()
 	var payloads []DeliveryPayload
 	for _, env := range bus.commands {
-		if env.TaskID != taskID || env.To.Target != baldaruntime.ActorTypeDelivery {
+		if baldaexecution.EnvelopeJobID(env) != taskID || env.To.Target != baldaexecution.ActorTypeDelivery {
 			continue
 		}
 		var payload DeliveryPayload

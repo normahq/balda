@@ -20,10 +20,10 @@ import (
 	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
 	"github.com/normahq/balda/internal/apps/balda/locatorref"
 	"github.com/normahq/balda/internal/apps/balda/memory"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/welcome"
 	"github.com/normahq/balda/pkg/actorlayer"
@@ -78,7 +78,7 @@ type ZulipBaldaHandler struct {
 	sessionManager    zulipSessionManager
 	turnDispatcher    actors.TurnQueue
 	actorDispatcher   actortransport.Dispatcher
-	taskService       *baldajobs.JobService
+	jobService        *baldajobs.JobService
 	memoryStore       *memory.Store
 	authToken         string
 	baldaProviderName string
@@ -143,7 +143,7 @@ func NewZulipBaldaHandler(params zulipBaldaHandlerParams) *ZulipBaldaHandler {
 		sessionManager:    params.SessionManager,
 		turnDispatcher:    params.TurnDispatcher,
 		actorDispatcher:   params.Dispatcher,
-		taskService:       params.JobService,
+		jobService:        params.JobService,
 		memoryStore:       params.MemoryStore,
 		authToken:         strings.TrimSpace(params.AuthToken),
 		baldaProviderName: strings.TrimSpace(params.BaldaProviderID),
@@ -1054,8 +1054,8 @@ func (h *ZulipBaldaHandler) submitGoalTask(
 	objective string,
 	transportUserID string,
 ) (bool, error) {
-	if h.taskService != nil {
-		activeGoals, err := h.taskService.ListActiveGoalJobsBySession(ctx, locator.SessionID)
+	if h.jobService != nil {
+		activeGoals, err := h.jobService.ListActiveGoalJobsBySession(ctx, locator.SessionID)
 		if err != nil {
 			return false, fmt.Errorf("list active goal jobs: %w", err)
 		}
@@ -1069,7 +1069,7 @@ func (h *ZulipBaldaHandler) submitGoalTask(
 		return false, err
 	}
 	if h.actorDispatcher == nil {
-		return false, fmt.Errorf("swarm runtime is unavailable")
+		return false, fmt.Errorf("runtime runtime is unavailable")
 	}
 	if _, err = h.actorDispatcher.Dispatch(ctx, env); err != nil {
 		return false, err
@@ -1164,7 +1164,7 @@ func (h *ZulipBaldaHandler) handleMessage(
 	}
 
 	if err := h.enqueueTurn(ctx, text, ts, locator, messageID, isDM); err != nil {
-		if baldaruntime.IsCommandQueueFull(err) {
+		if baldaexecution.IsCommandQueueFull(err) {
 			_ = h.sendPlain(ctx, locator, "Session command queue is full. Please wait or use /cancel.")
 			return
 		}
@@ -1253,7 +1253,7 @@ func (h *ZulipBaldaHandler) enqueueTurn(
 		return fmt.Errorf("topic session is required")
 	}
 	if h.actorDispatcher == nil {
-		return fmt.Errorf("swarm runtime is unavailable")
+		return fmt.Errorf("runtime runtime is unavailable")
 	}
 	progressPolicy := baldachannel.ProgressPolicy{Typing: true, Thinking: isDM}
 	payload := actors.SessionTurnPayload{
@@ -1410,7 +1410,7 @@ func (h *ZulipBaldaHandler) sendZulipAgentReply(
 	text string,
 ) error {
 	if h == nil || h.actorDispatcher == nil {
-		return fmt.Errorf("swarm runtime is unavailable")
+		return fmt.Errorf("runtime runtime is unavailable")
 	}
 	env, err := actors.AgentReplyDeliveryEnvelopeWithSettlement("", zulipHandlerActorAddress, locator, deliverycmd.SettlementBypass, text, "")
 	if err != nil {

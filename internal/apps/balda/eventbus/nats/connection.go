@@ -10,7 +10,7 @@ import (
 	gnats "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	baldaeventbus "github.com/normahq/balda/internal/apps/balda/eventbus"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/pkg/actorlayer"
 	actorengine "github.com/normahq/balda/pkg/actorlayer/engine"
 	actortransport "github.com/normahq/balda/pkg/actorlayer/transport"
@@ -31,19 +31,19 @@ type Bus struct {
 type Params struct {
 	fx.In
 
-	LC       fx.Lifecycle
-	Config   baldaeventbus.Config
-	Swarm    baldaruntime.Config
-	StateDir string `name:"balda_state_dir"`
-	Logger   zerolog.Logger
+	LC        fx.Lifecycle
+	Config    baldaeventbus.Config
+	Execution baldaexecution.Config
+	StateDir  string `name:"balda_state_dir"`
+	Logger    zerolog.Logger
 }
 
 func NewBus(params Params) (*Bus, error) {
-	cfg, err := resolveConfig(params.Config, params.Swarm, params.StateDir)
+	cfg, err := resolveConfig(params.Config, params.Execution, params.StateDir)
 	if err != nil {
 		return nil, err
 	}
-	bus := &Bus{cfg: cfg, logger: params.Logger.With().Str("component", "balda.runtime_bus").Logger()}
+	bus := &Bus{cfg: cfg, logger: params.Logger.With().Str("component", "balda.execution_bus").Logger()}
 	if cfg.NATS.Embedded {
 		embedded, err := StartEmbeddedNATS(context.Background(), cfg)
 		if err != nil {
@@ -85,16 +85,16 @@ func (b *Bus) Dispatch(ctx context.Context, env actorlayer.Envelope) (*actortran
 	if err := env.Validate(); err != nil {
 		return nil, err
 	}
-	subject := baldaruntime.SubjectForEnvelope(env)
+	subject := baldaexecution.SubjectForEnvelope(env)
 	msg, err := messageFromEnvelope(subject, env)
 	if err != nil {
 		return nil, err
 	}
 	msgID := actorlayer.DedupeKeyOrID(env)
-	ack, err := b.js.PublishMsg(ctx, msg, jetstream.WithMsgID(msgID), jetstream.WithExpectStream(b.cfg.Swarm.Commands.Stream))
+	ack, err := b.js.PublishMsg(ctx, msg, jetstream.WithMsgID(msgID), jetstream.WithExpectStream(b.cfg.Execution.Commands.Stream))
 	if err != nil {
 		if isRuntimeQueuePressure(err) {
-			return nil, fmt.Errorf("%w: publish command %q: %w", baldaruntime.ErrCommandQueueFull, subject, err)
+			return nil, fmt.Errorf("%w: publish command %q: %w", baldaexecution.ErrCommandQueueFull, subject, err)
 		}
 		return nil, fmt.Errorf("publish command %q: %w", subject, err)
 	}
@@ -102,7 +102,7 @@ func (b *Bus) Dispatch(ctx context.Context, env actorlayer.Envelope) (*actortran
 	logEvt := b.logger.Debug().
 		Str("subject", subject).
 		Str("envelope_id", strings.TrimSpace(env.ID)).
-		Str("task_id", strings.TrimSpace(env.TaskID)).
+		Str("job_id", baldaexecution.EnvelopeJobID(env)).
 		Str("session_id", strings.TrimSpace(env.SessionID)).
 		Str("correlation_id", strings.TrimSpace(env.CorrelationID)).
 		Str("causation_id", strings.TrimSpace(env.CausationID)).
@@ -112,11 +112,11 @@ func (b *Bus) Dispatch(ctx context.Context, env actorlayer.Envelope) (*actortran
 		Str("msg_id", msgID).
 		Bool("duplicate", ack.Duplicate)
 	withDeliveryKey(logEvt, env).Msg("published command to runtime transport")
-	if err := b.PublishEvent(ctx, baldaruntime.SubjectEventCommandAccepted, commandEventEnvelope(env, result, "accepted", "", nil)); err != nil {
+	if err := b.PublishEvent(ctx, baldaexecution.SubjectEventCommandAccepted, commandEventEnvelope(env, result, "accepted", "", nil)); err != nil {
 		logEvt := b.logger.Warn().
 			Err(err).
 			Str("envelope_id", env.ID).
-			Str("task_id", strings.TrimSpace(env.TaskID)).
+			Str("job_id", baldaexecution.EnvelopeJobID(env)).
 			Str("session_id", strings.TrimSpace(env.SessionID)).
 			Str("correlation_id", strings.TrimSpace(env.CorrelationID)).
 			Str("causation_id", strings.TrimSpace(env.CausationID)).
@@ -125,11 +125,11 @@ func (b *Bus) Dispatch(ctx context.Context, env actorlayer.Envelope) (*actortran
 	}
 	if ack.Duplicate {
 		const noopReason = "duplicate publish suppressed"
-		if err := b.PublishEvent(ctx, baldaruntime.SubjectEventCommandNoop, commandEventEnvelope(env, result, "noop", noopReason, nil)); err != nil {
+		if err := b.PublishEvent(ctx, baldaexecution.SubjectEventCommandNoop, commandEventEnvelope(env, result, "noop", noopReason, nil)); err != nil {
 			logEvt := b.logger.Warn().
 				Err(err).
 				Str("envelope_id", env.ID).
-				Str("task_id", strings.TrimSpace(env.TaskID)).
+				Str("job_id", baldaexecution.EnvelopeJobID(env)).
 				Str("session_id", strings.TrimSpace(env.SessionID)).
 				Str("correlation_id", strings.TrimSpace(env.CorrelationID)).
 				Str("causation_id", strings.TrimSpace(env.CausationID)).
@@ -184,7 +184,7 @@ func (b *Bus) PublishEvent(ctx context.Context, subject string, env actorlayer.E
 	if err != nil {
 		return err
 	}
-	_, err = b.js.PublishMsg(ctx, msg, jetstream.WithExpectStream(b.cfg.Swarm.Events.Stream), jetstream.WithMsgID(actorlayer.DedupeKeyOrID(env)))
+	_, err = b.js.PublishMsg(ctx, msg, jetstream.WithExpectStream(b.cfg.Execution.Events.Stream), jetstream.WithMsgID(actorlayer.DedupeKeyOrID(env)))
 	if err != nil {
 		return fmt.Errorf("publish event %q: %w", subject, err)
 	}
@@ -192,7 +192,7 @@ func (b *Bus) PublishEvent(ctx context.Context, subject string, env actorlayer.E
 }
 
 func (b *Bus) publishDLQ(ctx context.Context, env actorlayer.Envelope, reason string, emitEvent bool) error {
-	msg, err := messageFromEnvelope(baldaruntime.SubjectDLQCommand, env)
+	msg, err := messageFromEnvelope(baldaexecution.SubjectDLQCommand, env)
 	if err != nil {
 		return err
 	}
@@ -214,16 +214,16 @@ func (b *Bus) publishDLQ(ctx context.Context, env actorlayer.Envelope, reason st
 			msg.Header.Set("Balda-DLQ-Num-Delivered", value)
 		}
 	}
-	_, err = b.js.PublishMsg(ctx, msg, jetstream.WithExpectStream(b.cfg.Swarm.DLQ.Stream), jetstream.WithMsgID(actorlayer.DedupeKeyOrID(env)+":dlq"))
+	_, err = b.js.PublishMsg(ctx, msg, jetstream.WithExpectStream(b.cfg.Execution.DLQ.Stream), jetstream.WithMsgID(actorlayer.DedupeKeyOrID(env)+":dlq"))
 	if err != nil {
 		return fmt.Errorf("publish dlq: %w", err)
 	}
 	if emitEvent {
-		if err := b.PublishEvent(ctx, baldaruntime.SubjectEventCommandDeadLettered, commandEventEnvelope(env, nil, "deadlettered", reason, nil)); err != nil {
+		if err := b.PublishEvent(ctx, baldaexecution.SubjectEventCommandDeadLettered, commandEventEnvelope(env, nil, "deadlettered", reason, nil)); err != nil {
 			logEvt := b.logger.Warn().
 				Err(err).
 				Str("envelope_id", env.ID).
-				Str("task_id", strings.TrimSpace(env.TaskID)).
+				Str("job_id", baldaexecution.EnvelopeJobID(env)).
 				Str("session_id", strings.TrimSpace(env.SessionID)).
 				Str("correlation_id", strings.TrimSpace(env.CorrelationID)).
 				Str("causation_id", strings.TrimSpace(env.CausationID))
@@ -261,27 +261,27 @@ func (b *Bus) ensureRuntime(ctx context.Context) error {
 	if err := ensureStreams(ctx, b.js, b.cfg); err != nil {
 		return err
 	}
-	consumer, err := b.js.CreateOrUpdateConsumer(ctx, b.cfg.Swarm.Commands.Stream, jetstream.ConsumerConfig{
-		Durable:       b.cfg.Swarm.Commands.Consumer,
+	consumer, err := b.js.CreateOrUpdateConsumer(ctx, b.cfg.Execution.Commands.Stream, jetstream.ConsumerConfig{
+		Durable:       b.cfg.Execution.Commands.Consumer,
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		DeliverPolicy: jetstream.DeliverAllPolicy,
 		AckWait:       b.cfg.AckWait,
-		MaxDeliver:    b.cfg.Swarm.Commands.MaxDeliver,
-		MaxAckPending: b.cfg.Swarm.Commands.MaxAckPending,
-		FilterSubject: baldaruntime.SubjectCommandAll,
+		MaxDeliver:    b.cfg.Execution.Commands.MaxDeliver,
+		MaxAckPending: b.cfg.Execution.Commands.MaxAckPending,
+		FilterSubject: baldaexecution.SubjectCommandAll,
 	})
 	if err != nil {
 		return fmt.Errorf("create command consumer: %w", err)
 	}
 	b.consumer = consumer
-	eventConsumer, err := b.js.CreateOrUpdateConsumer(ctx, b.cfg.Swarm.Events.Stream, jetstream.ConsumerConfig{
-		Durable:       baldaruntime.DefaultEventProjectorConsumer,
+	eventConsumer, err := b.js.CreateOrUpdateConsumer(ctx, b.cfg.Execution.Events.Stream, jetstream.ConsumerConfig{
+		Durable:       baldaexecution.DefaultEventProjectorConsumer,
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		DeliverPolicy: jetstream.DeliverAllPolicy,
 		AckWait:       b.cfg.AckWait,
-		MaxDeliver:    b.cfg.Swarm.Commands.MaxDeliver,
-		MaxAckPending: b.cfg.Swarm.Commands.MaxAckPending,
-		FilterSubject: baldaruntime.SubjectEventAll,
+		MaxDeliver:    b.cfg.Execution.Commands.MaxDeliver,
+		MaxAckPending: b.cfg.Execution.Commands.MaxAckPending,
+		FilterSubject: baldaexecution.SubjectEventAll,
 	})
 	if err != nil {
 		return fmt.Errorf("create event projector consumer: %w", err)

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/internal/apps/balda/handlers"
 	"github.com/normahq/balda/internal/apps/balda/paths"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	"github.com/normahq/balda/internal/git"
 	"github.com/normahq/runtime/v2/agentconfig"
 	runtimeconfig "github.com/normahq/runtime/v2/appconfig"
@@ -112,43 +112,43 @@ func TestValidateSessionPersistence(t *testing.T) {
 	}
 }
 
-func TestValidateRuntimeConfigLint_AllowsAlwaysOnSwarmConfig(t *testing.T) {
+func TestValidateRuntimeConfigLint_AllowsAlwaysOnRuntimeConfig(t *testing.T) {
 	t.Parallel()
 
-	if err := validateRuntimeConfigLint(baldaruntime.Config{
-		Commands: baldaruntime.CommandConfig{
+	if err := validateExecutionConfigLint(baldaexecution.Config{
+		Commands: baldaexecution.CommandConfig{
 			Stream:   "BALDA_COMMANDS",
 			Consumer: "BALDA_WORKER_COMMANDS",
 		},
-		Events: baldaruntime.EventStreamConfig{Stream: "BALDA_EVENTS"},
-		DLQ:    baldaruntime.DLQConfig{Stream: "BALDA_DLQ"},
+		Events: baldaexecution.EventStreamConfig{Stream: "BALDA_EVENTS"},
+		DLQ:    baldaexecution.DLQConfig{Stream: "BALDA_DLQ"},
 	}, handlers.InboundWebhookConfig{}); err != nil {
-		t.Fatalf("validateRuntimeConfigLint() error = %v, want nil", err)
+		t.Fatalf("validateExecutionConfigLint() error = %v, want nil", err)
 	}
 }
 
 func TestValidateRuntimeConfigLint_RejectsInvalidAndDuplicateRuntimeNames(t *testing.T) {
 	t.Parallel()
 
-	err := validateRuntimeConfigLint(baldaruntime.Config{
-		Commands: baldaruntime.CommandConfig{
+	err := validateExecutionConfigLint(baldaexecution.Config{
+		Commands: baldaexecution.CommandConfig{
 			Stream:   "BALDA COMMANDS",
 			Consumer: "BALDA_EVENT_PROJECTOR",
 		},
-		Events: baldaruntime.EventStreamConfig{Stream: "BALDA_EVENTS"},
-		DLQ:    baldaruntime.DLQConfig{Stream: "BALDA_EVENTS"},
+		Events: baldaexecution.EventStreamConfig{Stream: "BALDA_EVENTS"},
+		DLQ:    baldaexecution.DLQConfig{Stream: "BALDA_EVENTS"},
 	}, handlers.InboundWebhookConfig{})
 	if err == nil {
-		t.Fatal("validateRuntimeConfigLint() error = nil, want non-nil")
+		t.Fatal("validateExecutionConfigLint() error = nil, want non-nil")
 	}
 	markers := []string{
-		`balda.baldaruntime.commands.stream must match "^[A-Za-z0-9_-]+$"`,
-		"balda.baldaruntime.commands.stream, balda.baldaruntime.events.stream, and balda.baldaruntime.dlq.stream must be distinct",
-		"balda.baldaruntime.commands.consumer must differ from balda.baldaruntime.events.consumer",
+		`balda.execution.commands.stream must match "^[A-Za-z0-9_-]+$"`,
+		"balda.execution.commands.stream, balda.execution.events.stream, and balda.execution.dlq.stream must be distinct",
+		"balda.execution.commands.consumer must differ from balda.execution.events.consumer",
 	}
 	for _, marker := range markers {
 		if !strings.Contains(err.Error(), marker) {
-			t.Fatalf("validateRuntimeConfigLint() error = %v, want marker %q", err, marker)
+			t.Fatalf("validateExecutionConfigLint() error = %v, want marker %q", err, marker)
 		}
 	}
 }
@@ -156,13 +156,13 @@ func TestValidateRuntimeConfigLint_RejectsInvalidAndDuplicateRuntimeNames(t *tes
 func TestValidateRuntimeConfigLint_RejectsPublicWebhookWithoutRouteAuth(t *testing.T) {
 	t.Parallel()
 
-	err := validateRuntimeConfigLint(baldaruntime.Config{
-		Commands: baldaruntime.CommandConfig{
+	err := validateExecutionConfigLint(baldaexecution.Config{
+		Commands: baldaexecution.CommandConfig{
 			Stream:   "BALDA_COMMANDS",
 			Consumer: "BALDA_WORKER_COMMANDS",
 		},
-		Events: baldaruntime.EventStreamConfig{Stream: "BALDA_EVENTS"},
-		DLQ:    baldaruntime.DLQConfig{Stream: "BALDA_DLQ"},
+		Events: baldaexecution.EventStreamConfig{Stream: "BALDA_EVENTS"},
+		DLQ:    baldaexecution.DLQConfig{Stream: "BALDA_DLQ"},
 	}, handlers.InboundWebhookConfig{
 		Enabled:    true,
 		ListenAddr: "0.0.0.0:8090",
@@ -173,23 +173,23 @@ func TestValidateRuntimeConfigLint_RejectsPublicWebhookWithoutRouteAuth(t *testi
 		},
 	})
 	if err == nil {
-		t.Fatal("validateRuntimeConfigLint() error = nil, want non-nil")
+		t.Fatal("validateExecutionConfigLint() error = nil, want non-nil")
 	}
 	if !strings.Contains(err.Error(), "must configure auth.type=header") {
-		t.Fatalf("validateRuntimeConfigLint() error = %v, want auth marker", err)
+		t.Fatalf("validateExecutionConfigLint() error = %v, want auth marker", err)
 	}
 }
 
 func TestValidateRuntimeConfigLint_AllowsLoopbackWebhookWithoutRouteAuth(t *testing.T) {
 	t.Parallel()
 
-	err := validateRuntimeConfigLint(baldaruntime.Config{
-		Commands: baldaruntime.CommandConfig{
+	err := validateExecutionConfigLint(baldaexecution.Config{
+		Commands: baldaexecution.CommandConfig{
 			Stream:   "BALDA_COMMANDS",
 			Consumer: "BALDA_WORKER_COMMANDS",
 		},
-		Events: baldaruntime.EventStreamConfig{Stream: "BALDA_EVENTS"},
-		DLQ:    baldaruntime.DLQConfig{Stream: "BALDA_DLQ"},
+		Events: baldaexecution.EventStreamConfig{Stream: "BALDA_EVENTS"},
+		DLQ:    baldaexecution.DLQConfig{Stream: "BALDA_DLQ"},
 	}, handlers.InboundWebhookConfig{
 		Enabled:    true,
 		ListenAddr: "127.0.0.1:8090",
@@ -200,7 +200,7 @@ func TestValidateRuntimeConfigLint_AllowsLoopbackWebhookWithoutRouteAuth(t *test
 		},
 	})
 	if err != nil {
-		t.Fatalf("validateRuntimeConfigLint() error = %v, want nil", err)
+		t.Fatalf("validateExecutionConfigLint() error = %v, want nil", err)
 	}
 }
 

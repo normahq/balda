@@ -21,7 +21,7 @@ type BaldaConfig struct {
 	Memory            MemoryConfig         `mapstructure:"memory"`
 	Goal              GoalConfig           `mapstructure:"goal"`
 	NATS              baldaeventbus.Config `mapstructure:"nats"`
-	Swarm             SwarmConfig          `mapstructure:"swarm"`
+	Execution         ExecutionConfig      `mapstructure:"execution"`
 	Scheduler         SchedulerConfig      `mapstructure:"scheduler"`
 	Workspace         WorkspaceConfig      `mapstructure:"workspace"`
 	MCPServers        []string             `mapstructure:"mcp_servers"`
@@ -142,14 +142,14 @@ type GoalConfig struct {
 	MaxIterations int `mapstructure:"max_iterations"`
 }
 
-// SwarmConfig controls Balda's durable actor runtime.
-type SwarmConfig struct {
-	Commands SwarmCommandConfig `mapstructure:"commands"`
-	Events   SwarmEventConfig   `mapstructure:"events"`
-	DLQ      SwarmDLQConfig     `mapstructure:"dlq"`
+// ExecutionConfig controls Balda's durable actor execution layer.
+type ExecutionConfig struct {
+	Commands ExecutionCommandConfig `mapstructure:"commands"`
+	Events   ExecutionEventConfig   `mapstructure:"events"`
+	DLQ      ExecutionDLQConfig     `mapstructure:"dlq"`
 }
 
-type SwarmCommandConfig struct {
+type ExecutionCommandConfig struct {
 	Stream        string `mapstructure:"stream"`
 	Consumer      string `mapstructure:"consumer"`
 	AckWait       string `mapstructure:"ack_wait"`
@@ -159,11 +159,11 @@ type SwarmCommandConfig struct {
 	FetchWait     string `mapstructure:"fetch_wait"`
 }
 
-type SwarmEventConfig struct {
+type ExecutionEventConfig struct {
 	Stream string `mapstructure:"stream"`
 }
 
-type SwarmDLQConfig struct {
+type ExecutionDLQConfig struct {
 	Stream string `mapstructure:"stream"`
 }
 

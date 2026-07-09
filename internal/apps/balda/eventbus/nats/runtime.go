@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/pkg/actorlayer"
 	actorengine "github.com/normahq/balda/pkg/actorlayer/engine"
 	actortransport "github.com/normahq/balda/pkg/actorlayer/transport"
@@ -55,7 +55,7 @@ func (m *commandMessage) Ack(ctx context.Context) error {
 		if err := m.msg.DoubleAck(settleCtx); err != nil {
 			return err
 		}
-		if err := m.bus.PublishEvent(settleCtx, baldaruntime.SubjectEventCommandAcked, commandEventEnvelope(m.env, nil, "acked", "", nil)); err != nil {
+		if err := m.bus.PublishEvent(settleCtx, baldaexecution.SubjectEventCommandAcked, commandEventEnvelope(m.env, nil, "acked", "", nil)); err != nil {
 			m.bus.logger.Warn().
 				Err(err).
 				Str("envelope_id", m.env.ID).
@@ -77,7 +77,7 @@ func (m *commandMessage) Retry(ctx context.Context, delay time.Duration, reason 
 			"retry_delay_ms":  delay.Milliseconds(),
 			"next_attempt_at": time.Now().UTC().Add(delay).Format(time.RFC3339Nano),
 		}
-		if err := m.bus.PublishEvent(settleCtx, baldaruntime.SubjectEventCommandRetrying, commandEventEnvelope(m.env, nil, "retrying", reason, eventExtras)); err != nil {
+		if err := m.bus.PublishEvent(settleCtx, baldaexecution.SubjectEventCommandRetrying, commandEventEnvelope(m.env, nil, "retrying", reason, eventExtras)); err != nil {
 			m.bus.logger.Warn().
 				Err(err).
 				Str("envelope_id", m.env.ID).
@@ -98,7 +98,7 @@ func (m *commandMessage) DeadLetter(ctx context.Context, reason string) error {
 		if err := m.msg.TermWithReason(reason); err != nil {
 			return err
 		}
-		m.bus.publishCommandEventBestEffort(settleCtx, baldaruntime.SubjectEventCommandDeadLettered, m.env, "deadlettered", reason)
+		m.bus.publishCommandEventBestEffort(settleCtx, baldaexecution.SubjectEventCommandDeadLettered, m.env, "deadlettered", reason)
 		commandLogEnvelope(commandLogEvent(m.bus.logger.Warn(), m.msg), m.env).Str("reason", reason).Msg("command deadlettered")
 		return nil
 	})
@@ -145,7 +145,7 @@ func (b *Bus) Run(ctx context.Context, handler actorengine.Handler) error {
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
-		fetchSize := b.cfg.Swarm.Commands.FetchBatch
+		fetchSize := b.cfg.Execution.Commands.FetchBatch
 		if fetchSize <= 0 {
 			fetchSize = 1
 		}
@@ -183,12 +183,12 @@ func (b *Bus) commandWorkerLimit() int {
 		return 1
 	}
 	switch {
-	case b.cfg.Swarm.Commands.FetchBatch > 0:
+	case b.cfg.Execution.Commands.FetchBatch > 0:
 		// Keep local in-memory fan-out bounded to the pull batch size.
 		// Transport max_ack_pending stays the transport limit.
-		return b.cfg.Swarm.Commands.FetchBatch
-	case b.cfg.Swarm.Commands.MaxAckPending > 0:
-		return b.cfg.Swarm.Commands.MaxAckPending
+		return b.cfg.Execution.Commands.FetchBatch
+	case b.cfg.Execution.Commands.MaxAckPending > 0:
+		return b.cfg.Execution.Commands.MaxAckPending
 	default:
 		return 1
 	}
@@ -197,18 +197,18 @@ func (b *Bus) commandWorkerLimit() int {
 func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler actorengine.Handler) error {
 	env, err := actorlayer.DecodeEnvelope(string(msg.Data()))
 	if err != nil {
-		id := strings.TrimSpace(msg.Headers().Get(baldaruntime.HeaderEnvelopeID))
+		id := strings.TrimSpace(msg.Headers().Get(baldaexecution.HeaderEnvelopeID))
 		if id == "" {
 			id = "poison-" + uuid.NewString()
 		}
-		namespace := strings.TrimSpace(msg.Headers().Get(baldaruntime.HeaderNamespace))
+		namespace := strings.TrimSpace(msg.Headers().Get(baldaexecution.HeaderNamespace))
 		if namespace == "" {
-			namespace = baldaruntime.NamespaceTelemetry
+			namespace = baldaexecution.NamespaceTelemetry
 		}
 		toTarget, toKey := unknownDecodeTarget, unknownDecodeTarget
 		if strings.HasPrefix(msg.Subject(), "balda.v1.cmd.") {
 			toTarget = strings.TrimPrefix(msg.Subject(), "balda.v1.cmd.")
-			toKey = strings.TrimSpace(msg.Headers().Get(baldaruntime.HeaderActorKey))
+			toKey = strings.TrimSpace(msg.Headers().Get(baldaexecution.HeaderActorKey))
 			if toKey == "" {
 				toKey = unknownDecodeTarget
 			}
@@ -224,14 +224,13 @@ func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler acto
 			Kind:        "decode_failed",
 			From:        actorlayer.SystemAddress("transport"),
 			To:          actorlayer.ActorAddress{Target: toTarget, Key: toKey},
-			SessionID:   strings.TrimSpace(msg.Headers().Get(baldaruntime.HeaderSessionID)),
-			TaskID:      strings.TrimSpace(msg.Headers().Get(baldaruntime.HeaderTaskID)),
+			SessionID:   strings.TrimSpace(msg.Headers().Get(baldaexecution.HeaderSessionID)),
 			PayloadJSON: string(payload),
 		}
 		settleCtx, settleCancel := settlementContext(ctx)
 		defer settleCancel()
 		_ = b.publishRawDLQ(settleCtx, msg, "decode failed: "+err.Error())
-		b.publishCommandEventBestEffort(settleCtx, baldaruntime.SubjectEventCommandDecodeFailed, decodeFailureEnv, "decode_failed", err.Error())
+		b.publishCommandEventBestEffort(settleCtx, baldaexecution.SubjectEventCommandDecodeFailed, decodeFailureEnv, "decode_failed", err.Error())
 		_ = msg.TermWithReason("decode failed: " + err.Error())
 		commandLogEvent(b.logger.Warn(), msg).Err(err).Msg("failed to decode command envelope; moved to dlq")
 		return err
@@ -243,10 +242,10 @@ func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler acto
 		env:           env,
 		msg:           msg,
 		numDelivered:  numDelivered,
-		maxDeliveries: b.cfg.Swarm.Commands.MaxDeliver,
+		maxDeliveries: b.cfg.Execution.Commands.MaxDeliver,
 		bus:           b,
 	}
-	b.publishCommandEventBestEffort(ctx, baldaruntime.SubjectEventCommandRunning, env, "running", "")
+	b.publishCommandEventBestEffort(ctx, baldaexecution.SubjectEventCommandRunning, env, "running", "")
 	commandLogEnvelope(commandLogEvent(b.logger.Debug(), msg), env).Msg("command running")
 	err = handler(ctx, cmd)
 	if cmd.isSettled() {
@@ -258,15 +257,15 @@ func (b *Bus) handleMessage(ctx context.Context, msg jetstream.Msg, handler acto
 		return cmd.Ack(settleCtx)
 	}
 	if actorlayer.IsRetryableError(err) {
-		if actorlayer.RetryExhausted(numDelivered, b.cfg.Swarm.Commands.MaxDeliver) {
+		if actorlayer.RetryExhausted(numDelivered, b.cfg.Execution.Commands.MaxDeliver) {
 			reason := "retry exhausted: " + err.Error()
-			cmd.env = decorateDLQEnvelope(cmd.env, reason, actorlayer.ClassifyError(err), b.cfg.Swarm.Commands.Stream, b.cfg.Swarm.Commands.Consumer, msg.Subject(), numDelivered)
+			cmd.env = decorateDLQEnvelope(cmd.env, reason, actorlayer.ClassifyError(err), b.cfg.Execution.Commands.Stream, b.cfg.Execution.Commands.Consumer, msg.Subject(), numDelivered)
 			return cmd.DeadLetter(settleCtx, reason)
 		}
 		delay := actorlayer.RetryDelay(env.Attempt)
 		return cmd.Retry(settleCtx, delay, err.Error())
 	}
-	cmd.env = decorateDLQEnvelope(cmd.env, err.Error(), actorlayer.ClassifyError(err), b.cfg.Swarm.Commands.Stream, b.cfg.Swarm.Commands.Consumer, msg.Subject(), numDelivered)
+	cmd.env = decorateDLQEnvelope(cmd.env, err.Error(), actorlayer.ClassifyError(err), b.cfg.Execution.Commands.Stream, b.cfg.Execution.Commands.Consumer, msg.Subject(), numDelivered)
 	return cmd.DeadLetter(settleCtx, err.Error())
 }
 
@@ -297,7 +296,7 @@ func (b *Bus) RunEventConsumer(ctx context.Context, handler actortransport.Event
 			return ctx.Err()
 		default:
 		}
-		batch, err := b.eventConsumer.Fetch(b.cfg.Swarm.Commands.FetchBatch, jetstream.FetchMaxWait(b.cfg.FetchWait))
+		batch, err := b.eventConsumer.Fetch(b.cfg.Execution.Commands.FetchBatch, jetstream.FetchMaxWait(b.cfg.FetchWait))
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -322,11 +321,11 @@ func (b *Bus) handleEventMessage(ctx context.Context, msg jetstream.Msg, handler
 	}
 	if err := handler(ctx, msg.Subject(), env); err != nil {
 		numDelivered := messageDeliveryAttempt(msg)
-		if actorlayer.IsRetryableError(err) && !actorlayer.RetryExhausted(numDelivered, b.cfg.Swarm.Commands.MaxDeliver) {
+		if actorlayer.IsRetryableError(err) && !actorlayer.RetryExhausted(numDelivered, b.cfg.Execution.Commands.MaxDeliver) {
 			return msg.NakWithDelay(actorlayer.RetryDelay(numDelivered - 1))
 		}
 		reason := "event projection failed: " + err.Error()
-		dlqEnv := decorateDLQEnvelope(env, reason, actorlayer.ClassifyError(err), b.cfg.Swarm.Events.Stream, baldaruntime.DefaultEventProjectorConsumer, msg.Subject(), numDelivered)
+		dlqEnv := decorateDLQEnvelope(env, reason, actorlayer.ClassifyError(err), b.cfg.Execution.Events.Stream, baldaexecution.DefaultEventProjectorConsumer, msg.Subject(), numDelivered)
 		_ = b.publishDLQ(ctx, dlqEnv, reason, false)
 		return msg.TermWithReason(reason)
 	}
@@ -345,9 +344,9 @@ func ensureStreams(ctx context.Context, js jetstream.JetStream, cfg resolvedConf
 		return fmt.Errorf("runtime transport is required")
 	}
 	streams := []jetstream.StreamConfig{
-		streamConfig(cfg.Swarm.Commands.Stream, []string{baldaruntime.SubjectCommandAll}, jetstream.WorkQueuePolicy, cfg.Commands),
-		streamConfig(cfg.Swarm.Events.Stream, []string{baldaruntime.SubjectEventAll}, jetstream.LimitsPolicy, cfg.Events),
-		streamConfig(cfg.Swarm.DLQ.Stream, []string{baldaruntime.SubjectDLQAll}, jetstream.LimitsPolicy, cfg.DLQ),
+		streamConfig(cfg.Execution.Commands.Stream, []string{baldaexecution.SubjectCommandAll}, jetstream.WorkQueuePolicy, cfg.Commands),
+		streamConfig(cfg.Execution.Events.Stream, []string{baldaexecution.SubjectEventAll}, jetstream.LimitsPolicy, cfg.Events),
+		streamConfig(cfg.Execution.DLQ.Stream, []string{baldaexecution.SubjectDLQAll}, jetstream.LimitsPolicy, cfg.DLQ),
 	}
 	for _, stream := range streams {
 		if _, err := js.CreateOrUpdateStream(ctx, stream); err != nil {
@@ -398,18 +397,18 @@ func (b *Bus) publishRawDLQ(ctx context.Context, source jetstream.Msg, reason st
 	}
 	env := actorlayer.Envelope{
 		ID:          "poison-" + uuid.NewString(),
-		Namespace:   baldaruntime.NamespaceTelemetry,
+		Namespace:   baldaexecution.NamespaceTelemetry,
 		Kind:        "poison_message",
 		From:        actorlayer.SystemAddress("transport"),
 		To:          actorlayer.SystemAddress("dlq"),
 		PayloadJSON: string(data),
 	}
-	msg, err := messageFromEnvelope(baldaruntime.SubjectDLQCommand, env)
+	msg, err := messageFromEnvelope(baldaexecution.SubjectDLQCommand, env)
 	if err != nil {
 		return err
 	}
 	msg.Header.Set("Balda-DLQ-Reason", reason)
-	_, err = b.js.PublishMsg(ctx, msg, jetstream.WithExpectStream(b.cfg.Swarm.DLQ.Stream), jetstream.WithMsgID(env.ID))
+	_, err = b.js.PublishMsg(ctx, msg, jetstream.WithExpectStream(b.cfg.Execution.DLQ.Stream), jetstream.WithMsgID(env.ID))
 	if err != nil {
 		return fmt.Errorf("publish raw dlq: %w", err)
 	}
@@ -419,7 +418,7 @@ func (b *Bus) publishRawDLQ(ctx context.Context, source jetstream.Msg, reason st
 func commandEventEnvelope(env actorlayer.Envelope, result *actortransport.DispatchReceipt, status string, reason string, extra map[string]any) actorlayer.Envelope {
 	payload := map[string]any{
 		"envelope_id":    env.ID,
-		"task_id":        env.TaskID,
+		"job_id":         baldaexecution.EnvelopeJobID(env),
 		"session_id":     env.SessionID,
 		"namespace":      env.Namespace,
 		"status":         status,
@@ -427,7 +426,7 @@ func commandEventEnvelope(env actorlayer.Envelope, result *actortransport.Dispat
 		"causation_id":   env.CausationID,
 		"actor_key":      strings.TrimSpace(env.To.Key),
 	}
-	if strings.EqualFold(strings.TrimSpace(env.To.Target), baldaruntime.ActorTypeDelivery) {
+	if strings.EqualFold(strings.TrimSpace(env.To.Target), baldaexecution.ActorTypeDelivery) {
 		payload["delivery_key"] = strings.TrimSpace(env.To.Key)
 	}
 	if result != nil {
@@ -449,7 +448,7 @@ func commandEventEnvelope(env actorlayer.Envelope, result *actortransport.Dispat
 	data, _ := json.Marshal(payload)
 	out := env
 	out.ID = strings.TrimSpace(env.ID) + ":event:" + strings.TrimSpace(status)
-	out.Namespace = baldaruntime.NamespaceTelemetry
+	out.Namespace = baldaexecution.NamespaceTelemetry
 	out.Kind = "command_event"
 	out.PayloadJSON = string(data)
 	out.DedupeKey = out.ID
@@ -510,7 +509,7 @@ func commandLogEnvelope(evt *zerolog.Event, env actorlayer.Envelope) *zerolog.Ev
 	evt = evt.
 		Str("envelope_id", strings.TrimSpace(env.ID)).
 		Str("namespace", strings.TrimSpace(env.Namespace)).
-		Str("task_id", strings.TrimSpace(env.TaskID)).
+		Str("task_id", baldaexecution.EnvelopeJobID(env)).
 		Str("session_id", strings.TrimSpace(env.SessionID)).
 		Str("correlation_id", strings.TrimSpace(env.CorrelationID)).
 		Str("causation_id", strings.TrimSpace(env.CausationID)).

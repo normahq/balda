@@ -13,9 +13,9 @@ import (
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/pkg/actorlayer"
 	"github.com/rs/zerolog"
@@ -41,7 +41,7 @@ func TestTaskDeliveryActorDefersDuplicatePendingDelivery(t *testing.T) {
 	ctx := context.Background()
 	actor, tasks, tgClient, _ := newTaskDeliveryActorForTest(t, ctx)
 	env, payload := deliveryEnvelopeForTest(t, "delivery-command-pending", "task-1:delivery:pending", "Goal started")
-	if _, _, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.SwarmDeliveryStatusPending)); err != nil {
+	if _, _, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.DeliveryStatusPending)); err != nil {
 		t.Fatalf("ReserveDelivery() error = %v", err)
 	}
 	if err := actor.Handle(ctx, env); actorlayer.ClassifyError(err) != actorlayer.ErrorKindTransient {
@@ -56,7 +56,7 @@ func TestTaskDeliveryActorDoesNotRetryAmbiguousSendingDelivery(t *testing.T) {
 	ctx := context.Background()
 	actor, tasks, tgClient, _ := newTaskDeliveryActorForTest(t, ctx)
 	env, payload := deliveryEnvelopeForTest(t, "delivery-command-sending", "task-1:delivery:completed", "Goal completed")
-	if _, _, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.SwarmDeliveryStatusSending)); err != nil {
+	if _, _, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.DeliveryStatusSending)); err != nil {
 		t.Fatalf("ReserveDelivery() error = %v", err)
 	}
 	if err := actor.Handle(ctx, env); actorlayer.ClassifyError(err) != actorlayer.ErrorKindTransient {
@@ -68,8 +68,8 @@ func TestTaskDeliveryActorDoesNotRetryAmbiguousSendingDelivery(t *testing.T) {
 }
 
 func TestDeliveryReadyForAttemptNeverRetriesSendingDelivery(t *testing.T) {
-	record := baldastate.SwarmDeliveryRecord{
-		Status:    baldastate.SwarmDeliveryStatusSending,
+	record := baldastate.DeliveryRecord{
+		Status:    baldastate.DeliveryStatusSending,
 		UpdatedAt: time.Now().Add(-2 * deliveryPendingRetryAfter),
 	}
 	if deliveryReadyForAttempt(record) {
@@ -91,8 +91,8 @@ func TestTaskDeliveryActorPublishesFailedEventOnSendError(t *testing.T) {
 	if len(bus.eventSubjects) != 1 {
 		t.Fatalf("published event subjects len = %d, want 1", len(bus.eventSubjects))
 	}
-	if got := bus.eventSubjects[0]; got != baldaruntime.SubjectEventDeliveryFailed {
-		t.Fatalf("event subject = %q, want %q", got, baldaruntime.SubjectEventDeliveryFailed)
+	if got := bus.eventSubjects[0]; got != baldaexecution.SubjectEventDeliveryFailed {
+		t.Fatalf("event subject = %q, want %q", got, baldaexecution.SubjectEventDeliveryFailed)
 	}
 	if len(bus.eventEnvs) != 1 {
 		t.Fatalf("published event envelopes len = %d, want 1", len(bus.eventEnvs))
@@ -111,7 +111,7 @@ func TestTaskDeliveryActorStoresProviderMessageIDOnSuccess(t *testing.T) {
 		t.Fatalf("Handle() error = %v", err)
 	}
 
-	record, created, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.SwarmDeliveryStatusPending))
+	record, created, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.DeliveryStatusPending))
 	if err != nil {
 		t.Fatalf("ReserveDelivery() lookup error = %v", err)
 	}
@@ -127,7 +127,7 @@ func TestTaskDeliveryActorSendsConversationalReplyWithoutPersistingDelivery(t *t
 	ctx := context.Background()
 	actor, tasks, tgClient, _ := newTaskDeliveryActorForTest(t, ctx)
 	locator := baldatelegram.NewLocator(9001, 99)
-	env, err := AgentReplyDeliveryEnvelopeWithSettlement("", actorlayer.ActorAddress{Target: baldaruntime.ActorTypeSession, Key: locator.SessionID}, locator, deliverycmd.SettlementBypass, "session reply", "final")
+	env, err := AgentReplyDeliveryEnvelopeWithSettlement("", actorlayer.ActorAddress{Target: baldaexecution.ActorTypeSession, Key: locator.SessionID}, locator, deliverycmd.SettlementBypass, "session reply", "final")
 	if err != nil {
 		t.Fatalf("AgentReplyDeliveryEnvelopeWithSettlement() error = %v", err)
 	}
@@ -139,11 +139,11 @@ func TestTaskDeliveryActorSendsConversationalReplyWithoutPersistingDelivery(t *t
 		t.Fatalf("sent rich telegram messages = %d, want 1", got)
 	}
 	payload := DeliveryPayload{Locator: locator, Mode: DeliveryModeAgentReply, Settlement: deliverycmd.SettlementBypass, Text: "session reply"}
-	record, created, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.SwarmDeliveryStatusPending))
+	record, created, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.DeliveryStatusPending))
 	if err != nil {
 		t.Fatalf("ReserveDelivery() lookup error = %v", err)
 	}
-	if !created || record.Status != baldastate.SwarmDeliveryStatusPending {
+	if !created || record.Status != baldastate.DeliveryStatusPending {
 		t.Fatalf("delivery record = %+v created=%t, want no persisted conversational delivery", record, created)
 	}
 }
@@ -152,7 +152,7 @@ func TestTaskDeliveryActorPersistsSessionOwnedTaskReplyWhenSettlementRequiresOut
 	ctx := context.Background()
 	actor, tasks, tgClient, _ := newTaskDeliveryActorForTest(t, ctx)
 	locator := baldatelegram.NewLocator(9001, 99)
-	env, err := AgentReplyDeliveryEnvelopeWithSettlement("task-1", actorlayer.ActorAddress{Target: baldaruntime.ActorTypeSession, Key: locator.SessionID}, locator, deliverycmd.SettlementOutbox, "session reply", "final")
+	env, err := AgentReplyDeliveryEnvelopeWithSettlement("task-1", actorlayer.ActorAddress{Target: baldaexecution.ActorTypeSession, Key: locator.SessionID}, locator, deliverycmd.SettlementOutbox, "session reply", "final")
 	if err != nil {
 		t.Fatalf("AgentReplyDeliveryEnvelopeWithSettlement() error = %v", err)
 	}
@@ -164,15 +164,15 @@ func TestTaskDeliveryActorPersistsSessionOwnedTaskReplyWhenSettlementRequiresOut
 		t.Fatalf("sent rich telegram messages = %d, want 1", got)
 	}
 	payload := DeliveryPayload{JobID: "task-1", Locator: locator, Mode: DeliveryModeAgentReply, Settlement: deliverycmd.SettlementOutbox, Text: "session reply"}
-	record, created, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.SwarmDeliveryStatusPending))
+	record, created, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.DeliveryStatusPending))
 	if err != nil {
 		t.Fatalf("ReserveDelivery() lookup error = %v", err)
 	}
 	if created {
 		t.Fatal("ReserveDelivery() created = true, want existing persisted delivery record")
 	}
-	if record.Status != baldastate.SwarmDeliveryStatusSent {
-		t.Fatalf("delivery status = %q, want %q", record.Status, baldastate.SwarmDeliveryStatusSent)
+	if record.Status != baldastate.DeliveryStatusSent {
+		t.Fatalf("delivery status = %q, want %q", record.Status, baldastate.DeliveryStatusSent)
 	}
 }
 
@@ -180,7 +180,7 @@ func TestTaskDeliveryActorSendsDraftWithoutPersistingDelivery(t *testing.T) {
 	ctx := context.Background()
 	actor, tasks, tgClient, _ := newTaskDeliveryActorForTest(t, ctx)
 	locator := baldatelegram.NewLocator(9001, 99)
-	env, err := DraftPlainDeliveryEnvelope("task-1", actorlayer.ActorAddress{Target: baldaruntime.ActorTypeJob, Key: "task-1"}, locator, 7, "draft text")
+	env, err := DraftPlainDeliveryEnvelope("task-1", actorlayer.ActorAddress{Target: baldaexecution.ActorTypeJob, Key: "task-1"}, locator, 7, "draft text")
 	if err != nil {
 		t.Fatalf("DraftPlainDeliveryEnvelope() error = %v", err)
 	}
@@ -192,11 +192,11 @@ func TestTaskDeliveryActorSendsDraftWithoutPersistingDelivery(t *testing.T) {
 		t.Fatalf("sent rich telegram drafts = %d, want 1", got)
 	}
 	payload := DeliveryPayload{JobID: "task-1", Locator: locator, Mode: DeliveryModeDraftPlain, Text: "draft text", DraftID: 7}
-	record, created, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.SwarmDeliveryStatusPending))
+	record, created, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.DeliveryStatusPending))
 	if err != nil {
 		t.Fatalf("ReserveDelivery() lookup error = %v", err)
 	}
-	if !created || record.Status != baldastate.SwarmDeliveryStatusPending {
+	if !created || record.Status != baldastate.DeliveryStatusPending {
 		t.Fatalf("delivery record = %+v created=%t, want no persisted draft delivery", record, created)
 	}
 }
@@ -205,7 +205,7 @@ func TestTaskDeliveryActorSendsChatActionWithoutPersistingDelivery(t *testing.T)
 	ctx := context.Background()
 	actor, tasks, tgClient, _ := newTaskDeliveryActorForTest(t, ctx)
 	locator := baldatelegram.NewLocator(9001, 99)
-	env, err := ChatActionDeliveryEnvelope("task-1", actorlayer.ActorAddress{Target: baldaruntime.ActorTypeJob, Key: "task-1"}, locator, "typing")
+	env, err := ChatActionDeliveryEnvelope("task-1", actorlayer.ActorAddress{Target: baldaexecution.ActorTypeJob, Key: "task-1"}, locator, "typing")
 	if err != nil {
 		t.Fatalf("ChatActionDeliveryEnvelope() error = %v", err)
 	}
@@ -217,18 +217,18 @@ func TestTaskDeliveryActorSendsChatActionWithoutPersistingDelivery(t *testing.T)
 		t.Fatalf("sent telegram chat actions = %d, want 1", got)
 	}
 	payload := DeliveryPayload{JobID: "task-1", Locator: locator, Mode: DeliveryModeChatAction, Action: "typing"}
-	record, created, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.SwarmDeliveryStatusPending))
+	record, created, err := tasks.ReserveDelivery(ctx, deliveryRecordForTest(env, payload, baldastate.DeliveryStatusPending))
 	if err != nil {
 		t.Fatalf("ReserveDelivery() lookup error = %v", err)
 	}
-	if !created || record.Status != baldastate.SwarmDeliveryStatusPending {
+	if !created || record.Status != baldastate.DeliveryStatusPending {
 		t.Fatalf("delivery record = %+v created=%t, want no persisted chat action delivery", record, created)
 	}
 }
 
 func newTaskDeliveryActorForTest(t *testing.T, ctx context.Context) (*jobDeliveryActor, *baldajobs.JobService, *fakeTelegramClient, *recordingHandlerCommandBus) {
 	t.Helper()
-	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorRuntimeServices(t, ctx)
 	_ = provider
 	_ = bus
 	_ = dispatcher
@@ -260,18 +260,18 @@ func deliveryEnvelopeForTest(t *testing.T, id string, dedupeKey string, text str
 	}
 	return actorlayer.Envelope{
 		ID:          id,
-		Namespace:   baldaruntime.NamespaceAgentResult,
+		Namespace:   baldaexecution.NamespaceAgentResult,
 		Kind:        jobPayloadKindDelivery,
-		From:        actorlayer.ActorAddress{Target: baldaruntime.ActorTypeJob, Key: "task-1"},
-		To:          actorlayer.ActorAddress{Target: baldaruntime.ActorTypeDelivery, Key: locator.DeliveryActorKey()},
+		From:        actorlayer.ActorAddress{Target: baldaexecution.ActorTypeJob, Key: "task-1"},
+		To:          actorlayer.ActorAddress{Target: baldaexecution.ActorTypeDelivery, Key: locator.DeliveryActorKey()},
 		SessionID:   locator.SessionID,
-		TaskID:      "task-1",
+		Meta:        baldaexecution.WithJobIDMeta(nil, payload.JobID),
 		DedupeKey:   dedupeKey,
 		PayloadJSON: string(data),
 	}, payload
 }
 
-func deliveryRecordForTest(env actorlayer.Envelope, payload DeliveryPayload, status string) baldastate.SwarmDeliveryRecord {
+func deliveryRecordForTest(env actorlayer.Envelope, payload DeliveryPayload, status string) baldastate.DeliveryRecord {
 	deliveryKey := strings.TrimSpace(env.DedupeKey)
 	if deliveryKey == "" {
 		deliveryKey = strings.TrimSpace(env.ID)
@@ -281,10 +281,9 @@ func deliveryRecordForTest(env actorlayer.Envelope, payload DeliveryPayload, sta
 	}
 	sum := sha256.Sum256([]byte(strings.TrimSpace(env.PayloadJSON)))
 
-	return baldastate.SwarmDeliveryRecord{
+	return baldastate.DeliveryRecord{
 		ID:          "delivery-record-" + env.ID,
 		DeliveryKey: deliveryKey,
-		TaskID:      payload.JobID,
 		SessionID:   payload.Locator.SessionID,
 		Channel:     "telegram",
 		AddressKey:  payload.Locator.AddressKey,

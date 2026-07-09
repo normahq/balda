@@ -23,9 +23,9 @@ import (
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldaslack "github.com/normahq/balda/internal/apps/balda/channel/slack"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
 	"github.com/normahq/balda/internal/apps/balda/locatorref"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/welcome"
 	"github.com/normahq/balda/pkg/actorlayer"
@@ -96,7 +96,7 @@ type SlackHandler struct {
 	channelAuth       *auth.ChannelAuthService
 	sessionManager    *baldasession.Manager
 	actorDispatcher   actortransport.Dispatcher
-	taskService       *baldajobs.JobService
+	jobService        *baldajobs.JobService
 	client            *baldaslack.Client
 	config            SlackConfig
 	authToken         string
@@ -141,7 +141,7 @@ func NewSlackHandler(params slackHandlerParams) *SlackHandler {
 		channelAuth:       params.ChannelAuth,
 		sessionManager:    params.SessionManager,
 		actorDispatcher:   params.Dispatcher,
-		taskService:       params.JobService,
+		jobService:        params.JobService,
 		client:            params.SlackClient,
 		config:            params.SlackConfig,
 		authToken:         strings.TrimSpace(params.AuthToken),
@@ -698,8 +698,8 @@ func (h *SlackHandler) handleGoalCommand(ctx context.Context, locator baldasessi
 		}
 		return
 	}
-	if h.taskService != nil {
-		activeGoals, err := h.taskService.ListActiveGoalJobsBySession(ctx, locator.SessionID)
+	if h.jobService != nil {
+		activeGoals, err := h.jobService.ListActiveGoalJobsBySession(ctx, locator.SessionID)
 		if err != nil {
 			_ = h.sendPlain(ctx, locator, "Could not start goal run.")
 			return
@@ -854,7 +854,7 @@ func (h *SlackHandler) handleMessage(ctx context.Context, locator baldasession.S
 		return
 	}
 	if _, err := h.actorDispatcher.Dispatch(ctx, env); err != nil {
-		if baldaruntime.IsCommandQueueFull(err) {
+		if baldaexecution.IsCommandQueueFull(err) {
 			_ = h.sendPlain(ctx, locator, "Session command queue is full. Please wait or use /balda cancel.")
 			return
 		}

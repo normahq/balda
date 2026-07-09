@@ -16,9 +16,9 @@ import (
 	baldaslack "github.com/normahq/balda/internal/apps/balda/channel/slack"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/pkg/actorlayer"
@@ -396,11 +396,11 @@ func TestRunTurn_DirectTelegramPathUsesDeliveryEnvelopesWithoutTaskEvents(t *tes
 		t.Fatalf("delivery texts = %#v, want %#v", gotTexts, wantTexts)
 	}
 	for _, env := range bus.commands {
-		if env.To.Target != baldaruntime.ActorTypeDelivery {
+		if env.To.Target != baldaexecution.ActorTypeDelivery {
 			continue
 		}
-		if strings.TrimSpace(env.TaskID) != "" {
-			t.Fatalf("delivery env job_id = %q, want empty for direct telegram path", env.TaskID)
+		if strings.TrimSpace(baldaexecution.EnvelopeJobID(env)) != "" {
+			t.Fatalf("delivery env job_id = %q, want empty for direct telegram path", baldaexecution.EnvelopeJobID(env))
 		}
 		var payload actors.DeliveryPayload
 		if err := json.Unmarshal([]byte(env.PayloadJSON), &payload); err != nil {
@@ -470,11 +470,11 @@ func TestBaldaSessionTurnRunner_DirectTelegramProgressDeliveriesComeFromSessionA
 	}
 
 	for _, env := range bus.commands {
-		if env.To.Target != baldaruntime.ActorTypeDelivery {
+		if env.To.Target != baldaexecution.ActorTypeDelivery {
 			continue
 		}
-		if env.From.Target != baldaruntime.ActorTypeSession {
-			t.Fatalf("delivery from target = %q, want %q", env.From.Target, baldaruntime.ActorTypeSession)
+		if env.From.Target != baldaexecution.ActorTypeSession {
+			t.Fatalf("delivery from target = %q, want %q", env.From.Target, baldaexecution.ActorTypeSession)
 		}
 		if env.From.Key != sessionID {
 			t.Fatalf("delivery from key = %q, want %q", env.From.Key, sessionID)
@@ -546,11 +546,11 @@ func TestRunTurn_TaskBackedProgressUsesDeliveryActor(t *testing.T) {
 
 	h, tgClient, bus, tasks := newBaldaRunTurnTaskTestHandler(t)
 	h.planUpdatesEnabled = true
-	if _, err := tasks.Create(context.Background(), baldastate.SwarmTaskRecord{
+	if _, err := tasks.Create(context.Background(), baldastate.JobRecord{
 		ID:        "task-1",
 		SessionID: "session-1",
 		Objective: "run turn",
-		Status:    baldastate.SwarmTaskStatusRunning,
+		Status:    baldastate.JobStatusRunning,
 	}, "test", nil); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -617,11 +617,11 @@ func TestRunTurn_TaskBackedVisibleOutputOnlySendsFinalReply(t *testing.T) {
 	t.Parallel()
 
 	h, _, bus, tasks := newBaldaRunTurnTaskTestHandler(t)
-	if _, err := tasks.Create(context.Background(), baldastate.SwarmTaskRecord{
+	if _, err := tasks.Create(context.Background(), baldastate.JobRecord{
 		ID:        "task-2",
 		SessionID: "session-1",
 		Objective: "run turn",
-		Status:    baldastate.SwarmTaskStatusRunning,
+		Status:    baldastate.JobStatusRunning,
 	}, "test", nil); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -676,11 +676,11 @@ func TestRunTurn_TaskBackedDuplicatePartialAndFinalOnlyDeliversOnce(t *testing.T
 	t.Parallel()
 
 	h, _, bus, tasks := newBaldaRunTurnTaskTestHandler(t)
-	if _, err := tasks.Create(context.Background(), baldastate.SwarmTaskRecord{
+	if _, err := tasks.Create(context.Background(), baldastate.JobRecord{
 		ID:        "task-3",
 		SessionID: "session-1",
 		Objective: "run turn",
-		Status:    baldastate.SwarmTaskStatusRunning,
+		Status:    baldastate.JobStatusRunning,
 	}, "test", nil); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -1601,7 +1601,7 @@ func TestRunTurnTaskWithDelivery_HardFailureSuggestsReset(t *testing.T) {
 		t.Fatalf("runner.New() error = %v", err)
 	}
 
-	if err := h.runTurnTaskWithDelivery(
+	if err := h.runTurnJobWithDelivery(
 		context.Background(),
 		"hello",
 		adkRunner,
@@ -1615,7 +1615,7 @@ func TestRunTurnTaskWithDelivery_HardFailureSuggestsReset(t *testing.T) {
 		baldachannel.ProgressPolicy{},
 		true,
 	); err == nil {
-		t.Fatal("runTurnTaskWithDelivery() error = nil, want error")
+		t.Fatal("runTurnJobWithDelivery() error = nil, want error")
 	}
 
 	if len(tgClient.messages) == 0 {
@@ -1935,7 +1935,7 @@ func newBaldaRunTurnTaskTestHandler(t *testing.T) (*BaldaHandler, *baldaRunTurnT
 	return &BaldaHandler{
 		channel:         channel,
 		actorDispatcher: bus,
-		taskService:     tasks,
+		jobService:      tasks,
 		logger:          zerolog.Nop(),
 	}, tgClient, bus, tasks
 }
@@ -1945,7 +1945,7 @@ func deliveryTextsFromCommands(t *testing.T, commands []actorlayer.Envelope) []s
 
 	texts := make([]string, 0, len(commands))
 	for _, env := range commands {
-		if env.To.Target != baldaruntime.ActorTypeDelivery {
+		if env.To.Target != baldaexecution.ActorTypeDelivery {
 			continue
 		}
 		var payload actors.DeliveryPayload
@@ -1993,7 +1993,7 @@ func deliveryModeCount(t *testing.T, commands []actorlayer.Envelope, mode actors
 
 	count := 0
 	for _, env := range commands {
-		if env.To.Target != baldaruntime.ActorTypeDelivery {
+		if env.To.Target != baldaexecution.ActorTypeDelivery {
 			continue
 		}
 		var payload actors.DeliveryPayload

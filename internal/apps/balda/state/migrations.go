@@ -23,10 +23,10 @@ var requiredBaldaSQLiteTables = []string{
 	"balda_runtime_sessions",
 	"balda_runtime_events",
 	"balda_scheduled_tasks",
-	"swarm_tasks",
-	"swarm_task_events",
-	"swarm_delivery_outbox",
-	"swarm_agent_steps",
+	"execution_tasks",
+	"execution_task_events",
+	"execution_delivery_outbox",
+	"execution_agent_steps",
 }
 
 func migrate(ctx context.Context, db *sql.DB) error {

@@ -31,7 +31,7 @@ type commandSessionManager interface {
 }
 
 type goalJobService interface {
-	ListActiveGoalJobsBySession(ctx context.Context, sessionID string) ([]baldastate.SwarmTaskRecord, error)
+	ListActiveGoalJobsBySession(ctx context.Context, sessionID string) ([]baldastate.JobRecord, error)
 }
 
 type sessionWorkCanceller interface {
@@ -66,7 +66,7 @@ type CommandHandler struct {
 	sessionManager    commandSessionManager
 	workCanceller     sessionWorkCanceller
 	actorDispatcher   actortransport.Dispatcher
-	taskService       goalJobService
+	jobService        goalJobService
 	goalMaxIterations int
 	userHandler       *userHandler
 }

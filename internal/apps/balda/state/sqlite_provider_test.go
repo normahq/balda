@@ -14,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const expectedSQLiteMigrationVersion = 20
+const expectedSQLiteMigrationVersion = 21
 
 func TestSQLiteProvider_KVRoundTrip(t *testing.T) {
 	provider := newTestProvider(t)
@@ -259,10 +259,10 @@ func TestSQLiteProvider_ScheduledTaskStoreRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	store := provider.ScheduledTasks()
 	nextRunAt := time.Now().UTC().Add(5 * time.Minute).Truncate(time.Second)
-	const scheduledTaskID = "task-1"
+	const scheduledJobID = "task-1"
 
 	record := ScheduledTaskRecord{
-		TaskID:              scheduledTaskID,
+		JobID:               scheduledJobID,
 		SessionID:           "tg-1-2",
 		ChannelType:         ChannelTypeTelegram,
 		AddressKey:          "1:2",
@@ -283,7 +283,7 @@ func TestSQLiteProvider_ScheduledTaskStoreRoundTrip(t *testing.T) {
 		t.Fatalf("Upsert() error = %v", err)
 	}
 
-	got, ok, err := store.GetByID(ctx, scheduledTaskID)
+	got, ok, err := store.GetByID(ctx, scheduledJobID)
 	if err != nil {
 		t.Fatalf("GetByID() error = %v", err)
 	}
@@ -303,22 +303,22 @@ func TestSQLiteProvider_ScheduledTaskStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(allTasks) != 1 || allTasks[0].TaskID != scheduledTaskID {
-		t.Fatalf("List() = %#v, want single %s", allTasks, scheduledTaskID)
+	if len(allTasks) != 1 || allTasks[0].JobID != scheduledJobID {
+		t.Fatalf("List() = %#v, want single %s", allTasks, scheduledJobID)
 	}
 
 	dueTasks, err := store.ListDue(ctx, nextRunAt.Add(time.Second), 10)
 	if err != nil {
 		t.Fatalf("ListDue() error = %v", err)
 	}
-	if len(dueTasks) != 1 || dueTasks[0].TaskID != scheduledTaskID {
-		t.Fatalf("ListDue() = %#v, want single %s", dueTasks, scheduledTaskID)
+	if len(dueTasks) != 1 || dueTasks[0].JobID != scheduledJobID {
+		t.Fatalf("ListDue() = %#v, want single %s", dueTasks, scheduledJobID)
 	}
 
-	if err := store.Delete(ctx, scheduledTaskID); err != nil {
+	if err := store.Delete(ctx, scheduledJobID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
-	_, ok, err = store.GetByID(ctx, scheduledTaskID)
+	_, ok, err = store.GetByID(ctx, scheduledJobID)
 	if err != nil {
 		t.Fatalf("GetByID(after delete) error = %v", err)
 	}

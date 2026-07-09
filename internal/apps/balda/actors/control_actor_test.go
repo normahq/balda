@@ -6,23 +6,23 @@ import (
 	"time"
 
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 )
 
 func TestTaskControlActorCancelsSessionWork(t *testing.T) {
 	ctx := context.Background()
-	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorRuntimeServices(t, ctx)
 	_ = provider
 	_ = bus
 	_ = dispatcher
 	_ = allocator
 	locator := baldatelegram.NewLocator(9001, 0)
-	_, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+	_, err := tasks.Create(ctx, baldastate.JobRecord{
 		ID:        "task-session",
 		SessionID: locator.SessionID,
 		Objective: "active",
-		Status:    baldastate.SwarmTaskStatusRunning,
+		Status:    baldastate.JobStatusRunning,
 	}, "test", nil)
 	if err != nil {
 		t.Fatalf("Create task: %v", err)
@@ -48,26 +48,26 @@ func TestTaskControlActorCancelsSessionWork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get task: %v", err)
 	}
-	if !ok || task.Status != baldastate.SwarmTaskStatusCanceled {
+	if !ok || task.Status != baldastate.JobStatusCanceled {
 		t.Fatalf("task = %+v found=%v, want canceled", task, ok)
 	}
 }
 
 func TestTaskControlActorCancelsSessionTurnOnly(t *testing.T) {
 	ctx := context.Background()
-	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorRuntimeServices(t, ctx)
 	_ = provider
 	_ = bus
 	_ = dispatcher
 	_ = allocator
 	locator := baldatelegram.NewLocator(9001, 0)
-	_, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+	_, err := tasks.Create(ctx, baldastate.JobRecord{
 		ID:            "goal-task",
 		SessionID:     locator.SessionID,
 		Objective:     "active goal",
-		Status:        baldastate.SwarmTaskStatusRunning,
-		OwnerActor:    baldaruntime.ActorTypeGoalkeeper + ":goal-task",
-		AssignedActor: baldaruntime.ActorTypeGoalkeeper + ":goal-task",
+		Status:        baldastate.JobStatusRunning,
+		OwnerActor:    baldaexecution.ActorTypeGoalkeeper + ":goal-task",
+		AssignedActor: baldaexecution.ActorTypeGoalkeeper + ":goal-task",
 	}, "test", nil)
 	if err != nil {
 		t.Fatalf("Create task: %v", err)
@@ -93,24 +93,24 @@ func TestTaskControlActorCancelsSessionTurnOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get task: %v", err)
 	}
-	if !ok || task.Status != baldastate.SwarmTaskStatusRunning {
+	if !ok || task.Status != baldastate.JobStatusRunning {
 		t.Fatalf("task = %+v found=%v, want still running", task, ok)
 	}
 }
 
 func TestTaskControlActorCancelsTaskWork(t *testing.T) {
 	ctx := context.Background()
-	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorRuntimeServices(t, ctx)
 	_ = provider
 	_ = bus
 	_ = dispatcher
 	_ = allocator
 	locator := baldatelegram.NewLocator(9001, 0)
-	_, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+	_, err := tasks.Create(ctx, baldastate.JobRecord{
 		ID:        "task-one",
 		SessionID: locator.SessionID,
 		Objective: "active",
-		Status:    baldastate.SwarmTaskStatusRunning,
+		Status:    baldastate.JobStatusRunning,
 	}, "test", nil)
 	if err != nil {
 		t.Fatalf("Create task: %v", err)
@@ -125,7 +125,7 @@ func TestTaskControlActorCancelsTaskWork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ControlCancelEnvelope() error = %v", err)
 	}
-	if env.Namespace != baldaruntime.NamespaceJobControl || env.TaskID != "task-one" {
+	if env.Namespace != baldaexecution.NamespaceJobControl || baldaexecution.EnvelopeJobID(env) != "task-one" {
 		t.Fatalf("control env = %+v, want job control for task-one", env)
 	}
 	if err := actor.Handle(ctx, env); err != nil {
@@ -135,25 +135,25 @@ func TestTaskControlActorCancelsTaskWork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get task: %v", err)
 	}
-	if !ok || task.Status != baldastate.SwarmTaskStatusCanceled {
+	if !ok || task.Status != baldastate.JobStatusCanceled {
 		t.Fatalf("task = %+v found=%v, want canceled", task, ok)
 	}
 }
 
 func TestTaskControlActorCancelsAllRegisteredTaskRuns(t *testing.T) {
 	ctx := context.Background()
-	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorRuntimeServices(t, ctx)
 	_ = provider
 	_ = bus
 	_ = dispatcher
 	_ = allocator
 
 	locator := baldatelegram.NewLocator(9001, 0)
-	_, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+	_, err := tasks.Create(ctx, baldastate.JobRecord{
 		ID:        "task-multi-run",
 		SessionID: locator.SessionID,
 		Objective: "active",
-		Status:    baldastate.SwarmTaskStatusRunning,
+		Status:    baldastate.JobStatusRunning,
 	}, "test", nil)
 	if err != nil {
 		t.Fatalf("Create task: %v", err)
@@ -189,36 +189,36 @@ func TestTaskControlActorCancelsAllRegisteredTaskRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get task: %v", err)
 	}
-	if !ok || task.Status != baldastate.SwarmTaskStatusCanceled {
+	if !ok || task.Status != baldastate.JobStatusCanceled {
 		t.Fatalf("task = %+v found=%v, want canceled", task, ok)
 	}
 }
 
 func TestTaskControlActorClearsGoalTasksOnly(t *testing.T) {
 	ctx := context.Background()
-	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorRuntimeServices(t, ctx)
 	_ = provider
 	_ = bus
 	_ = dispatcher
 	_ = allocator
 
 	locator := baldatelegram.NewLocator(9001, 0)
-	for _, task := range []baldastate.SwarmTaskRecord{
+	for _, task := range []baldastate.JobRecord{
 		{
 			ID:            "goal-task",
 			SessionID:     locator.SessionID,
 			Objective:     "goal",
-			Status:        baldastate.SwarmTaskStatusRunning,
-			OwnerActor:    baldaruntime.ActorTypeGoalkeeper + ":goal-task",
-			AssignedActor: baldaruntime.ActorTypeGoalkeeper + ":goal-task",
+			Status:        baldastate.JobStatusRunning,
+			OwnerActor:    baldaexecution.ActorTypeGoalkeeper + ":goal-task",
+			AssignedActor: baldaexecution.ActorTypeGoalkeeper + ":goal-task",
 		},
 		{
 			ID:            "non-goal-task",
 			SessionID:     locator.SessionID,
 			Objective:     "turn",
-			Status:        baldastate.SwarmTaskStatusRunning,
-			OwnerActor:    baldaruntime.ActorTypeSession + ":non-goal-task",
-			AssignedActor: baldaruntime.ActorTypeSession + ":non-goal-task",
+			Status:        baldastate.JobStatusRunning,
+			OwnerActor:    baldaexecution.ActorTypeSession + ":non-goal-task",
+			AssignedActor: baldaexecution.ActorTypeSession + ":non-goal-task",
 		},
 	} {
 		if _, err := tasks.Create(ctx, task, "test", nil); err != nil {
@@ -248,14 +248,14 @@ func TestTaskControlActorClearsGoalTasksOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get goal task: %v", err)
 	}
-	if !ok || goalTask.Status != baldastate.SwarmTaskStatusCanceled {
+	if !ok || goalTask.Status != baldastate.JobStatusCanceled {
 		t.Fatalf("goal task = %+v found=%v, want canceled", goalTask, ok)
 	}
 	nonGoalTask, ok, err := tasks.Get(ctx, "non-goal-task")
 	if err != nil {
 		t.Fatalf("Get non-goal task: %v", err)
 	}
-	if !ok || nonGoalTask.Status != baldastate.SwarmTaskStatusRunning {
+	if !ok || nonGoalTask.Status != baldastate.JobStatusRunning {
 		t.Fatalf("non-goal task = %+v found=%v, want still running", nonGoalTask, ok)
 	}
 }

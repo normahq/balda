@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/pkg/actorlayer"
 	"github.com/rs/zerolog"
@@ -37,7 +37,7 @@ type jobDeliveryActorParams struct {
 }
 
 func (a *jobDeliveryActor) Address() string {
-	return actorlayer.WildcardAddress(baldaruntime.ActorTypeDelivery)
+	return actorlayer.WildcardAddress(baldaexecution.ActorTypeDelivery)
 }
 
 func (a *jobDeliveryActor) Handle(ctx context.Context, env actorlayer.Envelope) error {
@@ -54,6 +54,17 @@ func (a *jobDeliveryActor) Handle(ctx context.Context, env actorlayer.Envelope) 
 	if err := validateDeliveryPayload(payload); err != nil {
 		return actorlayer.PermanentError(err)
 	}
+	envelopeJobID := strings.TrimSpace(baldaexecution.EnvelopeJobID(env))
+	payloadJobID := strings.TrimSpace(payload.JobID)
+	switch {
+	case envelopeJobID == "" && payloadJobID == "":
+	case envelopeJobID == "":
+		return actorlayer.PolicyError(fmt.Errorf("delivery envelope job scope is required when payload job id is set"))
+	case payloadJobID == "":
+		return actorlayer.PolicyError(fmt.Errorf("delivery payload job id is required when envelope job scope is set"))
+	case envelopeJobID != payloadJobID:
+		return actorlayer.PolicyError(fmt.Errorf("delivery job scope mismatch: envelope=%q payload=%q", envelopeJobID, payloadJobID))
+	}
 	durable := deliveryRequiresOutbox(payload)
 	deliveryKey := strings.TrimSpace(env.DedupeKey)
 	if deliveryKey == "" {
@@ -66,17 +77,17 @@ func (a *jobDeliveryActor) Handle(ctx context.Context, env actorlayer.Envelope) 
 	sum := sha256.Sum256([]byte(strings.TrimSpace(env.PayloadJSON)))
 	payloadHash := hex.EncodeToString(sum[:])
 	if durable && a.tasks != nil {
-		record, created, err := a.tasks.ReserveDelivery(ctx, baldastate.SwarmDeliveryRecord{
+		record, created, err := a.tasks.ReserveDelivery(ctx, baldastate.DeliveryRecord{
 			ID:          uuid.NewString(),
 			DeliveryKey: deliveryKey,
-			TaskID:      payload.JobID,
+			JobID:       payload.JobID,
 			SessionID:   payload.Locator.SessionID,
 			Channel:     firstNonEmpty(payload.Locator.ChannelType, "telegram"),
 			AddressKey:  firstNonEmpty(payload.Locator.AddressKey, payload.Locator.SessionID),
 			Kind:        env.Kind,
 			PayloadJSON: env.PayloadJSON,
 			PayloadHash: payloadHash,
-			Status:      baldastate.SwarmDeliveryStatusPending,
+			Status:      baldastate.DeliveryStatusPending,
 		})
 		if err != nil {
 			return actorlayer.TransientError(err)
@@ -84,11 +95,11 @@ func (a *jobDeliveryActor) Handle(ctx context.Context, env actorlayer.Envelope) 
 		if record.PayloadHash != "" && record.PayloadHash != payloadHash {
 			return actorlayer.PermanentError(fmt.Errorf("delivery key %q already reserved for different payload", deliveryKey))
 		}
-		if record.Status == baldastate.SwarmDeliveryStatusSent {
+		if record.Status == baldastate.DeliveryStatusSent {
 			return nil
 		}
 		if !created && !deliveryReadyForAttempt(record) {
-			if record.Status == baldastate.SwarmDeliveryStatusSending {
+			if record.Status == baldastate.DeliveryStatusSending {
 				return actorlayer.TransientError(fmt.Errorf("delivery %q has ambiguous sending status; automatic resend is disabled; last updated at %s", deliveryKey, record.UpdatedAt.Format(time.RFC3339)))
 			}
 			return actorlayer.TransientError(fmt.Errorf("delivery %q is already %s; last updated at %s", deliveryKey, record.Status, record.UpdatedAt.Format(time.RFC3339)))
@@ -161,17 +172,17 @@ func deliveryModeIsDurable(mode DeliveryMode) bool {
 	}
 }
 
-func deliveryReadyForAttempt(record baldastate.SwarmDeliveryRecord) bool {
+func deliveryReadyForAttempt(record baldastate.DeliveryRecord) bool {
 	switch record.Status {
-	case baldastate.SwarmDeliveryStatusSent:
+	case baldastate.DeliveryStatusSent:
 		return false
-	case baldastate.SwarmDeliveryStatusSending:
+	case baldastate.DeliveryStatusSending:
 		// A crash after Telegram accepted the message but before MarkDeliverySent
 		// leaves this state ambiguous. Never auto-resend it.
 		return false
-	case baldastate.SwarmDeliveryStatusFailed:
+	case baldastate.DeliveryStatusFailed:
 		return true
-	case baldastate.SwarmDeliveryStatusPending:
+	case baldastate.DeliveryStatusPending:
 		if record.UpdatedAt.IsZero() {
 			return true
 		}

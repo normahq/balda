@@ -6,50 +6,50 @@ import (
 	"testing"
 )
 
-func TestSQLiteSwarmStore_TaskLifecycle(t *testing.T) {
+func TestSQLiteJobStore_TaskLifecycle(t *testing.T) {
 	provider := newTestProvider(t)
 	defer closeProvider(t, provider)
 
 	ctx := context.Background()
-	store := provider.Swarm()
+	store := provider.Jobs()
 
-	created, err := store.CreateTask(ctx, SwarmTaskRecord{
+	created, err := store.CreateJob(ctx, JobRecord{
 		ID:            "task-1",
 		SessionID:     "session-1",
 		Title:         "Goal: test",
 		Objective:     "test",
-		Status:        SwarmTaskStatusCreated,
+		Status:        JobStatusCreated,
 		AssignedActor: "agent:executor",
 		CreatedBy:     "tg-101",
 	})
 	if err != nil {
-		t.Fatalf("CreateTask() error = %v", err)
+		t.Fatalf("CreateJob() error = %v", err)
 	}
 	if !created {
-		t.Fatal("CreateTask() created = false, want true")
+		t.Fatal("CreateJob() created = false, want true")
 	}
-	created, err = store.CreateTask(ctx, SwarmTaskRecord{
+	created, err = store.CreateJob(ctx, JobRecord{
 		ID:        "task-1",
 		Objective: "duplicate",
 	})
 	if err != nil {
-		t.Fatalf("CreateTask(duplicate) error = %v", err)
+		t.Fatalf("CreateJob(duplicate) error = %v", err)
 	}
 	if created {
-		t.Fatal("CreateTask(duplicate) created = true, want false")
+		t.Fatal("CreateJob(duplicate) created = true, want false")
 	}
 
-	if err := store.UpdateTaskStatus(ctx, "task-1", SwarmTaskStatusWaitingForAgent, "waiting"); err != nil {
-		t.Fatalf("UpdateTaskStatus(waiting) error = %v", err)
+	if err := store.UpdateJobStatus(ctx, "task-1", JobStatusWaitingForAgent, "waiting"); err != nil {
+		t.Fatalf("UpdateJobStatus(waiting) error = %v", err)
 	}
-	if err := store.AppendTaskEvent(ctx, SwarmTaskEventRecord{
+	if err := store.AppendJobEvent(ctx, JobEventRecord{
 		ID:          "event-1",
-		TaskID:      "task-1",
+		JobID:       "task-1",
 		EventType:   "agent.started",
 		Actor:       "task.actor",
 		PayloadJSON: `{"role":"executor"}`,
 	}); err != nil {
-		t.Fatalf("AppendTaskEvent() error = %v", err)
+		t.Fatalf("AppendJobEvent() error = %v", err)
 	}
 
 	active, err := store.ListActiveJobsBySession(ctx, "session-1")
@@ -60,14 +60,14 @@ func TestSQLiteSwarmStore_TaskLifecycle(t *testing.T) {
 		t.Fatalf("active tasks = %+v, want task-1", active)
 	}
 
-	if err := store.SetTaskResult(ctx, "task-1", `{"ok":true}`, SwarmTaskStatusCompleted, ""); err != nil {
-		t.Fatalf("SetTaskResult() error = %v", err)
+	if err := store.SetJobResult(ctx, "task-1", `{"ok":true}`, JobStatusCompleted, ""); err != nil {
+		t.Fatalf("SetJobResult() error = %v", err)
 	}
-	got, ok, err := store.GetTask(ctx, "task-1")
+	got, ok, err := store.GetJob(ctx, "task-1")
 	if err != nil {
-		t.Fatalf("GetTask() error = %v", err)
+		t.Fatalf("GetJob() error = %v", err)
 	}
-	if !ok || got.Status != SwarmTaskStatusCompleted || got.ResultJSON == "" || got.StartedAt.IsZero() || got.CompletedAt.IsZero() {
+	if !ok || got.Status != JobStatusCompleted || got.ResultJSON == "" || got.StartedAt.IsZero() || got.CompletedAt.IsZero() {
 		t.Fatalf("task = %+v, found=%v, want completed with result/timestamps", got, ok)
 	}
 
@@ -78,93 +78,93 @@ func TestSQLiteSwarmStore_TaskLifecycle(t *testing.T) {
 	if len(active) != 0 {
 		t.Fatalf("active tasks after complete = %+v, want none", active)
 	}
-	events, err := store.ListTaskEvents(ctx, "task-1")
+	events, err := store.ListJobEvents(ctx, "task-1")
 	if err != nil {
-		t.Fatalf("ListTaskEvents() error = %v", err)
+		t.Fatalf("ListJobEvents() error = %v", err)
 	}
 	if len(events) != 1 || events[0].EventType != "agent.started" {
 		t.Fatalf("events = %+v, want agent.started", events)
 	}
 }
 
-func TestSQLiteSwarmStore_TaskStatusTransitionsAreGuarded(t *testing.T) {
+func TestSQLiteJobStore_TaskStatusTransitionsAreGuarded(t *testing.T) {
 	provider := newTestProvider(t)
 	defer closeProvider(t, provider)
 
 	ctx := context.Background()
-	store := provider.Swarm()
+	store := provider.Jobs()
 
-	_, err := store.CreateTask(ctx, SwarmTaskRecord{
+	_, err := store.CreateJob(ctx, JobRecord{
 		ID:        "task-guarded",
 		SessionID: "session-1",
 		Objective: "guard transitions",
-		Status:    SwarmTaskStatusRunning,
+		Status:    JobStatusRunning,
 	})
 	if err != nil {
-		t.Fatalf("CreateTask() error = %v", err)
+		t.Fatalf("CreateJob() error = %v", err)
 	}
-	if err := store.UpdateTaskStatus(ctx, "task-guarded", SwarmTaskStatusCompleted, "done"); err != nil {
-		t.Fatalf("UpdateTaskStatus(completed) error = %v", err)
+	if err := store.UpdateJobStatus(ctx, "task-guarded", JobStatusCompleted, "done"); err != nil {
+		t.Fatalf("UpdateJobStatus(completed) error = %v", err)
 	}
 
-	err = store.UpdateTaskStatus(ctx, "task-guarded", SwarmTaskStatusRunning, "reopen")
-	if err == nil || !strings.Contains(err.Error(), "invalid swarm task transition") {
-		t.Fatalf("UpdateTaskStatus(reopen) error = %v, want invalid transition", err)
+	err = store.UpdateJobStatus(ctx, "task-guarded", JobStatusRunning, "reopen")
+	if err == nil || !strings.Contains(err.Error(), "invalid runtime task transition") {
+		t.Fatalf("UpdateJobStatus(reopen) error = %v, want invalid transition", err)
 	}
-	got, ok, err := store.GetTask(ctx, "task-guarded")
+	got, ok, err := store.GetJob(ctx, "task-guarded")
 	if err != nil {
-		t.Fatalf("GetTask() error = %v", err)
+		t.Fatalf("GetJob() error = %v", err)
 	}
-	if !ok || got.Status != SwarmTaskStatusCompleted {
+	if !ok || got.Status != JobStatusCompleted {
 		t.Fatalf("task = %+v found=%v, want status completed", got, ok)
 	}
 
-	if err := store.UpdateTaskStatus(ctx, "task-guarded", SwarmTaskStatusCompleted, "idempotent"); err != nil {
-		t.Fatalf("UpdateTaskStatus(idempotent terminal) error = %v", err)
+	if err := store.UpdateJobStatus(ctx, "task-guarded", JobStatusCompleted, "idempotent"); err != nil {
+		t.Fatalf("UpdateJobStatus(idempotent terminal) error = %v", err)
 	}
 }
 
-func TestSQLiteSwarmStore_SetTaskResultTransitionGuarded(t *testing.T) {
+func TestSQLiteJobStore_SetTaskResultTransitionGuarded(t *testing.T) {
 	provider := newTestProvider(t)
 	defer closeProvider(t, provider)
 
 	ctx := context.Background()
-	store := provider.Swarm()
+	store := provider.Jobs()
 
-	_, err := store.CreateTask(ctx, SwarmTaskRecord{
+	_, err := store.CreateJob(ctx, JobRecord{
 		ID:        "task-canceled",
 		SessionID: "session-1",
 		Objective: "canceled",
-		Status:    SwarmTaskStatusCanceled,
+		Status:    JobStatusCanceled,
 	})
 	if err != nil {
-		t.Fatalf("CreateTask() error = %v", err)
+		t.Fatalf("CreateJob() error = %v", err)
 	}
 
-	err = store.SetTaskResult(ctx, "task-canceled", `{"ok":true}`, SwarmTaskStatusCompleted, "should fail")
-	if err == nil || !strings.Contains(err.Error(), "invalid swarm task transition") {
-		t.Fatalf("SetTaskResult() error = %v, want invalid transition", err)
+	err = store.SetJobResult(ctx, "task-canceled", `{"ok":true}`, JobStatusCompleted, "should fail")
+	if err == nil || !strings.Contains(err.Error(), "invalid runtime task transition") {
+		t.Fatalf("SetJobResult() error = %v, want invalid transition", err)
 	}
-	got, ok, err := store.GetTask(ctx, "task-canceled")
+	got, ok, err := store.GetJob(ctx, "task-canceled")
 	if err != nil {
-		t.Fatalf("GetTask() error = %v", err)
+		t.Fatalf("GetJob() error = %v", err)
 	}
-	if !ok || got.Status != SwarmTaskStatusCanceled {
+	if !ok || got.Status != JobStatusCanceled {
 		t.Fatalf("task = %+v found=%v, want status canceled", got, ok)
 	}
 }
 
-func TestSQLiteSwarmStore_DeliveryOutboxLifecycle(t *testing.T) {
+func TestSQLiteJobStore_DeliveryOutboxLifecycle(t *testing.T) {
 	provider := newTestProvider(t)
 	defer closeProvider(t, provider)
 
 	ctx := context.Background()
-	store := provider.Swarm()
+	store := provider.Jobs()
 
-	record, created, err := store.ReserveDelivery(ctx, SwarmDeliveryRecord{
+	record, created, err := store.ReserveDelivery(ctx, DeliveryRecord{
 		ID:          "delivery-1",
 		DeliveryKey: "task-1:delivery:started",
-		TaskID:      "task-1",
+		JobID:       "task-1",
 		SessionID:   "session-1",
 		Channel:     "telegram",
 		AddressKey:  "9001:1",
@@ -175,14 +175,14 @@ func TestSQLiteSwarmStore_DeliveryOutboxLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReserveDelivery() error = %v", err)
 	}
-	if !created || record.Status != SwarmDeliveryStatusPending {
+	if !created || record.Status != DeliveryStatusPending {
 		t.Fatalf("ReserveDelivery() = %+v created=%v, want pending created", record, created)
 	}
 
-	again, created, err := store.ReserveDelivery(ctx, SwarmDeliveryRecord{
+	again, created, err := store.ReserveDelivery(ctx, DeliveryRecord{
 		ID:          "delivery-duplicate",
 		DeliveryKey: "task-1:delivery:started",
-		TaskID:      "task-1",
+		JobID:       "task-1",
 		SessionID:   "session-1",
 		Channel:     "telegram",
 		AddressKey:  "9001:1",
@@ -200,10 +200,10 @@ func TestSQLiteSwarmStore_DeliveryOutboxLifecycle(t *testing.T) {
 	if err := store.MarkDeliverySent(ctx, record.DeliveryKey, "tg-42"); err != nil {
 		t.Fatalf("MarkDeliverySent() error = %v", err)
 	}
-	sent, created, err := store.ReserveDelivery(ctx, SwarmDeliveryRecord{
+	sent, created, err := store.ReserveDelivery(ctx, DeliveryRecord{
 		ID:          "delivery-after-sent",
 		DeliveryKey: record.DeliveryKey,
-		TaskID:      "task-1",
+		JobID:       "task-1",
 		SessionID:   "session-1",
 		Channel:     "telegram",
 		AddressKey:  "9001:1",
@@ -214,7 +214,7 @@ func TestSQLiteSwarmStore_DeliveryOutboxLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReserveDelivery(after sent) error = %v", err)
 	}
-	if created || sent.Status != SwarmDeliveryStatusSent || sent.ProviderMessageID != "tg-42" || sent.SentAt.IsZero() {
+	if created || sent.Status != DeliveryStatusSent || sent.ProviderMessageID != "tg-42" || sent.SentAt.IsZero() {
 		t.Fatalf("ReserveDelivery(after sent) = %+v created=%v, want sent existing", sent, created)
 	}
 
@@ -223,22 +223,22 @@ func TestSQLiteSwarmStore_DeliveryOutboxLifecycle(t *testing.T) {
 	}
 	if delivery, created, err := store.ReserveDelivery(ctx, record); err != nil {
 		t.Fatalf("ReserveDelivery(after failed) error = %v", err)
-	} else if created || delivery.Status != SwarmDeliveryStatusFailed || delivery.Error != "provider timeout" {
+	} else if created || delivery.Status != DeliveryStatusFailed || delivery.Error != "provider timeout" {
 		t.Fatalf("ReserveDelivery(after failed) = %+v created=%v, want failed existing", delivery, created)
 	}
 }
 
-func TestSQLiteSwarmStore_AgentStepLifecycle(t *testing.T) {
+func TestSQLiteJobStore_AgentStepLifecycle(t *testing.T) {
 	provider := newTestProvider(t)
 	defer closeProvider(t, provider)
 
 	ctx := context.Background()
-	store := provider.Swarm()
+	store := provider.Jobs()
 
-	record, created, err := store.ReserveAgentStep(ctx, SwarmAgentStepRecord{
+	record, created, err := store.ReserveAgentStep(ctx, AgentStepRecord{
 		ID:          "step-1",
 		StepKey:     "task-1:agent:executor:executor:1",
-		TaskID:      "task-1",
+		JobID:       "task-1",
 		AgentName:   "executor",
 		Role:        "executor",
 		Iteration:   1,
@@ -247,14 +247,14 @@ func TestSQLiteSwarmStore_AgentStepLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReserveAgentStep() error = %v", err)
 	}
-	if !created || record.Status != SwarmAgentStepStatusRunning {
+	if !created || record.Status != AgentStepStatusRunning {
 		t.Fatalf("ReserveAgentStep() = %+v created=%v, want running created", record, created)
 	}
 
-	again, created, err := store.ReserveAgentStep(ctx, SwarmAgentStepRecord{
+	again, created, err := store.ReserveAgentStep(ctx, AgentStepRecord{
 		ID:          "step-duplicate",
 		StepKey:     record.StepKey,
-		TaskID:      "task-1",
+		JobID:       "task-1",
 		AgentName:   "executor",
 		Role:        "executor",
 		Iteration:   1,
@@ -263,17 +263,17 @@ func TestSQLiteSwarmStore_AgentStepLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReserveAgentStep(duplicate) error = %v", err)
 	}
-	if created || again.ID != "step-1" || again.Status != SwarmAgentStepStatusRunning {
+	if created || again.ID != "step-1" || again.Status != AgentStepStatusRunning {
 		t.Fatalf("ReserveAgentStep(duplicate) = %+v created=%v, want existing running", again, created)
 	}
 
 	if err := store.CompleteAgentStep(ctx, record.StepKey, `{"kind":"agent_result"}`); err != nil {
 		t.Fatalf("CompleteAgentStep() error = %v", err)
 	}
-	completed, created, err := store.ReserveAgentStep(ctx, SwarmAgentStepRecord{
+	completed, created, err := store.ReserveAgentStep(ctx, AgentStepRecord{
 		ID:          "step-after-complete",
 		StepKey:     record.StepKey,
-		TaskID:      "task-1",
+		JobID:       "task-1",
 		AgentName:   "executor",
 		Role:        "executor",
 		Iteration:   1,
@@ -282,7 +282,7 @@ func TestSQLiteSwarmStore_AgentStepLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReserveAgentStep(after complete) error = %v", err)
 	}
-	if created || completed.Status != SwarmAgentStepStatusSucceeded || completed.ResultJSON == "" || completed.CompletedAt.IsZero() {
+	if created || completed.Status != AgentStepStatusSucceeded || completed.ResultJSON == "" || completed.CompletedAt.IsZero() {
 		t.Fatalf("ReserveAgentStep(after complete) = %+v created=%v, want stored succeeded result", completed, created)
 	}
 }

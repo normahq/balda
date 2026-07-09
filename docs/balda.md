@@ -112,7 +112,7 @@ flowchart TB
     messenger["github.com/normahq/balda/internal/apps/balda/messenger"]
     session["github.com/normahq/balda/internal/apps/balda/session"]
     state["github.com/normahq/balda/internal/apps/balda/state"]
-    runtime["github.com/normahq/balda/internal/apps/balda/runtime"]
+    runtime["github.com/normahq/balda/internal/apps/balda/execution"]
     jobs["github.com/normahq/balda/internal/apps/balda/jobs"]
     tgbotkit["github.com/normahq/balda/internal/apps/balda/tgbotkit"]
     welcome["github.com/normahq/balda/internal/apps/balda/welcome"]
@@ -145,8 +145,8 @@ flowchart TB
     handlers --> tgbotkit
     handlers --> welcome
 
-    swarm --> memory
-    swarm --> state
+    runtime --> memory
+    runtime --> state
 
     session --> agent
     session --> state
@@ -166,7 +166,7 @@ flowchart TB
 | `messenger` | `internal/apps/balda/messenger` | Telegram message sending | `tgbotkit/client` |
 | `session` | `internal/apps/balda/session` | Session management | agent, state |
 | `state` | `internal/apps/balda/state` | SQLite state persistence | `modernc.org/sqlite`, `updatepoller` |
-| `runtime` | `internal/apps/balda/runtime` | Actor runtime host, lane policy, subjects, and delivery wrapping | state, `pkg/actorlayer` |
+| `runtime` | `internal/apps/balda/execution` | Actor runtime host, lane policy, subjects, and delivery wrapping | state, `pkg/actorlayer` |
 | `jobs` | `internal/apps/balda/jobs` | Durable job/job services and read-model projection | runtime, state, `pkg/actorlayer` |
 | `tgbotkit` | `internal/apps/balda/tgbotkit` | Telegram bot runtime | `tgbotkit/*` |
 | `welcome` | `internal/apps/balda/welcome` | Welcome message builder | (standalone) |
@@ -199,7 +199,7 @@ The boundary is intentionally explicit:
 
 Balda's actorlayer integration is intentionally direct:
 
-- `internal/apps/balda/runtime/host.go`: consumes an `actorlayer/engine.Source` and owns actor lane execution.
+- `internal/apps/balda/execution/host.go`: consumes an `actorlayer/engine.Source` and owns actor lane execution.
 - `internal/apps/balda/actors`: defines Balda product actors for session, job, goal, delivery, control, and memory command contracts.
 - `internal/apps/balda/handlers`: owns ingress, command parsing, and dispatching actor command envelopes.
 - `internal/apps/balda/eventbus/nats`: adapts transport publish, fetch, ack, retry, in-progress heartbeat, terminal dead-letter, and event-stream publishing into actorlayer source/delivery/dispatch contracts.
@@ -577,7 +577,7 @@ their next turn, and new or restored sessions start with the latest memory.
 - `balda.nats.host` / `port`: embedded listener address (default `127.0.0.1:-1`, random local port)
 - embedded NATS transport files live under `${balda.state_dir}/nats`
 - `balda.nats.max_memory` / `max_store`: embedded runtime resource caps (defaults `256mb` and `2gb`)
-- `balda.swarm`: optional advanced runtime tuning for command handling, retries, backpressure, and failure retention. Most installs should leave it at defaults.
+- `balda.runtime`: optional advanced runtime tuning for command handling, retries, backpressure, and failure retention. Most installs should leave it at defaults.
 - `/goal` runs repeated work and validation passes in isolated GoalKeeper worker/validator ADK sessions until the goal passes validation or `balda.goal.max_iterations` is reached.
   - with workspace mode enabled, `/goal` uses a separate goal worktree and exports passing work to `balda.workspace.base_branch`.
   - with workspace mode disabled, `/goal` works directly in `balda.working_dir` and records `not_exported` on passing runs.
@@ -711,11 +711,11 @@ Balda runs with a single provider per process (`balda.provider`).
 
 ### Job runtime semantics (internal)
 
-Assignable job work is persisted in `swarm_tasks`; job history is published to
-`BALDA_EVENTS` and projected into `swarm_job_events`. Ingress publishes a
+Assignable job work is persisted in the legacy `execution_tasks` table; job history is published to
+`BALDA_EVENTS` and projected into `execution_job_events`. Ingress publishes a
 durable command first; job records are created after command delivery.
 Ordinary conversational turns from Telegram, Slack, and Zulip do not create
-`swarm_tasks` rows; they run directly on the session actor path.
+legacy `execution_tasks` rows; they run directly on the session actor path.
 
 - `/goal` starts goal work for the current session context. Balda restores or creates the
   chat session, allocates separate GoalKeeper worker/validator ADK sessions for the
@@ -786,8 +786,8 @@ session/job/goal/delivery/memory"]
     end
 
     subgraph State["SQLite product/read-model state"]
-        TASKS["swarm_tasks + swarm_job_events"]
-        OUTBOX["swarm_delivery_outbox"]
+        TASKS["legacy execution_tasks + execution_job_events"]
+        OUTBOX["execution_delivery_outbox"]
         META["owner/session/scheduler/memory metadata"]
     end
 
@@ -808,8 +808,8 @@ session/job/goal/delivery/memory"]
     inside `internal/apps/balda/eventbus/nats`.
   - Actorlayer `Source`/`Delivery`/dispatch contracts are the boundary consumed
     by runtime, handlers, and product actors.
-  - SQLite owns product state/read models (`swarm_tasks`, projected
-    `swarm_job_events`, delivery outbox records, session metadata, memory
+  - SQLite owns product state/read models (legacy `execution_tasks`, projected
+    `execution_job_events`, delivery outbox records, session metadata, memory
     state, scheduler metadata).
   - Projections are derived views; projection lag/failure never blocks command
     settlement.
@@ -921,7 +921,7 @@ All events are published as the same envelope shape. For event envelopes,
   - projector writes use stable event IDs and `INSERT OR IGNORE` semantics in SQLite.
   - replaying the same event stream must not duplicate projected job events.
 - Delivery idempotency:
-  - job-owned or otherwise durable delivery paths may reserve `delivery_key` in `swarm_delivery_outbox` before provider send.
+  - job-owned or otherwise durable delivery paths may reserve `delivery_key` in `execution_delivery_outbox` before provider send.
   - duplicate delivery reservations become noop, preventing duplicate user-visible messages when that path uses the outbox.
   - Conversational session replies from Telegram, Slack, and Zulip may bypass the SQLite outbox and rely on actorlayer transport durability plus provider-side idempotent delivery handling.
 - Job lifecycle idempotency:
@@ -1098,7 +1098,7 @@ Each configured job has `id`, `cron`, and an `envelope` with `target`, `key`,
 ## Troubleshooting
 
 - Startup fails while initializing built-in runtime streams: keep the default `balda.nats` settings unless you have a specific local runtime need, ensure `${balda.state_dir}/nats` is writable, and verify local disk limits.
-- Startup fails while initializing built-in runtime consumers: verify `balda.swarm.commands.consumer` uniqueness and avoid concurrent writers against the same embedded NATS store dir.
+- Startup fails while initializing built-in runtime consumers: verify `balda.execution.commands.consumer` uniqueness and avoid concurrent writers against the same embedded NATS store dir.
 - Rising command backlog or redelivery counts in transport metadata usually means retrying or deadlettering work; inspect lifecycle events, DLQ stream contents, and logs before increasing `max_ack_pending` or `fetch_batch`.
 - Webhook ingress returns `503 dispatch_failed`: confirm transport startup succeeded and command publish acknowledgements are being returned.
 

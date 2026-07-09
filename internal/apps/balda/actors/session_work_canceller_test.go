@@ -11,17 +11,17 @@ import (
 
 func TestSessionWorkCancellerCancelsQueueTasksAndRuns(t *testing.T) {
 	ctx := context.Background()
-	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorRuntimeServices(t, ctx)
 	_ = provider
 	_ = bus
 	_ = dispatcher
 	_ = allocator
 	locator := baldatelegram.NewLocator(9001, 0)
-	_, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+	_, err := tasks.Create(ctx, baldastate.JobRecord{
 		ID:        "task-session",
 		SessionID: locator.SessionID,
 		Objective: "active",
-		Status:    baldastate.SwarmTaskStatusRunning,
+		Status:    baldastate.JobStatusRunning,
 	}, "test", nil)
 	if err != nil {
 		t.Fatalf("Create task: %v", err)
@@ -51,7 +51,7 @@ func TestSessionWorkCancellerCancelsQueueTasksAndRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get task: %v", err)
 	}
-	if !ok || task.Status != baldastate.SwarmTaskStatusCanceled {
+	if !ok || task.Status != baldastate.JobStatusCanceled {
 		t.Fatalf("task = %+v found=%v, want canceled", task, ok)
 	}
 }

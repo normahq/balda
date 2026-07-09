@@ -15,7 +15,7 @@ import (
 
 func (h *BaldaHandler) submitSessionTurn(ctx context.Context, payload actors.SessionTurnPayload) (*actortransport.DispatchReceipt, error) {
 	if h.actorDispatcher == nil {
-		return nil, fmt.Errorf("swarm runtime is unavailable")
+		return nil, fmt.Errorf("runtime runtime is unavailable")
 	}
 	env, err := actors.SessionTurnEnvelope(payload)
 	if err != nil {
@@ -26,9 +26,9 @@ func (h *BaldaHandler) submitSessionTurn(ctx context.Context, payload actors.Ses
 
 func (h *BaldaHandler) submitWebhookTask(ctx context.Context, payload actors.SessionTurnPayload, routeName string, requestID string) (*actortransport.DispatchReceipt, string, error) {
 	if h.actorDispatcher == nil {
-		return nil, "", fmt.Errorf("swarm runtime is unavailable")
+		return nil, "", fmt.Errorf("runtime runtime is unavailable")
 	}
-	env, taskID, err := actors.WebhookJobEnvelope(payload, routeName, requestID)
+	env, jobID, err := actors.WebhookJobEnvelope(payload, routeName, requestID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -36,7 +36,7 @@ func (h *BaldaHandler) submitWebhookTask(ctx context.Context, payload actors.Ses
 	if err != nil {
 		return nil, "", err
 	}
-	return result, taskID, nil
+	return result, jobID, nil
 }
 
 func (h *BaldaHandler) RunSessionTurnPayload(ctx context.Context, payload actors.SessionTurnPayload) error {
@@ -83,7 +83,7 @@ func (h *BaldaHandler) RunSessionTurnPayload(ctx context.Context, payload actors
 	if err != nil {
 		return err
 	}
-	return h.runTurnTaskWithDeliveryOptions(
+	return h.runTurnJobWithDeliveryOptions(
 		ctx,
 		payload.Text,
 		ts.GetRunner(),
@@ -105,8 +105,8 @@ func (h *CommandHandler) submitGoalTask(ctx context.Context, locator baldasessio
 }
 
 func (h *CommandHandler) submitGoalTaskWithProfile(ctx context.Context, locator baldasession.SessionLocator, deliveryProfile deliverycmd.Profile, objective string, transportUserID string) (bool, error) {
-	if h.taskService != nil {
-		activeGoals, err := h.taskService.ListActiveGoalJobsBySession(ctx, locator.SessionID)
+	if h.jobService != nil {
+		activeGoals, err := h.jobService.ListActiveGoalJobsBySession(ctx, locator.SessionID)
 		if err != nil {
 			return false, fmt.Errorf("list active goal jobs: %w", err)
 		}
@@ -120,7 +120,7 @@ func (h *CommandHandler) submitGoalTaskWithProfile(ctx context.Context, locator 
 		return false, err
 	}
 	if h.actorDispatcher == nil {
-		return false, fmt.Errorf("swarm runtime is unavailable")
+		return false, fmt.Errorf("runtime runtime is unavailable")
 	}
 	_, err = h.actorDispatcher.Dispatch(ctx, env)
 	if err != nil {

@@ -32,43 +32,43 @@ const (
 	// ScheduledTaskStatusPaused means the task is persisted but not dispatched.
 	ScheduledTaskStatusPaused = "paused"
 
-	// SwarmTaskStatusCreated means a task record exists but has not been queued.
-	SwarmTaskStatusCreated = "created"
-	// SwarmTaskStatusQueued means task work is queued for actor execution.
-	SwarmTaskStatusQueued = "queued"
-	// SwarmTaskStatusRunning means a task actor is actively coordinating work.
-	SwarmTaskStatusRunning = "running"
-	// SwarmTaskStatusWaitingForAgent means task execution waits on an agent role.
-	SwarmTaskStatusWaitingForAgent = "waiting_for_agent"
-	// SwarmTaskStatusWaitingForUser means task execution is blocked on user input.
-	SwarmTaskStatusWaitingForUser = "waiting_for_user"
-	// SwarmTaskStatusValidating means a reviewer/validator is checking the work.
-	SwarmTaskStatusValidating = "validating"
-	// SwarmTaskStatusCompleted means the task finished successfully.
-	SwarmTaskStatusCompleted = "completed"
-	// SwarmTaskStatusFailed means the task exhausted its retry/iteration budget.
-	SwarmTaskStatusFailed = "failed"
-	// SwarmTaskStatusCanceled means the task was canceled before completion.
-	SwarmTaskStatusCanceled = "canceled"
-	// SwarmTaskStatusDeadLettered means the actor runtime deadlettered the task.
-	SwarmTaskStatusDeadLettered = "deadlettered"
+	// JobStatusCreated means a task record exists but has not been queued.
+	JobStatusCreated = "created"
+	// JobStatusQueued means task work is queued for actor execution.
+	JobStatusQueued = "queued"
+	// JobStatusRunning means a task actor is actively coordinating work.
+	JobStatusRunning = "running"
+	// JobStatusWaitingForAgent means task execution waits on an agent role.
+	JobStatusWaitingForAgent = "waiting_for_agent"
+	// JobStatusWaitingForUser means task execution is blocked on user input.
+	JobStatusWaitingForUser = "waiting_for_user"
+	// JobStatusValidating means a reviewer/validator is checking the work.
+	JobStatusValidating = "validating"
+	// JobStatusCompleted means the task finished successfully.
+	JobStatusCompleted = "completed"
+	// JobStatusFailed means the task exhausted its retry/iteration budget.
+	JobStatusFailed = "failed"
+	// JobStatusCanceled means the task was canceled before completion.
+	JobStatusCanceled = "canceled"
+	// JobStatusDeadLettered means the actor runtime deadlettered the task.
+	JobStatusDeadLettered = "deadlettered"
 
-	// SwarmDeliveryStatusPending means a delivery side effect is reserved but not confirmed.
-	SwarmDeliveryStatusPending = "pending"
-	// SwarmDeliveryStatusSending means a delivery side effect attempt is in progress
+	// DeliveryStatusPending means a delivery side effect is reserved but not confirmed.
+	DeliveryStatusPending = "pending"
+	// DeliveryStatusSending means a delivery side effect attempt is in progress
 	// or its outcome is ambiguous after process failure.
-	SwarmDeliveryStatusSending = "sending"
-	// SwarmDeliveryStatusSent means a delivery side effect was successfully sent.
-	SwarmDeliveryStatusSent = "sent"
-	// SwarmDeliveryStatusFailed means the latest delivery attempt failed.
-	SwarmDeliveryStatusFailed = "failed"
+	DeliveryStatusSending = "sending"
+	// DeliveryStatusSent means a delivery side effect was successfully sent.
+	DeliveryStatusSent = "sent"
+	// DeliveryStatusFailed means the latest delivery attempt failed.
+	DeliveryStatusFailed = "failed"
 
-	// SwarmAgentStepStatusRunning means an agent step has been reserved but no result is stored.
-	SwarmAgentStepStatusRunning = "running"
-	// SwarmAgentStepStatusSucceeded means an agent step result is stored and can be replayed.
-	SwarmAgentStepStatusSucceeded = "succeeded"
-	// SwarmAgentStepStatusFailed means an agent step error result is stored and can be replayed.
-	SwarmAgentStepStatusFailed = "failed"
+	// AgentStepStatusRunning means an agent step has been reserved but no result is stored.
+	AgentStepStatusRunning = "running"
+	// AgentStepStatusSucceeded means an agent step result is stored and can be replayed.
+	AgentStepStatusSucceeded = "succeeded"
+	// AgentStepStatusFailed means an agent step error result is stored and can be replayed.
+	AgentStepStatusFailed = "failed"
 )
 
 // Provider exposes balda state capabilities behind a backend-agnostic interface.
@@ -79,7 +79,7 @@ type Provider interface {
 	SessionMCPKV() KVStore
 	Sessions() SessionStore
 	ScheduledTasks() ScheduledTaskStore
-	Swarm() SwarmStore
+	Jobs() JobStore
 	PollingOffsetStore() updatepoller.OffsetStore
 	Collaborators() CollaboratorStore
 	Close() error
@@ -132,7 +132,7 @@ type SessionStore interface {
 
 // ScheduledTaskRecord persists locator-targeted recurring task metadata.
 type ScheduledTaskRecord struct {
-	TaskID              string
+	JobID               string
 	SessionID           string
 	ChannelType         string
 	AddressKey          string
@@ -166,11 +166,11 @@ type ScheduledTaskStore interface {
 	Delete(ctx context.Context, taskID string) error
 }
 
-// SwarmTaskRecord persists one assignable work item.
-type SwarmTaskRecord struct {
+// JobRecord persists one assignable work item.
+type JobRecord struct {
 	ID            string
 	SessionID     string
-	ParentTaskID  string
+	ParentJobID   string
 	Title         string
 	Objective     string
 	Status        string
@@ -187,10 +187,10 @@ type SwarmTaskRecord struct {
 	CanceledAt    time.Time
 }
 
-// SwarmTaskEventRecord persists an append-only task event.
-type SwarmTaskEventRecord struct {
+// JobEventRecord persists an append-only task event.
+type JobEventRecord struct {
 	ID          string
-	TaskID      string
+	JobID       string
 	EventType   string
 	Actor       string
 	MessageID   string
@@ -198,11 +198,11 @@ type SwarmTaskEventRecord struct {
 	CreatedAt   time.Time
 }
 
-// SwarmDeliveryRecord persists idempotency state for external delivery side effects.
-type SwarmDeliveryRecord struct {
+// DeliveryRecord persists idempotency state for external delivery side effects.
+type DeliveryRecord struct {
 	ID                string
 	DeliveryKey       string
-	TaskID            string
+	JobID             string
 	SessionID         string
 	Channel           string
 	AddressKey        string
@@ -217,11 +217,11 @@ type SwarmDeliveryRecord struct {
 	UpdatedAt         time.Time
 }
 
-// SwarmAgentStepRecord persists idempotency state for one logical agent step.
-type SwarmAgentStepRecord struct {
+// AgentStepRecord persists idempotency state for one logical agent step.
+type AgentStepRecord struct {
 	ID          string
 	StepKey     string
-	TaskID      string
+	JobID       string
 	AgentName   string
 	Role        string
 	Iteration   int
@@ -234,20 +234,20 @@ type SwarmAgentStepRecord struct {
 	CompletedAt time.Time
 }
 
-// SwarmStore persists swarm product/read-model state.
-type SwarmStore interface {
-	CreateTask(ctx context.Context, record SwarmTaskRecord) (bool, error)
-	GetTask(ctx context.Context, taskID string) (SwarmTaskRecord, bool, error)
-	ListActiveJobsBySession(ctx context.Context, sessionID string) ([]SwarmTaskRecord, error)
-	UpdateTaskStatus(ctx context.Context, taskID string, status string, reason string) error
-	SetTaskResult(ctx context.Context, taskID string, resultJSON string, status string, reason string) error
-	AppendTaskEvent(ctx context.Context, record SwarmTaskEventRecord) error
-	ListTaskEvents(ctx context.Context, taskID string) ([]SwarmTaskEventRecord, error)
-	ReserveDelivery(ctx context.Context, record SwarmDeliveryRecord) (SwarmDeliveryRecord, bool, error)
+// JobStore persists Balda job orchestration state and read models.
+type JobStore interface {
+	CreateJob(ctx context.Context, record JobRecord) (bool, error)
+	GetJob(ctx context.Context, taskID string) (JobRecord, bool, error)
+	ListActiveJobsBySession(ctx context.Context, sessionID string) ([]JobRecord, error)
+	UpdateJobStatus(ctx context.Context, taskID string, status string, reason string) error
+	SetJobResult(ctx context.Context, taskID string, resultJSON string, status string, reason string) error
+	AppendJobEvent(ctx context.Context, record JobEventRecord) error
+	ListJobEvents(ctx context.Context, taskID string) ([]JobEventRecord, error)
+	ReserveDelivery(ctx context.Context, record DeliveryRecord) (DeliveryRecord, bool, error)
 	MarkDeliverySending(ctx context.Context, deliveryKey string) error
 	MarkDeliverySent(ctx context.Context, deliveryKey string, providerMessageID string) error
 	MarkDeliveryFailed(ctx context.Context, deliveryKey string, reason string) error
-	ReserveAgentStep(ctx context.Context, record SwarmAgentStepRecord) (SwarmAgentStepRecord, bool, error)
+	ReserveAgentStep(ctx context.Context, record AgentStepRecord) (AgentStepRecord, bool, error)
 	CompleteAgentStep(ctx context.Context, stepKey string, resultJSON string) error
 	FailAgentStep(ctx context.Context, stepKey string, resultJSON string, reason string) error
 }

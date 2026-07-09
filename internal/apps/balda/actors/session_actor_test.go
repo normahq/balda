@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/pkg/actorlayer"
@@ -23,7 +24,7 @@ func TestSessionActorInterruptQueueModeCancelsSessionBeforeEnqueue(t *testing.T)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := exec.enqueueTurn(ctx, testSessionTurnEnvelope(t, map[string]string{"queue_mode": baldaruntime.QueueModeInterrupt}))
+	err := exec.enqueueTurn(ctx, testSessionTurnEnvelope(t, map[string]string{"queue_mode": baldaexecution.QueueModeInterrupt}))
 	if err == nil {
 		t.Fatal("enqueueTurn() error = nil, want canceled context after enqueue")
 	}
@@ -61,20 +62,37 @@ func TestSessionActorDefaultQueueModeDoesNotCancelSession(t *testing.T) {
 	}
 }
 
+func TestSessionActorRejectsMismatchedEnvelopeAndPayloadJobID(t *testing.T) {
+	t.Parallel()
+
+	exec := &sessionActorExecutor{}
+	env := testSessionTurnEnvelopeWithJobID(t, nil, "task-payload", sessionTurnSourceWebhook)
+	env.Namespace = baldaexecution.NamespaceWebhookInbound
+	env.Meta = baldaexecution.WithJobIDMeta(nil, "task-envelope")
+
+	err := exec.enqueueTurn(context.Background(), env)
+	if err == nil {
+		t.Fatal("enqueueTurn() error = nil, want policy error")
+	}
+	if got, want := actorlayer.ClassifyError(err), actorlayer.ErrorKindPolicy; got != want {
+		t.Fatalf("enqueueTurn() error kind = %q, want %q (err=%v)", got, want, err)
+	}
+}
+
 func TestSessionActorSettleSessionTurnResultMarksTaskFailedWithoutRetry(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorRuntimeServices(t, ctx)
 	_ = provider
 	_ = bus
 	_ = dispatcher
 	_ = allocator
-	created, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+	created, err := tasks.Create(ctx, baldastate.JobRecord{
 		ID:        "task-session-failed",
 		SessionID: "tg-9001-77",
 		Objective: "run session task",
-		Status:    baldastate.SwarmTaskStatusRunning,
+		Status:    baldastate.JobStatusRunning,
 	}, "test", nil)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -85,24 +103,23 @@ func TestSessionActorSettleSessionTurnResultMarksTaskFailedWithoutRetry(t *testi
 
 	exec := &sessionActorExecutor{tasks: tasks}
 	runErr := errors.New("runner failed")
-	env := testSessionTurnEnvelope(t, nil)
-	env.Namespace = baldaruntime.NamespaceWebhookInbound
-	env.TaskID = "task-session-failed"
-	payload := SessionTurnPayload{Source: sessionTurnSourceWebhook}
+	env := testSessionTurnEnvelopeWithJobID(t, nil, "task-session-failed", sessionTurnSourceWebhook)
+	env.Namespace = baldaexecution.NamespaceWebhookInbound
+	payload := SessionTurnPayload{JobID: "task-session-failed", Source: sessionTurnSourceWebhook}
 
 	if err := exec.settleSessionTurnResult(ctx, env, payload, runErr); err != nil {
 		t.Fatalf("settleSessionTurnResult() error = %v, want nil after recording task failure", err)
 	}
 
-	task, ok, err := tasks.Get(ctx, env.TaskID)
+	task, ok, err := tasks.Get(ctx, baldaexecution.EnvelopeJobID(env))
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("Get() found = false for task %q", env.TaskID)
+		t.Fatalf("Get() found = false for task %q", baldaexecution.EnvelopeJobID(env))
 	}
-	if task.Status != baldastate.SwarmTaskStatusFailed {
-		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusFailed)
+	if task.Status != baldastate.JobStatusFailed {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusFailed)
 	}
 }
 
@@ -110,16 +127,16 @@ func TestSessionActorSettleSessionTurnResultMarksTaskCanceledWithoutRetry(t *tes
 	t.Parallel()
 
 	ctx := context.Background()
-	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorRuntimeServices(t, ctx)
 	_ = provider
 	_ = bus
 	_ = dispatcher
 	_ = allocator
-	created, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+	created, err := tasks.Create(ctx, baldastate.JobRecord{
 		ID:        "task-session-canceled",
 		SessionID: "tg-9001-77",
 		Objective: "run session task",
-		Status:    baldastate.SwarmTaskStatusRunning,
+		Status:    baldastate.JobStatusRunning,
 	}, "test", nil)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -129,24 +146,23 @@ func TestSessionActorSettleSessionTurnResultMarksTaskCanceledWithoutRetry(t *tes
 	}
 
 	exec := &sessionActorExecutor{tasks: tasks}
-	env := testSessionTurnEnvelope(t, nil)
-	env.Namespace = baldaruntime.NamespaceWebhookInbound
-	env.TaskID = "task-session-canceled"
-	payload := SessionTurnPayload{Source: sessionTurnSourceWebhook}
+	env := testSessionTurnEnvelopeWithJobID(t, nil, "task-session-canceled", sessionTurnSourceWebhook)
+	env.Namespace = baldaexecution.NamespaceWebhookInbound
+	payload := SessionTurnPayload{JobID: "task-session-canceled", Source: sessionTurnSourceWebhook}
 
 	if err := exec.settleSessionTurnResult(ctx, env, payload, context.Canceled); err != nil {
 		t.Fatalf("settleSessionTurnResult() error = %v, want nil after recording task cancellation", err)
 	}
 
-	task, ok, err := tasks.Get(ctx, env.TaskID)
+	task, ok, err := tasks.Get(ctx, baldaexecution.EnvelopeJobID(env))
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("Get() found = false for task %q", env.TaskID)
+		t.Fatalf("Get() found = false for task %q", baldaexecution.EnvelopeJobID(env))
 	}
-	if task.Status != baldastate.SwarmTaskStatusCanceled {
-		t.Fatalf("task status = %q, want %q", task.Status, baldastate.SwarmTaskStatusCanceled)
+	if task.Status != baldastate.JobStatusCanceled {
+		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusCanceled)
 	}
 }
 
@@ -166,8 +182,7 @@ func TestSessionActorSettleSessionTurnResultKeepsHumanTurnErrorsRetryableEvenWit
 	t.Parallel()
 
 	exec := &sessionActorExecutor{}
-	env := testSessionTurnEnvelope(t, nil)
-	env.TaskID = "turn-legacy-1"
+	env := testSessionTurnEnvelopeWithJobID(t, nil, "turn-legacy-1", sessionTurnSourceTelegram)
 	runErr := errors.New("runner failed")
 
 	err := exec.settleSessionTurnResult(context.Background(), env, SessionTurnPayload{Source: sessionTurnSourceTelegram}, runErr)
@@ -181,9 +196,8 @@ func TestSessionActorSettleSessionTurnResultRecordsScheduledTaskOutcome(t *testi
 
 	recorder := &fakeScheduledTaskRecorder{}
 	exec := &sessionActorExecutor{scheduler: recorder}
-	payload := SessionTurnPayload{ScheduledJobID: "scheduled-1"}
-	env := testSessionTurnEnvelope(t, nil)
-	env.TaskID = "runtime-task-1"
+	payload := SessionTurnPayload{JobID: "runtime-task-1", ScheduledJobID: "scheduled-1"}
+	env := testSessionTurnEnvelopeWithJobID(t, nil, "runtime-task-1", sessionTurnSourceSchedule)
 
 	if err := exec.settleSessionTurnResult(context.Background(), env, payload, nil); err != nil {
 		t.Fatalf("settleSessionTurnResult(success) error = %v", err)
@@ -211,16 +225,16 @@ func TestSessionActorEnqueueTurnSkipsDeadLetteredTask(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	provider, bus, dispatcher, tasks, allocator := newTaskActorSwarmServices(t, ctx)
+	provider, bus, dispatcher, tasks, allocator := newTaskActorRuntimeServices(t, ctx)
 	_ = provider
 	_ = bus
 	_ = dispatcher
 	_ = allocator
-	if _, err := tasks.Create(ctx, baldastate.SwarmTaskRecord{
+	if _, err := tasks.Create(ctx, baldastate.JobRecord{
 		ID:        "task-session-deadlettered",
 		SessionID: "tg-9001-77",
 		Objective: "run session task",
-		Status:    baldastate.SwarmTaskStatusDeadLettered,
+		Status:    baldastate.JobStatusDeadLettered,
 	}, "test", nil); err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -231,9 +245,8 @@ func TestSessionActorEnqueueTurnSkipsDeadLetteredTask(t *testing.T) {
 		runner: fakeSessionTurnRunner{},
 		tasks:  tasks,
 	}
-	env := testSessionTurnEnvelope(t, nil)
-	env.Namespace = baldaruntime.NamespaceWebhookInbound
-	env.TaskID = "task-session-deadlettered"
+	env := testSessionTurnEnvelopeWithJobID(t, nil, "task-session-deadlettered", sessionTurnSourceWebhook)
+	env.Namespace = baldaexecution.NamespaceWebhookInbound
 
 	if err := exec.enqueueTurn(ctx, env); err != nil {
 		t.Fatalf("enqueueTurn() error = %v, want nil noop for deadlettered task", err)
@@ -263,14 +276,34 @@ func testSessionTurnEnvelope(t *testing.T, meta map[string]string) actorlayer.En
 	}
 	return actorlayer.Envelope{
 		ID:          "session-command-1",
-		Namespace:   baldaruntime.NamespaceHumanInbound,
-		Kind:        baldaruntime.KindMessage,
+		Namespace:   baldaexecution.NamespaceHumanInbound,
+		Kind:        baldaexecution.KindMessage,
 		From:        actorlayer.ActorAddress{Target: "telegram", Key: "101"},
-		To:          actorlayer.ActorAddress{Target: baldaruntime.ActorTypeSession, Key: locator.SessionID},
+		To:          actorlayer.ActorAddress{Target: baldaexecution.ActorTypeSession, Key: locator.SessionID},
 		SessionID:   locator.SessionID,
 		PayloadJSON: string(payload),
 		Meta:        meta,
 	}
+}
+
+func testSessionTurnEnvelopeWithJobID(t *testing.T, meta map[string]string, jobID string, source string) actorlayer.Envelope {
+	t.Helper()
+	env := testSessionTurnEnvelope(t, meta)
+	var payload SessionTurnPayload
+	if err := json.Unmarshal([]byte(env.PayloadJSON), &payload); err != nil {
+		t.Fatalf("Unmarshal(SessionTurnPayload) error = %v", err)
+	}
+	payload.JobID = jobID
+	env.Meta = baldaexecution.WithJobIDMeta(env.Meta, jobID)
+	if strings.TrimSpace(source) != "" {
+		payload.Source = source
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("Marshal(SessionTurnPayload with JobID) error = %v", err)
+	}
+	env.PayloadJSON = string(data)
+	return env
 }
 
 type fakeSessionTurnRunner struct{}

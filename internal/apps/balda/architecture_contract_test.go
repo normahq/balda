@@ -17,7 +17,7 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 
 	t.Run("turn dispatcher is only a session actor implementation detail", func(t *testing.T) {
 		matches := findSourceMatches(t, root, files, regexp.MustCompile(`\.Enqueue\s*\(`))
-		assertOnlyAllowedFiles(t, matches, []string{"actors/swarm_session_actor.go"})
+		assertOnlyAllowedFiles(t, matches, []string{"actors/session_actor.go"})
 		if len(matches) == 0 {
 			t.Fatal("no TurnDispatcher.Enqueue call found; expected the session-turn execution path to remain the only code path allowed to enqueue TurnDispatcher work")
 		}
@@ -27,13 +27,13 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 		matches := findSourceMatches(t, root, files, regexp.MustCompile(`\.CancelSession\s*\(`))
 		assertOnlyAllowedFiles(t, matches, []string{
 			"actors/turn_dispatcher.go",
-			"actors/swarm_control_actor.go",
-			"actors/swarm_session_actor.go",
+			"actors/control_actor.go",
+			"actors/session_actor.go",
 		})
 	})
 
 	t.Run("balda product actors live outside telegram handlers", func(t *testing.T) {
-		forbiddenHandlers, err := filepath.Glob(filepath.Join(root, "handlers", "swarm_*_actor.go"))
+		forbiddenHandlers, err := filepath.Glob(filepath.Join(root, "handlers", "*_actor.go"))
 		if err != nil {
 			t.Fatalf("glob handler actor files: %v", err)
 		}
@@ -41,12 +41,12 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 			t.Fatalf("Balda product actors must live in internal/apps/balda/actors, found handlers files: %v", forbiddenHandlers)
 		}
 		handlersSource := readPackageSource(t, filepath.Join(root, "handlers"))
-		if strings.Contains(handlersSource, `group:"balda_swarm_actors"`) {
-			t.Fatal("handlers module must not provide balda_swarm_actors; actor registration belongs to internal/apps/balda/actors")
+		if strings.Contains(handlersSource, `group:"balda_product_actors"`) {
+			t.Fatal("handlers module must not provide balda_product_actors; actor registration belongs to internal/apps/balda/actors")
 		}
 		actorsSource := readPackageSource(t, filepath.Join(root, "actors"))
-		if !strings.Contains(actorsSource, `group:"balda_swarm_actors"`) {
-			t.Fatal("internal/apps/balda/actors must provide Balda product actors to balda_swarm_actors")
+		if !strings.Contains(actorsSource, `group:"balda_product_actors"`) {
+			t.Fatal("internal/apps/balda/actors must provide Balda product actors to balda_product_actors")
 		}
 	})
 
@@ -66,14 +66,14 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 	})
 
 	t.Run("actors execute from actorlayer delivery source", func(t *testing.T) {
-		runtimeSource := readSource(t, filepath.Join(root, "runtime/host.go"))
+		runtimeSource := readSource(t, filepath.Join(root, "execution/host.go"))
 		if !strings.Contains(runtimeSource, "Source actorengine.Source") {
 			t.Fatal("runtime host must depend on actorlayer Source, not a direct transport consumer")
 		}
 		if !strings.Contains(runtimeSource, "actorengine.NewDispatchRuntime") {
 			t.Fatal("runtime host must use Norma actorengine.NewDispatchRuntime")
 		}
-		if !strings.Contains(runtimeSource, "runtimeSource{") || !strings.Contains(runtimeSource, "r.engine.Run(runCtx") {
+		if !strings.Contains(runtimeSource, "executionSource{") || !strings.Contains(runtimeSource, "r.engine.Run(runCtx") {
 			t.Fatal("runtime host must dispatch actor deliveries through actorlayer dispatch runtime")
 		}
 	})
@@ -194,14 +194,14 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 	})
 
 	t.Run("runtime config stays always on", func(t *testing.T) {
-		runtimeConfigSource := readSource(t, filepath.Join(root, "runtime/config.go"))
+		runtimeConfigSource := readSource(t, filepath.Join(root, "execution/config.go"))
 		if regexp.MustCompile(`(?m)^\s*Enabled\b`).FindStringIndex(runtimeConfigSource) != nil {
 			t.Fatal("runtime.Config must not expose an Enabled field")
 		}
 
 		appConfigSource := readSource(t, filepath.Join(root, "config.go"))
-		if regexp.MustCompile(`type SwarmConfig struct \{\s*Enabled\b`).FindStringIndex(appConfigSource) != nil {
-			t.Fatal("BaldaConfig.SwarmConfig must not expose an Enabled field")
+		if regexp.MustCompile(`type ExecutionConfig struct \{\s*Enabled\b`).FindStringIndex(appConfigSource) != nil {
+			t.Fatal("BaldaConfig.ExecutionConfig must not expose an Enabled field")
 		}
 	})
 
@@ -234,12 +234,12 @@ func TestRuntimeArchitectureContractStatic(t *testing.T) {
 	})
 
 	t.Run("runtime package does not import ingress handlers or external session SDK", func(t *testing.T) {
-		runtimeDir := filepath.Join(root, "runtime")
+		runtimeDir := filepath.Join(root, "execution")
 		runtimeFiles := productionGoFiles(t, runtimeDir)
 		forbiddenImportPattern := regexp.MustCompile(`github\.com/normahq/balda/internal/apps/balda/handlers|google\.golang\.org/adk`)
 		matches := findSourceMatches(t, runtimeDir, runtimeFiles, forbiddenImportPattern)
 		if len(matches) > 0 {
-			t.Fatalf("runtime packages must not import ingress handlers or external session SDK:\n%s", formatSourceMatches(matches))
+			t.Fatalf("execution packages must not import ingress handlers or external session SDK:\n%s", formatSourceMatches(matches))
 		}
 	})
 }

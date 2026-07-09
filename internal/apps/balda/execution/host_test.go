@@ -1,4 +1,4 @@
-package runtime
+package execution
 
 import (
 	"context"
@@ -79,8 +79,8 @@ func (m testDelivery) DeadLetter(ctx context.Context, reason string) error {
 
 type deadLetterRecorderFunc func(context.Context, string, string, string, string) error
 
-func (f deadLetterRecorderFunc) DeadLetter(ctx context.Context, taskID string, actor string, messageID string, reason string) error {
-	return f(ctx, taskID, actor, messageID, reason)
+func (f deadLetterRecorderFunc) DeadLetter(ctx context.Context, jobID string, actor string, messageID string, reason string) error {
+	return f(ctx, jobID, actor, messageID, reason)
 }
 
 type recordingCommandBus struct {
@@ -176,21 +176,21 @@ func TestRuntimeAddressOf(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotAddr, err := runtimeAddressOf(tt.env)
+			gotAddr, err := executionAddressOf(tt.env)
 			if tt.wantErr != "" {
 				if err == nil {
-					t.Fatalf("runtimeAddressOf() error = nil, want contains %q", tt.wantErr)
+					t.Fatalf("executionAddressOf() error = nil, want contains %q", tt.wantErr)
 				}
 				if got, want := err.Error(), tt.wantErr; !strings.Contains(got, want) {
-					t.Fatalf("runtimeAddressOf() error = %q, want contains %q", got, want)
+					t.Fatalf("executionAddressOf() error = %q, want contains %q", got, want)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("runtimeAddressOf() error = %v, want nil", err)
+				t.Fatalf("executionAddressOf() error = %v, want nil", err)
 			}
 			if gotAddr != tt.haveAddr {
-				t.Fatalf("runtimeAddressOf() address = %q, want %q", gotAddr, tt.haveAddr)
+				t.Fatalf("executionAddressOf() address = %q, want %q", gotAddr, tt.haveAddr)
 			}
 		})
 	}
@@ -199,7 +199,7 @@ func TestRuntimeAddressOf(t *testing.T) {
 func TestActorLaneKeyFromEnvelopeUsesQualifiedDeliveryKey(t *testing.T) {
 	env := actorlayer.Envelope{
 		Namespace: NamespaceAgentResult,
-		TaskID:    "task-1",
+		Meta:      WithJobIDMeta(nil, "task-1"),
 		To:        actorlayer.ActorAddress{Target: ActorTypeDelivery, Key: "telegram:9001:77"},
 	}
 
@@ -265,23 +265,23 @@ func TestRuntime_RetryExhaustionMarksTaskDeadlettered(t *testing.T) {
 		t.Fatalf("NewSQLiteProvider() error = %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Close() })
-	_, err = provider.Swarm().CreateTask(ctx, baldastate.SwarmTaskRecord{
+	_, err = provider.Jobs().CreateJob(ctx, baldastate.JobRecord{
 		ID:        "task-retry",
 		SessionID: "s-1",
 		Objective: "retry",
-		Status:    baldastate.SwarmTaskStatusRunning,
+		Status:    baldastate.JobStatusRunning,
 	})
 	if err != nil {
-		t.Fatalf("CreateTask() error = %v", err)
+		t.Fatalf("CreateJob() error = %v", err)
 	}
 	actor := &testActor{address: actorlayer.WildcardAddress(ActorTypeSession), err: actorlayer.TransientError(fmt.Errorf("temporary"))}
 	registry := newTestRegistry(t, actor)
 	runtime := newRuntimeForTest(&recordingCommandBus{}, registry)
-	runtime.jobs = deadLetterRecorderFunc(func(ctx context.Context, taskID string, actor string, messageID string, reason string) error {
-		return provider.Swarm().UpdateTaskStatus(ctx, taskID, baldastate.SwarmTaskStatusDeadLettered, reason)
+	runtime.jobs = deadLetterRecorderFunc(func(ctx context.Context, jobID string, actor string, messageID string, reason string) error {
+		return provider.Jobs().UpdateJobStatus(ctx, jobID, baldastate.JobStatusDeadLettered, reason)
 	})
 	env := runtimeTestEnvelope("retry-exhausted", actorlayer.ActorAddress{Target: ActorTypeSession, Key: "s-1"})
-	env.TaskID = "task-retry"
+	env.Meta = WithJobIDMeta(env.Meta, "task-retry")
 	var deadletterCalled bool
 	err = handleRuntimeDelivery(runtime, ctx, testDelivery{
 		env:           env,
@@ -298,11 +298,11 @@ func TestRuntime_RetryExhaustionMarksTaskDeadlettered(t *testing.T) {
 	if !deadletterCalled {
 		t.Fatal("DeadLetter() was not called")
 	}
-	task, ok, err := provider.Swarm().GetTask(ctx, "task-retry")
+	task, ok, err := provider.Jobs().GetJob(ctx, "task-retry")
 	if err != nil {
 		t.Fatalf("Get task: %v", err)
 	}
-	if !ok || task.Status != baldastate.SwarmTaskStatusDeadLettered {
+	if !ok || task.Status != baldastate.JobStatusDeadLettered {
 		t.Fatalf("task = %+v found=%v, want deadlettered", task, ok)
 	}
 }
@@ -365,7 +365,7 @@ func newRuntimeForTest(bus *recordingCommandBus, registry dispatch.Registry) *Ac
 	rt := &ActorHost{source: bus, events: bus, heartbeatTick: heartbeatInterval}
 	engine, err := actorengine.NewDispatchRuntime(actorengine.RuntimeConfig{
 		Registry:  registry,
-		AddressOf: runtimeAddressOf,
+		AddressOf: executionAddressOf,
 		LaneKey:   actorLaneKeyFromEnvelope,
 		Sink:      rt,
 		Retry: actorengine.RetryPolicy{

@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/internal/apps/balda/memory"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	"github.com/normahq/balda/pkg/actorlayer"
 	actortransport "github.com/normahq/balda/pkg/actorlayer/transport"
 	"go.uber.org/fx"
@@ -43,10 +43,10 @@ func MemoryRememberEnvelope(payload MemoryRememberPayload) (actorlayer.Envelope,
 	}
 	return actorlayer.Envelope{
 		ID:          uuid.NewString(),
-		Namespace:   baldaruntime.NamespaceMemoryCommand,
-		Kind:        baldaruntime.KindMemoryRemember,
+		Namespace:   baldaexecution.NamespaceMemoryCommand,
+		Kind:        baldaexecution.KindMemoryRemember,
 		From:        actorlayer.SystemAddress("memory"),
-		To:          actorlayer.ActorAddress{Target: baldaruntime.ActorTypeMemory, Key: "global"},
+		To:          actorlayer.ActorAddress{Target: baldaexecution.ActorTypeMemory, Key: "global"},
 		SessionID:   strings.TrimSpace(payload.SourceSessionID),
 		Priority:    70,
 		DedupeKey:   uuid.NewString(),
@@ -55,15 +55,15 @@ func MemoryRememberEnvelope(payload MemoryRememberPayload) (actorlayer.Envelope,
 }
 
 func (e *memoryActorExecutor) Address() string {
-	return actorlayer.WildcardAddress(baldaruntime.ActorTypeMemory)
+	return actorlayer.WildcardAddress(baldaexecution.ActorTypeMemory)
 }
 
 func (e *memoryActorExecutor) Handle(ctx context.Context, env actorlayer.Envelope) error {
-	if strings.TrimSpace(env.Namespace) != baldaruntime.NamespaceMemoryCommand {
+	if strings.TrimSpace(env.Namespace) != baldaexecution.NamespaceMemoryCommand {
 		return actorlayer.PolicyError(fmt.Errorf("unsupported memory namespace %q", env.Namespace))
 	}
 	switch strings.TrimSpace(env.Kind) {
-	case baldaruntime.KindMemoryRemember:
+	case baldaexecution.KindMemoryRemember:
 		return e.remember(ctx, env)
 	default:
 		return actorlayer.PolicyError(fmt.Errorf("unsupported memory kind %q", env.Kind))
@@ -103,11 +103,11 @@ func (e *memoryActorExecutor) publishUpdated(ctx context.Context, env actorlayer
 	}
 	eventEnv := env
 	eventEnv.ID = strings.TrimSpace(env.ID) + ":event:memory_updated"
-	eventEnv.Namespace = baldaruntime.NamespaceTelemetry
+	eventEnv.Namespace = baldaexecution.NamespaceTelemetry
 	eventEnv.Kind = "memory_updated"
 	eventEnv.DedupeKey = eventEnv.ID
 	eventEnv.PayloadJSON = string(data)
-	if err := e.events.PublishEvent(ctx, baldaruntime.SubjectEventMemoryUpdated, eventEnv); err != nil {
+	if err := e.events.PublishEvent(ctx, baldaexecution.SubjectEventMemoryUpdated, eventEnv); err != nil {
 		return
 	}
 }

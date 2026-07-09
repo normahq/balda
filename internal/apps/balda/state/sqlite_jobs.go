@@ -8,18 +8,18 @@ import (
 	"time"
 )
 
-type sqliteSwarmStore struct {
+type sqliteJobStore struct {
 	db *sql.DB
 }
 
-func (s *sqliteSwarmStore) CreateTask(ctx context.Context, record SwarmTaskRecord) (bool, error) {
+func (s *sqliteJobStore) CreateJob(ctx context.Context, record JobRecord) (bool, error) {
 	now := time.Now().UTC()
-	normalized, err := normalizeSwarmTask(record, now)
+	normalized, err := normalizeExecutionTask(record, now)
 	if err != nil {
 		return false, err
 	}
 	res, err := s.db.ExecContext(ctx, `
-		INSERT OR IGNORE INTO swarm_tasks (
+		INSERT OR IGNORE INTO execution_tasks (
 			id, session_id, parent_task_id, title, objective, status, owner_actor, assigned_actor,
 			priority, created_by, result_json, error,
 			created_at, updated_at, started_at, completed_at, canceled_at
@@ -27,7 +27,7 @@ func (s *sqliteSwarmStore) CreateTask(ctx context.Context, record SwarmTaskRecor
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		normalized.ID,
 		nullIfEmpty(normalized.SessionID),
-		nullIfEmpty(normalized.ParentTaskID),
+		nullIfEmpty(normalized.ParentJobID),
 		nullIfEmpty(normalized.Title),
 		normalized.Objective,
 		normalized.Status,
@@ -44,46 +44,46 @@ func (s *sqliteSwarmStore) CreateTask(ctx context.Context, record SwarmTaskRecor
 		optionalTimeValue(normalized.CanceledAt),
 	)
 	if err != nil {
-		return false, fmt.Errorf("insert swarm task %q: %w", normalized.ID, err)
+		return false, fmt.Errorf("insert runtime task %q: %w", normalized.ID, err)
 	}
 	count, err := res.RowsAffected()
 	if err != nil {
-		return false, fmt.Errorf("count inserted swarm task %q: %w", normalized.ID, err)
+		return false, fmt.Errorf("count inserted runtime task %q: %w", normalized.ID, err)
 	}
 	return count > 0, nil
 }
 
-func (s *sqliteSwarmStore) GetTask(ctx context.Context, taskID string) (SwarmTaskRecord, bool, error) {
-	record, ok, err := scanSwarmTask(s.db.QueryRowContext(ctx, swarmTaskSelectSQL+` WHERE id = ?`, strings.TrimSpace(taskID)).Scan)
+func (s *sqliteJobStore) GetJob(ctx context.Context, taskID string) (JobRecord, bool, error) {
+	record, ok, err := scanExecutionTask(s.db.QueryRowContext(ctx, executionTaskSelectSQL+` WHERE id = ?`, strings.TrimSpace(taskID)).Scan)
 	if err != nil {
-		return SwarmTaskRecord{}, false, err
+		return JobRecord{}, false, err
 	}
 	return record, ok, nil
 }
 
-func (s *sqliteSwarmStore) ListActiveJobsBySession(ctx context.Context, sessionID string) ([]SwarmTaskRecord, error) {
+func (s *sqliteJobStore) ListActiveJobsBySession(ctx context.Context, sessionID string) ([]JobRecord, error) {
 	trimmed := strings.TrimSpace(sessionID)
 	if trimmed == "" {
 		return nil, fmt.Errorf("session id is required")
 	}
-	rows, err := s.db.QueryContext(ctx, swarmTaskSelectSQL+`
+	rows, err := s.db.QueryContext(ctx, executionTaskSelectSQL+`
 		WHERE session_id = ?
 		  AND status NOT IN (?, ?, ?, ?)
 		ORDER BY created_at ASC`,
 		trimmed,
-		SwarmTaskStatusCompleted,
-		SwarmTaskStatusFailed,
-		SwarmTaskStatusCanceled,
-		SwarmTaskStatusDeadLettered,
+		JobStatusCompleted,
+		JobStatusFailed,
+		JobStatusCanceled,
+		JobStatusDeadLettered,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list active swarm tasks: %w", err)
+		return nil, fmt.Errorf("list active runtime tasks: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	var out []SwarmTaskRecord
+	var out []JobRecord
 	for rows.Next() {
-		record, ok, err := scanSwarmTask(rows.Scan)
+		record, ok, err := scanExecutionTask(rows.Scan)
 		if err != nil {
 			return nil, err
 		}
@@ -92,21 +92,21 @@ func (s *sqliteSwarmStore) ListActiveJobsBySession(ctx context.Context, sessionI
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate active swarm tasks: %w", err)
+		return nil, fmt.Errorf("iterate active runtime tasks: %w", err)
 	}
 	return out, nil
 }
 
-func (s *sqliteSwarmStore) UpdateTaskStatus(ctx context.Context, taskID string, status string, reason string) error {
-	trimmedTaskID := strings.TrimSpace(taskID)
-	if trimmedTaskID == "" {
+func (s *sqliteJobStore) UpdateJobStatus(ctx context.Context, taskID string, status string, reason string) error {
+	trimmedJobID := strings.TrimSpace(taskID)
+	if trimmedJobID == "" {
 		return fmt.Errorf("task id is required")
 	}
-	currentStatus, err := s.currentTaskStatus(ctx, trimmedTaskID)
+	currentStatus, err := s.currentTaskStatus(ctx, trimmedJobID)
 	if err != nil {
 		return err
 	}
-	normalizedStatus, err := normalizeSwarmTaskStatus(status)
+	normalizedStatus, err := normalizeExecutionTaskStatus(status)
 	if err != nil {
 		return err
 	}
@@ -116,7 +116,7 @@ func (s *sqliteSwarmStore) UpdateTaskStatus(ctx context.Context, taskID string, 
 	now := time.Now().UTC()
 	startedAt, completedAt, canceledAt := statusTimestamps(normalizedStatus, now)
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE swarm_tasks
+		UPDATE execution_tasks
 		SET status = ?,
 		    error = ?,
 		    updated_at = ?,
@@ -130,24 +130,24 @@ func (s *sqliteSwarmStore) UpdateTaskStatus(ctx context.Context, taskID string, 
 		optionalTimeValue(startedAt),
 		optionalTimeValue(completedAt),
 		optionalTimeValue(canceledAt),
-		trimmedTaskID,
+		trimmedJobID,
 	)
 	if err != nil {
-		return fmt.Errorf("update swarm task %q status: %w", trimmedTaskID, err)
+		return fmt.Errorf("update runtime task %q status: %w", trimmedJobID, err)
 	}
 	return nil
 }
 
-func (s *sqliteSwarmStore) SetTaskResult(ctx context.Context, taskID string, resultJSON string, status string, reason string) error {
-	trimmedTaskID := strings.TrimSpace(taskID)
-	if trimmedTaskID == "" {
+func (s *sqliteJobStore) SetJobResult(ctx context.Context, taskID string, resultJSON string, status string, reason string) error {
+	trimmedJobID := strings.TrimSpace(taskID)
+	if trimmedJobID == "" {
 		return fmt.Errorf("task id is required")
 	}
-	currentStatus, err := s.currentTaskStatus(ctx, trimmedTaskID)
+	currentStatus, err := s.currentTaskStatus(ctx, trimmedJobID)
 	if err != nil {
 		return err
 	}
-	normalizedStatus, err := normalizeSwarmTaskStatus(status)
+	normalizedStatus, err := normalizeExecutionTaskStatus(status)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func (s *sqliteSwarmStore) SetTaskResult(ctx context.Context, taskID string, res
 	now := time.Now().UTC()
 	startedAt, completedAt, canceledAt := statusTimestamps(normalizedStatus, now)
 	if _, err := s.db.ExecContext(ctx, `
-		UPDATE swarm_tasks
+		UPDATE execution_tasks
 		SET status = ?,
 		    result_json = ?,
 		    error = ?,
@@ -173,79 +173,79 @@ func (s *sqliteSwarmStore) SetTaskResult(ctx context.Context, taskID string, res
 		optionalTimeValue(startedAt),
 		optionalTimeValue(completedAt),
 		optionalTimeValue(canceledAt),
-		trimmedTaskID,
+		trimmedJobID,
 	); err != nil {
-		return fmt.Errorf("set swarm task %q result: %w", trimmedTaskID, err)
+		return fmt.Errorf("set runtime task %q result: %w", trimmedJobID, err)
 	}
 	return nil
 }
 
-func (s *sqliteSwarmStore) AppendTaskEvent(ctx context.Context, record SwarmTaskEventRecord) error {
+func (s *sqliteJobStore) AppendJobEvent(ctx context.Context, record JobEventRecord) error {
 	now := time.Now().UTC()
-	normalized, err := normalizeSwarmTaskEvent(record, now)
+	normalized, err := normalizeExecutionTaskEvent(record, now)
 	if err != nil {
 		return err
 	}
 	if _, err := s.db.ExecContext(ctx, `
-			INSERT OR IGNORE INTO swarm_task_events (id, task_id, event_type, actor, message_id, payload_json, created_at)
+			INSERT OR IGNORE INTO execution_task_events (id, task_id, event_type, actor, message_id, payload_json, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		normalized.ID,
-		normalized.TaskID,
+		normalized.JobID,
 		normalized.EventType,
 		nullIfEmpty(normalized.Actor),
 		nullIfEmpty(normalized.MessageID),
 		nullIfEmpty(normalized.PayloadJSON),
 		normalized.CreatedAt.Format(time.RFC3339),
 	); err != nil {
-		return fmt.Errorf("insert swarm task event %q: %w", normalized.ID, err)
+		return fmt.Errorf("insert runtime task event %q: %w", normalized.ID, err)
 	}
 	return nil
 }
 
-func (s *sqliteSwarmStore) ListTaskEvents(ctx context.Context, taskID string) ([]SwarmTaskEventRecord, error) {
+func (s *sqliteJobStore) ListJobEvents(ctx context.Context, taskID string) ([]JobEventRecord, error) {
 	trimmed := strings.TrimSpace(taskID)
 	if trimmed == "" {
 		return nil, fmt.Errorf("task id is required")
 	}
-	rows, err := s.db.QueryContext(ctx, swarmTaskEventSelectSQL+`
+	rows, err := s.db.QueryContext(ctx, executionTaskEventSelectSQL+`
 		WHERE task_id = ?
 		ORDER BY created_at ASC`,
 		trimmed,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list swarm task events: %w", err)
+		return nil, fmt.Errorf("list runtime task events: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	var out []SwarmTaskEventRecord
+	var out []JobEventRecord
 	for rows.Next() {
-		record, err := scanSwarmTaskEvent(rows.Scan)
+		record, err := scanExecutionTaskEvent(rows.Scan)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, record)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate swarm task events: %w", err)
+		return nil, fmt.Errorf("iterate runtime task events: %w", err)
 	}
 	return out, nil
 }
 
-func (s *sqliteSwarmStore) ReserveDelivery(ctx context.Context, record SwarmDeliveryRecord) (SwarmDeliveryRecord, bool, error) {
+func (s *sqliteJobStore) ReserveDelivery(ctx context.Context, record DeliveryRecord) (DeliveryRecord, bool, error) {
 	now := time.Now().UTC()
-	normalized, err := normalizeSwarmDelivery(record, now)
+	normalized, err := normalizeExecutionDelivery(record, now)
 	if err != nil {
-		return SwarmDeliveryRecord{}, false, err
+		return DeliveryRecord{}, false, err
 	}
 	res, err := s.db.ExecContext(ctx, `
-		INSERT OR IGNORE INTO swarm_delivery_outbox (
+		INSERT OR IGNORE INTO execution_delivery_outbox (
 			id, delivery_key, task_id, session_id, channel, address_key, kind, payload_json,
 			payload_hash, status, provider_message_id, sent_at, error, created_at, updated_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		normalized.ID,
 		normalized.DeliveryKey,
-		nullIfEmpty(normalized.TaskID),
+		nullIfEmpty(normalized.JobID),
 		nullIfEmpty(normalized.SessionID),
 		normalized.Channel,
 		normalized.AddressKey,
@@ -260,105 +260,105 @@ func (s *sqliteSwarmStore) ReserveDelivery(ctx context.Context, record SwarmDeli
 		normalized.UpdatedAt.Format(time.RFC3339),
 	)
 	if err != nil {
-		return SwarmDeliveryRecord{}, false, fmt.Errorf("reserve swarm delivery %q: %w", normalized.DeliveryKey, err)
+		return DeliveryRecord{}, false, fmt.Errorf("reserve runtime delivery %q: %w", normalized.DeliveryKey, err)
 	}
 	count, err := res.RowsAffected()
 	if err != nil {
-		return SwarmDeliveryRecord{}, false, fmt.Errorf("count reserved swarm delivery %q: %w", normalized.DeliveryKey, err)
+		return DeliveryRecord{}, false, fmt.Errorf("count reserved runtime delivery %q: %w", normalized.DeliveryKey, err)
 	}
 	got, ok, err := s.getDeliveryByKey(ctx, normalized.DeliveryKey)
 	if err != nil {
-		return SwarmDeliveryRecord{}, false, err
+		return DeliveryRecord{}, false, err
 	}
 	if !ok {
-		return SwarmDeliveryRecord{}, false, fmt.Errorf("reserved swarm delivery %q not found", normalized.DeliveryKey)
+		return DeliveryRecord{}, false, fmt.Errorf("reserved runtime delivery %q not found", normalized.DeliveryKey)
 	}
 	return got, count > 0, nil
 }
 
-func (s *sqliteSwarmStore) MarkDeliverySending(ctx context.Context, deliveryKey string) error {
+func (s *sqliteJobStore) MarkDeliverySending(ctx context.Context, deliveryKey string) error {
 	trimmedKey := strings.TrimSpace(deliveryKey)
 	if trimmedKey == "" {
 		return fmt.Errorf("delivery key is required")
 	}
 	now := time.Now().UTC()
 	if _, err := s.db.ExecContext(ctx, `
-			UPDATE swarm_delivery_outbox
+			UPDATE execution_delivery_outbox
 			SET status = ?,
 			    error = NULL,
 			    updated_at = ?
 			WHERE delivery_key = ?`,
-		SwarmDeliveryStatusSending,
+		DeliveryStatusSending,
 		now.Format(time.RFC3339),
 		trimmedKey,
 	); err != nil {
-		return fmt.Errorf("mark swarm delivery %q sending: %w", trimmedKey, err)
+		return fmt.Errorf("mark runtime delivery %q sending: %w", trimmedKey, err)
 	}
 	return nil
 }
 
-func (s *sqliteSwarmStore) MarkDeliverySent(ctx context.Context, deliveryKey string, providerMessageID string) error {
+func (s *sqliteJobStore) MarkDeliverySent(ctx context.Context, deliveryKey string, providerMessageID string) error {
 	trimmedKey := strings.TrimSpace(deliveryKey)
 	if trimmedKey == "" {
 		return fmt.Errorf("delivery key is required")
 	}
 	now := time.Now().UTC()
 	if _, err := s.db.ExecContext(ctx, `
-		UPDATE swarm_delivery_outbox
+		UPDATE execution_delivery_outbox
 		SET status = ?,
 		    provider_message_id = ?,
 		    sent_at = COALESCE(sent_at, ?),
 		    error = NULL,
 		    updated_at = ?
 		WHERE delivery_key = ?`,
-		SwarmDeliveryStatusSent,
+		DeliveryStatusSent,
 		nullIfEmpty(providerMessageID),
 		now.Format(time.RFC3339),
 		now.Format(time.RFC3339),
 		trimmedKey,
 	); err != nil {
-		return fmt.Errorf("mark swarm delivery %q sent: %w", trimmedKey, err)
+		return fmt.Errorf("mark runtime delivery %q sent: %w", trimmedKey, err)
 	}
 	return nil
 }
 
-func (s *sqliteSwarmStore) MarkDeliveryFailed(ctx context.Context, deliveryKey string, reason string) error {
+func (s *sqliteJobStore) MarkDeliveryFailed(ctx context.Context, deliveryKey string, reason string) error {
 	trimmedKey := strings.TrimSpace(deliveryKey)
 	if trimmedKey == "" {
 		return fmt.Errorf("delivery key is required")
 	}
 	now := time.Now().UTC()
 	if _, err := s.db.ExecContext(ctx, `
-		UPDATE swarm_delivery_outbox
+		UPDATE execution_delivery_outbox
 		SET status = ?,
 		    error = ?,
 		    updated_at = ?
 		WHERE delivery_key = ?`,
-		SwarmDeliveryStatusFailed,
+		DeliveryStatusFailed,
 		nullIfEmpty(reason),
 		now.Format(time.RFC3339),
 		trimmedKey,
 	); err != nil {
-		return fmt.Errorf("mark swarm delivery %q failed: %w", trimmedKey, err)
+		return fmt.Errorf("mark runtime delivery %q failed: %w", trimmedKey, err)
 	}
 	return nil
 }
 
-func (s *sqliteSwarmStore) ReserveAgentStep(ctx context.Context, record SwarmAgentStepRecord) (SwarmAgentStepRecord, bool, error) {
+func (s *sqliteJobStore) ReserveAgentStep(ctx context.Context, record AgentStepRecord) (AgentStepRecord, bool, error) {
 	now := time.Now().UTC()
-	normalized, err := normalizeSwarmAgentStep(record, now)
+	normalized, err := normalizeExecutionAgentStep(record, now)
 	if err != nil {
-		return SwarmAgentStepRecord{}, false, err
+		return AgentStepRecord{}, false, err
 	}
 	res, err := s.db.ExecContext(ctx, `
-		INSERT OR IGNORE INTO swarm_agent_steps (
+		INSERT OR IGNORE INTO execution_agent_steps (
 			id, step_key, task_id, agent_name, role, iteration, payload_hash, status,
 			result_json, error, created_at, updated_at, completed_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		normalized.ID,
 		normalized.StepKey,
-		normalized.TaskID,
+		normalized.JobID,
 		normalized.AgentName,
 		normalized.Role,
 		normalized.Iteration,
@@ -371,42 +371,42 @@ func (s *sqliteSwarmStore) ReserveAgentStep(ctx context.Context, record SwarmAge
 		optionalTimeValue(normalized.CompletedAt),
 	)
 	if err != nil {
-		return SwarmAgentStepRecord{}, false, fmt.Errorf("reserve swarm agent step %q: %w", normalized.StepKey, err)
+		return AgentStepRecord{}, false, fmt.Errorf("reserve runtime agent step %q: %w", normalized.StepKey, err)
 	}
 	count, err := res.RowsAffected()
 	if err != nil {
-		return SwarmAgentStepRecord{}, false, fmt.Errorf("count reserved swarm agent step %q: %w", normalized.StepKey, err)
+		return AgentStepRecord{}, false, fmt.Errorf("count reserved runtime agent step %q: %w", normalized.StepKey, err)
 	}
 	got, ok, err := s.getAgentStepByKey(ctx, normalized.StepKey)
 	if err != nil {
-		return SwarmAgentStepRecord{}, false, err
+		return AgentStepRecord{}, false, err
 	}
 	if !ok {
-		return SwarmAgentStepRecord{}, false, fmt.Errorf("reserved swarm agent step %q not found", normalized.StepKey)
+		return AgentStepRecord{}, false, fmt.Errorf("reserved runtime agent step %q not found", normalized.StepKey)
 	}
 	return got, count > 0, nil
 }
 
-func (s *sqliteSwarmStore) CompleteAgentStep(ctx context.Context, stepKey string, resultJSON string) error {
-	return s.finishAgentStep(ctx, stepKey, SwarmAgentStepStatusSucceeded, resultJSON, "")
+func (s *sqliteJobStore) CompleteAgentStep(ctx context.Context, stepKey string, resultJSON string) error {
+	return s.finishAgentStep(ctx, stepKey, AgentStepStatusSucceeded, resultJSON, "")
 }
 
-func (s *sqliteSwarmStore) FailAgentStep(ctx context.Context, stepKey string, resultJSON string, reason string) error {
-	return s.finishAgentStep(ctx, stepKey, SwarmAgentStepStatusFailed, resultJSON, reason)
+func (s *sqliteJobStore) FailAgentStep(ctx context.Context, stepKey string, resultJSON string, reason string) error {
+	return s.finishAgentStep(ctx, stepKey, AgentStepStatusFailed, resultJSON, reason)
 }
 
-func (s *sqliteSwarmStore) finishAgentStep(ctx context.Context, stepKey string, status string, resultJSON string, reason string) error {
+func (s *sqliteJobStore) finishAgentStep(ctx context.Context, stepKey string, status string, resultJSON string, reason string) error {
 	trimmedKey := strings.TrimSpace(stepKey)
 	if trimmedKey == "" {
 		return fmt.Errorf("agent step key is required")
 	}
-	normalizedStatus, err := normalizeSwarmAgentStepStatus(status)
+	normalizedStatus, err := normalizeExecutionAgentStepStatus(status)
 	if err != nil {
 		return err
 	}
 	now := time.Now().UTC()
 	if _, err := s.db.ExecContext(ctx, `
-		UPDATE swarm_agent_steps
+		UPDATE execution_agent_steps
 		SET status = ?,
 		    result_json = ?,
 		    error = ?,
@@ -420,52 +420,52 @@ func (s *sqliteSwarmStore) finishAgentStep(ctx context.Context, stepKey string, 
 		now.Format(time.RFC3339),
 		trimmedKey,
 	); err != nil {
-		return fmt.Errorf("finish swarm agent step %q: %w", trimmedKey, err)
+		return fmt.Errorf("finish runtime agent step %q: %w", trimmedKey, err)
 	}
 	return nil
 }
 
-func (s *sqliteSwarmStore) getDeliveryByKey(ctx context.Context, deliveryKey string) (SwarmDeliveryRecord, bool, error) {
-	record, ok, err := scanSwarmDelivery(s.db.QueryRowContext(ctx, swarmDeliverySelectSQL+` WHERE delivery_key = ?`, strings.TrimSpace(deliveryKey)).Scan)
+func (s *sqliteJobStore) getDeliveryByKey(ctx context.Context, deliveryKey string) (DeliveryRecord, bool, error) {
+	record, ok, err := scanExecutionDelivery(s.db.QueryRowContext(ctx, executionDeliverySelectSQL+` WHERE delivery_key = ?`, strings.TrimSpace(deliveryKey)).Scan)
 	if err != nil {
-		return SwarmDeliveryRecord{}, false, err
+		return DeliveryRecord{}, false, err
 	}
 	return record, ok, nil
 }
 
-func (s *sqliteSwarmStore) getAgentStepByKey(ctx context.Context, stepKey string) (SwarmAgentStepRecord, bool, error) {
-	record, ok, err := scanSwarmAgentStep(s.db.QueryRowContext(ctx, swarmAgentStepSelectSQL+` WHERE step_key = ?`, strings.TrimSpace(stepKey)).Scan)
+func (s *sqliteJobStore) getAgentStepByKey(ctx context.Context, stepKey string) (AgentStepRecord, bool, error) {
+	record, ok, err := scanExecutionAgentStep(s.db.QueryRowContext(ctx, executionAgentStepSelectSQL+` WHERE step_key = ?`, strings.TrimSpace(stepKey)).Scan)
 	if err != nil {
-		return SwarmAgentStepRecord{}, false, err
+		return AgentStepRecord{}, false, err
 	}
 	return record, ok, nil
 }
 
-const swarmTaskSelectSQL = `
+const executionTaskSelectSQL = `
 	SELECT id, COALESCE(session_id, ''), COALESCE(parent_task_id, ''), COALESCE(title, ''), objective,
 	       status, COALESCE(owner_actor, ''), COALESCE(assigned_actor, ''), priority,
 	       COALESCE(created_by, ''), COALESCE(result_json, ''), COALESCE(error, ''),
 	       created_at, updated_at, COALESCE(started_at, ''), COALESCE(completed_at, ''), COALESCE(canceled_at, '')
-	FROM swarm_tasks`
+	FROM execution_tasks`
 
-const swarmTaskEventSelectSQL = `
+const executionTaskEventSelectSQL = `
 	SELECT id, task_id, event_type, COALESCE(actor, ''), COALESCE(message_id, ''), COALESCE(payload_json, ''), created_at
-	FROM swarm_task_events`
+	FROM execution_task_events`
 
-const swarmDeliverySelectSQL = `
+const executionDeliverySelectSQL = `
 	SELECT id, delivery_key, COALESCE(task_id, ''), COALESCE(session_id, ''), channel, address_key, kind,
 	       payload_json, payload_hash, status, COALESCE(provider_message_id, ''), COALESCE(sent_at, ''),
 	       COALESCE(error, ''), created_at, updated_at
-	FROM swarm_delivery_outbox`
+	FROM execution_delivery_outbox`
 
-const swarmAgentStepSelectSQL = `
+const executionAgentStepSelectSQL = `
 	SELECT id, step_key, task_id, agent_name, role, iteration, payload_hash, status,
 	       COALESCE(result_json, ''), COALESCE(error, ''), created_at, updated_at, COALESCE(completed_at, '')
-	FROM swarm_agent_steps`
+	FROM execution_agent_steps`
 
-func scanSwarmTask(scan func(dest ...any) error) (SwarmTaskRecord, bool, error) {
+func scanExecutionTask(scan func(dest ...any) error) (JobRecord, bool, error) {
 	var (
-		record         SwarmTaskRecord
+		record         JobRecord
 		createdAtRaw   string
 		updatedAtRaw   string
 		startedAtRaw   string
@@ -475,7 +475,7 @@ func scanSwarmTask(scan func(dest ...any) error) (SwarmTaskRecord, bool, error) 
 	err := scan(
 		&record.ID,
 		&record.SessionID,
-		&record.ParentTaskID,
+		&record.ParentJobID,
 		&record.Title,
 		&record.Objective,
 		&record.Status,
@@ -493,29 +493,29 @@ func scanSwarmTask(scan func(dest ...any) error) (SwarmTaskRecord, bool, error) 
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return SwarmTaskRecord{}, false, nil
+			return JobRecord{}, false, nil
 		}
-		return SwarmTaskRecord{}, false, fmt.Errorf("scan swarm task: %w", err)
+		return JobRecord{}, false, fmt.Errorf("scan runtime task: %w", err)
 	}
 	createdAt, err := parseRequiredRFC3339(createdAtRaw)
 	if err != nil {
-		return SwarmTaskRecord{}, false, fmt.Errorf("parse task created_at: %w", err)
+		return JobRecord{}, false, fmt.Errorf("parse task created_at: %w", err)
 	}
 	updatedAt, err := parseRequiredRFC3339(updatedAtRaw)
 	if err != nil {
-		return SwarmTaskRecord{}, false, fmt.Errorf("parse task updated_at: %w", err)
+		return JobRecord{}, false, fmt.Errorf("parse task updated_at: %w", err)
 	}
 	startedAt, err := parseOptionalRFC3339(startedAtRaw)
 	if err != nil {
-		return SwarmTaskRecord{}, false, fmt.Errorf("parse task started_at: %w", err)
+		return JobRecord{}, false, fmt.Errorf("parse task started_at: %w", err)
 	}
 	completedAt, err := parseOptionalRFC3339(completedAtRaw)
 	if err != nil {
-		return SwarmTaskRecord{}, false, fmt.Errorf("parse task completed_at: %w", err)
+		return JobRecord{}, false, fmt.Errorf("parse task completed_at: %w", err)
 	}
 	canceledAt, err := parseOptionalRFC3339(canceledAtRaw)
 	if err != nil {
-		return SwarmTaskRecord{}, false, fmt.Errorf("parse task canceled_at: %w", err)
+		return JobRecord{}, false, fmt.Errorf("parse task canceled_at: %w", err)
 	}
 	record.CreatedAt = createdAt
 	record.UpdatedAt = updatedAt
@@ -525,31 +525,31 @@ func scanSwarmTask(scan func(dest ...any) error) (SwarmTaskRecord, bool, error) 
 	return record, true, nil
 }
 
-func scanSwarmTaskEvent(scan func(dest ...any) error) (SwarmTaskEventRecord, error) {
-	var record SwarmTaskEventRecord
+func scanExecutionTaskEvent(scan func(dest ...any) error) (JobEventRecord, error) {
+	var record JobEventRecord
 	var createdAtRaw string
 	if err := scan(
 		&record.ID,
-		&record.TaskID,
+		&record.JobID,
 		&record.EventType,
 		&record.Actor,
 		&record.MessageID,
 		&record.PayloadJSON,
 		&createdAtRaw,
 	); err != nil {
-		return SwarmTaskEventRecord{}, fmt.Errorf("scan swarm task event: %w", err)
+		return JobEventRecord{}, fmt.Errorf("scan runtime task event: %w", err)
 	}
 	createdAt, err := parseRequiredRFC3339(createdAtRaw)
 	if err != nil {
-		return SwarmTaskEventRecord{}, fmt.Errorf("parse task event created_at: %w", err)
+		return JobEventRecord{}, fmt.Errorf("parse task event created_at: %w", err)
 	}
 	record.CreatedAt = createdAt
 	return record, nil
 }
 
-func scanSwarmDelivery(scan func(dest ...any) error) (SwarmDeliveryRecord, bool, error) {
+func scanExecutionDelivery(scan func(dest ...any) error) (DeliveryRecord, bool, error) {
 	var (
-		record       SwarmDeliveryRecord
+		record       DeliveryRecord
 		sentAtRaw    string
 		createdAtRaw string
 		updatedAtRaw string
@@ -557,7 +557,7 @@ func scanSwarmDelivery(scan func(dest ...any) error) (SwarmDeliveryRecord, bool,
 	err := scan(
 		&record.ID,
 		&record.DeliveryKey,
-		&record.TaskID,
+		&record.JobID,
 		&record.SessionID,
 		&record.Channel,
 		&record.AddressKey,
@@ -573,21 +573,21 @@ func scanSwarmDelivery(scan func(dest ...any) error) (SwarmDeliveryRecord, bool,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return SwarmDeliveryRecord{}, false, nil
+			return DeliveryRecord{}, false, nil
 		}
-		return SwarmDeliveryRecord{}, false, fmt.Errorf("scan swarm delivery: %w", err)
+		return DeliveryRecord{}, false, fmt.Errorf("scan runtime delivery: %w", err)
 	}
 	createdAt, err := parseRequiredRFC3339(createdAtRaw)
 	if err != nil {
-		return SwarmDeliveryRecord{}, false, fmt.Errorf("parse delivery created_at: %w", err)
+		return DeliveryRecord{}, false, fmt.Errorf("parse delivery created_at: %w", err)
 	}
 	updatedAt, err := parseRequiredRFC3339(updatedAtRaw)
 	if err != nil {
-		return SwarmDeliveryRecord{}, false, fmt.Errorf("parse delivery updated_at: %w", err)
+		return DeliveryRecord{}, false, fmt.Errorf("parse delivery updated_at: %w", err)
 	}
 	sentAt, err := parseOptionalRFC3339(sentAtRaw)
 	if err != nil {
-		return SwarmDeliveryRecord{}, false, fmt.Errorf("parse delivery sent_at: %w", err)
+		return DeliveryRecord{}, false, fmt.Errorf("parse delivery sent_at: %w", err)
 	}
 	record.CreatedAt = createdAt
 	record.UpdatedAt = updatedAt
@@ -595,9 +595,9 @@ func scanSwarmDelivery(scan func(dest ...any) error) (SwarmDeliveryRecord, bool,
 	return record, true, nil
 }
 
-func scanSwarmAgentStep(scan func(dest ...any) error) (SwarmAgentStepRecord, bool, error) {
+func scanExecutionAgentStep(scan func(dest ...any) error) (AgentStepRecord, bool, error) {
 	var (
-		record         SwarmAgentStepRecord
+		record         AgentStepRecord
 		createdAtRaw   string
 		updatedAtRaw   string
 		completedAtRaw string
@@ -605,7 +605,7 @@ func scanSwarmAgentStep(scan func(dest ...any) error) (SwarmAgentStepRecord, boo
 	err := scan(
 		&record.ID,
 		&record.StepKey,
-		&record.TaskID,
+		&record.JobID,
 		&record.AgentName,
 		&record.Role,
 		&record.Iteration,
@@ -619,21 +619,21 @@ func scanSwarmAgentStep(scan func(dest ...any) error) (SwarmAgentStepRecord, boo
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return SwarmAgentStepRecord{}, false, nil
+			return AgentStepRecord{}, false, nil
 		}
-		return SwarmAgentStepRecord{}, false, fmt.Errorf("scan swarm agent step: %w", err)
+		return AgentStepRecord{}, false, fmt.Errorf("scan runtime agent step: %w", err)
 	}
 	createdAt, err := parseRequiredRFC3339(createdAtRaw)
 	if err != nil {
-		return SwarmAgentStepRecord{}, false, fmt.Errorf("parse agent step created_at: %w", err)
+		return AgentStepRecord{}, false, fmt.Errorf("parse agent step created_at: %w", err)
 	}
 	updatedAt, err := parseRequiredRFC3339(updatedAtRaw)
 	if err != nil {
-		return SwarmAgentStepRecord{}, false, fmt.Errorf("parse agent step updated_at: %w", err)
+		return AgentStepRecord{}, false, fmt.Errorf("parse agent step updated_at: %w", err)
 	}
 	completedAt, err := parseOptionalRFC3339(completedAtRaw)
 	if err != nil {
-		return SwarmAgentStepRecord{}, false, fmt.Errorf("parse agent step completed_at: %w", err)
+		return AgentStepRecord{}, false, fmt.Errorf("parse agent step completed_at: %w", err)
 	}
 	record.CreatedAt = createdAt
 	record.UpdatedAt = updatedAt
@@ -641,18 +641,18 @@ func scanSwarmAgentStep(scan func(dest ...any) error) (SwarmAgentStepRecord, boo
 	return record, true, nil
 }
 
-func normalizeSwarmTask(record SwarmTaskRecord, now time.Time) (SwarmTaskRecord, error) {
+func normalizeExecutionTask(record JobRecord, now time.Time) (JobRecord, error) {
 	record.ID = strings.TrimSpace(record.ID)
 	if record.ID == "" {
-		return SwarmTaskRecord{}, fmt.Errorf("swarm task id is required")
+		return JobRecord{}, fmt.Errorf("runtime task id is required")
 	}
 	record.Objective = strings.TrimSpace(record.Objective)
 	if record.Objective == "" {
-		return SwarmTaskRecord{}, fmt.Errorf("swarm task objective is required")
+		return JobRecord{}, fmt.Errorf("runtime task objective is required")
 	}
-	status, err := normalizeSwarmTaskStatus(record.Status)
+	status, err := normalizeExecutionTaskStatus(record.Status)
 	if err != nil {
-		return SwarmTaskRecord{}, err
+		return JobRecord{}, err
 	}
 	record.Status = status
 	if record.CreatedAt.IsZero() {
@@ -661,7 +661,7 @@ func normalizeSwarmTask(record SwarmTaskRecord, now time.Time) (SwarmTaskRecord,
 	record.CreatedAt = record.CreatedAt.UTC()
 	record.UpdatedAt = now
 	record.SessionID = strings.TrimSpace(record.SessionID)
-	record.ParentTaskID = strings.TrimSpace(record.ParentTaskID)
+	record.ParentJobID = strings.TrimSpace(record.ParentJobID)
 	record.Title = strings.TrimSpace(record.Title)
 	record.OwnerActor = strings.TrimSpace(record.OwnerActor)
 	record.AssignedActor = strings.TrimSpace(record.AssignedActor)
@@ -671,41 +671,41 @@ func normalizeSwarmTask(record SwarmTaskRecord, now time.Time) (SwarmTaskRecord,
 	return record, nil
 }
 
-func normalizeSwarmDelivery(record SwarmDeliveryRecord, now time.Time) (SwarmDeliveryRecord, error) {
+func normalizeExecutionDelivery(record DeliveryRecord, now time.Time) (DeliveryRecord, error) {
 	record.ID = strings.TrimSpace(record.ID)
 	if record.ID == "" {
-		return SwarmDeliveryRecord{}, fmt.Errorf("swarm delivery id is required")
+		return DeliveryRecord{}, fmt.Errorf("runtime delivery id is required")
 	}
 	record.DeliveryKey = strings.TrimSpace(record.DeliveryKey)
 	if record.DeliveryKey == "" {
-		return SwarmDeliveryRecord{}, fmt.Errorf("swarm delivery key is required")
+		return DeliveryRecord{}, fmt.Errorf("runtime delivery key is required")
 	}
 	record.Channel = strings.TrimSpace(record.Channel)
 	if record.Channel == "" {
-		return SwarmDeliveryRecord{}, fmt.Errorf("swarm delivery channel is required")
+		return DeliveryRecord{}, fmt.Errorf("runtime delivery channel is required")
 	}
 	record.AddressKey = strings.TrimSpace(record.AddressKey)
 	if record.AddressKey == "" {
-		return SwarmDeliveryRecord{}, fmt.Errorf("swarm delivery address key is required")
+		return DeliveryRecord{}, fmt.Errorf("runtime delivery address key is required")
 	}
 	record.Kind = strings.TrimSpace(record.Kind)
 	if record.Kind == "" {
-		return SwarmDeliveryRecord{}, fmt.Errorf("swarm delivery kind is required")
+		return DeliveryRecord{}, fmt.Errorf("runtime delivery kind is required")
 	}
 	record.PayloadJSON = strings.TrimSpace(record.PayloadJSON)
 	if record.PayloadJSON == "" {
-		return SwarmDeliveryRecord{}, fmt.Errorf("swarm delivery payload is required")
+		return DeliveryRecord{}, fmt.Errorf("runtime delivery payload is required")
 	}
 	record.PayloadHash = strings.TrimSpace(record.PayloadHash)
 	if record.PayloadHash == "" {
-		return SwarmDeliveryRecord{}, fmt.Errorf("swarm delivery payload hash is required")
+		return DeliveryRecord{}, fmt.Errorf("runtime delivery payload hash is required")
 	}
-	status, err := normalizeSwarmDeliveryStatus(record.Status)
+	status, err := normalizeExecutionDeliveryStatus(record.Status)
 	if err != nil {
-		return SwarmDeliveryRecord{}, err
+		return DeliveryRecord{}, err
 	}
 	record.Status = status
-	record.TaskID = strings.TrimSpace(record.TaskID)
+	record.JobID = strings.TrimSpace(record.JobID)
 	record.SessionID = strings.TrimSpace(record.SessionID)
 	record.ProviderMessageID = strings.TrimSpace(record.ProviderMessageID)
 	record.Error = strings.TrimSpace(record.Error)
@@ -718,37 +718,37 @@ func normalizeSwarmDelivery(record SwarmDeliveryRecord, now time.Time) (SwarmDel
 	return record, nil
 }
 
-func normalizeSwarmAgentStep(record SwarmAgentStepRecord, now time.Time) (SwarmAgentStepRecord, error) {
+func normalizeExecutionAgentStep(record AgentStepRecord, now time.Time) (AgentStepRecord, error) {
 	record.ID = strings.TrimSpace(record.ID)
 	if record.ID == "" {
-		return SwarmAgentStepRecord{}, fmt.Errorf("swarm agent step id is required")
+		return AgentStepRecord{}, fmt.Errorf("runtime agent step id is required")
 	}
 	record.StepKey = strings.TrimSpace(record.StepKey)
 	if record.StepKey == "" {
-		return SwarmAgentStepRecord{}, fmt.Errorf("swarm agent step key is required")
+		return AgentStepRecord{}, fmt.Errorf("runtime agent step key is required")
 	}
-	record.TaskID = strings.TrimSpace(record.TaskID)
-	if record.TaskID == "" {
-		return SwarmAgentStepRecord{}, fmt.Errorf("swarm agent step task id is required")
+	record.JobID = strings.TrimSpace(record.JobID)
+	if record.JobID == "" {
+		return AgentStepRecord{}, fmt.Errorf("runtime agent step task id is required")
 	}
 	record.AgentName = strings.TrimSpace(record.AgentName)
 	if record.AgentName == "" {
-		return SwarmAgentStepRecord{}, fmt.Errorf("swarm agent step agent name is required")
+		return AgentStepRecord{}, fmt.Errorf("runtime agent step agent name is required")
 	}
 	record.Role = strings.TrimSpace(record.Role)
 	if record.Role == "" {
-		return SwarmAgentStepRecord{}, fmt.Errorf("swarm agent step role is required")
+		return AgentStepRecord{}, fmt.Errorf("runtime agent step role is required")
 	}
 	if record.Iteration <= 0 {
-		return SwarmAgentStepRecord{}, fmt.Errorf("swarm agent step iteration must be positive")
+		return AgentStepRecord{}, fmt.Errorf("runtime agent step iteration must be positive")
 	}
 	record.PayloadHash = strings.TrimSpace(record.PayloadHash)
 	if record.PayloadHash == "" {
-		return SwarmAgentStepRecord{}, fmt.Errorf("swarm agent step payload hash is required")
+		return AgentStepRecord{}, fmt.Errorf("runtime agent step payload hash is required")
 	}
-	status, err := normalizeSwarmAgentStepStatus(record.Status)
+	status, err := normalizeExecutionAgentStepStatus(record.Status)
 	if err != nil {
-		return SwarmAgentStepRecord{}, err
+		return AgentStepRecord{}, err
 	}
 	record.Status = status
 	record.ResultJSON = strings.TrimSpace(record.ResultJSON)
@@ -762,18 +762,18 @@ func normalizeSwarmAgentStep(record SwarmAgentStepRecord, now time.Time) (SwarmA
 	return record, nil
 }
 
-func normalizeSwarmTaskEvent(record SwarmTaskEventRecord, now time.Time) (SwarmTaskEventRecord, error) {
+func normalizeExecutionTaskEvent(record JobEventRecord, now time.Time) (JobEventRecord, error) {
 	record.ID = strings.TrimSpace(record.ID)
 	if record.ID == "" {
-		return SwarmTaskEventRecord{}, fmt.Errorf("swarm task event id is required")
+		return JobEventRecord{}, fmt.Errorf("runtime task event id is required")
 	}
-	record.TaskID = strings.TrimSpace(record.TaskID)
-	if record.TaskID == "" {
-		return SwarmTaskEventRecord{}, fmt.Errorf("swarm task event task id is required")
+	record.JobID = strings.TrimSpace(record.JobID)
+	if record.JobID == "" {
+		return JobEventRecord{}, fmt.Errorf("runtime task event task id is required")
 	}
 	record.EventType = strings.TrimSpace(record.EventType)
 	if record.EventType == "" {
-		return SwarmTaskEventRecord{}, fmt.Errorf("swarm task event type is required")
+		return JobEventRecord{}, fmt.Errorf("runtime task event type is required")
 	}
 	record.Actor = strings.TrimSpace(record.Actor)
 	record.MessageID = strings.TrimSpace(record.MessageID)
@@ -785,64 +785,64 @@ func normalizeSwarmTaskEvent(record SwarmTaskEventRecord, now time.Time) (SwarmT
 	return record, nil
 }
 
-func normalizeSwarmAgentStepStatus(status string) (string, error) {
+func normalizeExecutionAgentStepStatus(status string) (string, error) {
 	trimmed := strings.TrimSpace(status)
 	if trimmed == "" {
-		trimmed = SwarmAgentStepStatusRunning
+		trimmed = AgentStepStatusRunning
 	}
 	switch trimmed {
-	case SwarmAgentStepStatusRunning, SwarmAgentStepStatusSucceeded, SwarmAgentStepStatusFailed:
+	case AgentStepStatusRunning, AgentStepStatusSucceeded, AgentStepStatusFailed:
 		return trimmed, nil
 	default:
-		return "", fmt.Errorf("invalid swarm agent step status %q", status)
+		return "", fmt.Errorf("invalid runtime agent step status %q", status)
 	}
 }
 
-func normalizeSwarmDeliveryStatus(status string) (string, error) {
+func normalizeExecutionDeliveryStatus(status string) (string, error) {
 	trimmed := strings.TrimSpace(status)
 	if trimmed == "" {
-		trimmed = SwarmDeliveryStatusPending
+		trimmed = DeliveryStatusPending
 	}
 	switch trimmed {
-	case SwarmDeliveryStatusPending, SwarmDeliveryStatusSending, SwarmDeliveryStatusSent, SwarmDeliveryStatusFailed:
+	case DeliveryStatusPending, DeliveryStatusSending, DeliveryStatusSent, DeliveryStatusFailed:
 		return trimmed, nil
 	default:
-		return "", fmt.Errorf("invalid swarm delivery status %q", status)
+		return "", fmt.Errorf("invalid runtime delivery status %q", status)
 	}
 }
 
-func normalizeSwarmTaskStatus(status string) (string, error) {
+func normalizeExecutionTaskStatus(status string) (string, error) {
 	trimmed := strings.TrimSpace(status)
 	if trimmed == "" {
-		trimmed = SwarmTaskStatusCreated
+		trimmed = JobStatusCreated
 	}
 	switch trimmed {
-	case SwarmTaskStatusCreated,
-		SwarmTaskStatusQueued,
-		SwarmTaskStatusRunning,
-		SwarmTaskStatusWaitingForAgent,
-		SwarmTaskStatusWaitingForUser,
-		SwarmTaskStatusValidating,
-		SwarmTaskStatusCompleted,
-		SwarmTaskStatusFailed,
-		SwarmTaskStatusCanceled,
-		SwarmTaskStatusDeadLettered:
+	case JobStatusCreated,
+		JobStatusQueued,
+		JobStatusRunning,
+		JobStatusWaitingForAgent,
+		JobStatusWaitingForUser,
+		JobStatusValidating,
+		JobStatusCompleted,
+		JobStatusFailed,
+		JobStatusCanceled,
+		JobStatusDeadLettered:
 		return trimmed, nil
 	default:
-		return "", fmt.Errorf("invalid swarm task status %q", status)
+		return "", fmt.Errorf("invalid runtime task status %q", status)
 	}
 }
 
 func statusTimestamps(status string, now time.Time) (startedAt time.Time, completedAt time.Time, canceledAt time.Time) {
 	switch status {
-	case SwarmTaskStatusRunning,
-		SwarmTaskStatusWaitingForAgent,
-		SwarmTaskStatusWaitingForUser,
-		SwarmTaskStatusValidating:
+	case JobStatusRunning,
+		JobStatusWaitingForAgent,
+		JobStatusWaitingForUser,
+		JobStatusValidating:
 		return now, time.Time{}, time.Time{}
-	case SwarmTaskStatusCompleted, SwarmTaskStatusFailed, SwarmTaskStatusDeadLettered:
+	case JobStatusCompleted, JobStatusFailed, JobStatusDeadLettered:
 		return now, now, time.Time{}
-	case SwarmTaskStatusCanceled:
+	case JobStatusCanceled:
 		return now, time.Time{}, now
 	default:
 		return time.Time{}, time.Time{}, time.Time{}
@@ -864,16 +864,16 @@ func optionalTimeValue(value time.Time) any {
 	return value.UTC().Format(time.RFC3339)
 }
 
-func (s *sqliteSwarmStore) currentTaskStatus(ctx context.Context, taskID string) (string, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT status FROM swarm_tasks WHERE id = ?`, taskID)
+func (s *sqliteJobStore) currentTaskStatus(ctx context.Context, taskID string) (string, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT status FROM execution_tasks WHERE id = ?`, taskID)
 	var status string
 	if err := row.Scan(&status); err != nil {
 		if err == sql.ErrNoRows {
-			return "", fmt.Errorf("swarm task %q not found", taskID)
+			return "", fmt.Errorf("runtime task %q not found", taskID)
 		}
-		return "", fmt.Errorf("read swarm task %q status: %w", taskID, err)
+		return "", fmt.Errorf("read runtime task %q status: %w", taskID, err)
 	}
-	normalized, err := normalizeSwarmTaskStatus(status)
+	normalized, err := normalizeExecutionTaskStatus(status)
 	if err != nil {
 		return "", err
 	}
@@ -886,18 +886,18 @@ func guardTaskStatusTransition(current string, next string) error {
 	if current == "" || current == next {
 		return nil
 	}
-	if isTerminalSwarmTaskStatus(current) {
-		return fmt.Errorf("invalid swarm task transition %q -> %q: terminal status", current, next)
+	if isTerminalRuntimeTaskStatus(current) {
+		return fmt.Errorf("invalid runtime task transition %q -> %q: terminal status", current, next)
 	}
-	if next == SwarmTaskStatusCreated {
-		return fmt.Errorf("invalid swarm task transition %q -> %q", current, next)
+	if next == JobStatusCreated {
+		return fmt.Errorf("invalid runtime task transition %q -> %q", current, next)
 	}
 	return nil
 }
 
-func isTerminalSwarmTaskStatus(status string) bool {
+func isTerminalRuntimeTaskStatus(status string) bool {
 	switch strings.TrimSpace(status) {
-	case SwarmTaskStatusCompleted, SwarmTaskStatusFailed, SwarmTaskStatusCanceled, SwarmTaskStatusDeadLettered:
+	case JobStatusCompleted, JobStatusFailed, JobStatusCanceled, JobStatusDeadLettered:
 		return true
 	default:
 		return false

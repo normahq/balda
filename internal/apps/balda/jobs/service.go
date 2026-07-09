@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/pkg/actorlayer"
 	actortransport "github.com/normahq/balda/pkg/actorlayer/transport"
@@ -46,7 +46,7 @@ const (
 )
 
 type JobService struct {
-	store baldastate.SwarmStore
+	store baldastate.JobStore
 	bus   actortransport.EventPublisher
 }
 
@@ -61,10 +61,10 @@ func NewJobService(params jobServiceParams) (*JobService, error) {
 	if params.StateProvider == nil {
 		return nil, fmt.Errorf("balda state provider is required")
 	}
-	return &JobService{store: params.StateProvider.Swarm(), bus: params.Bus}, nil
+	return &JobService{store: params.StateProvider.Jobs(), bus: params.Bus}, nil
 }
 
-func (s *JobService) Create(ctx context.Context, record baldastate.SwarmTaskRecord, actor string, payload any) (bool, error) {
+func (s *JobService) Create(ctx context.Context, record baldastate.JobRecord, actor string, payload any) (bool, error) {
 	if s == nil {
 		return false, nil
 	}
@@ -76,14 +76,14 @@ func (s *JobService) Create(ctx context.Context, record baldastate.SwarmTaskReco
 		payloadJSON = "{}"
 	}
 	// Contract: task state is authoritative in SQLite; event publication is visibility-only.
-	created, err := s.store.CreateTask(ctx, record)
+	created, err := s.store.CreateJob(ctx, record)
 	if err != nil {
 		return false, err
 	}
 	taskID := strings.TrimSpace(record.ID)
-	s.publishEventRecordBestEffort(ctx, baldastate.SwarmTaskEventRecord{
+	s.publishEventRecordBestEffort(ctx, baldastate.JobEventRecord{
 		ID:          "task:" + taskID + ":event:created",
-		TaskID:      taskID,
+		JobID:       taskID,
 		EventType:   JobEventCreated,
 		Actor:       strings.TrimSpace(actor),
 		PayloadJSON: payloadJSON,
@@ -91,21 +91,21 @@ func (s *JobService) Create(ctx context.Context, record baldastate.SwarmTaskReco
 	return created, nil
 }
 
-func (s *JobService) Get(ctx context.Context, taskID string) (baldastate.SwarmTaskRecord, bool, error) {
+func (s *JobService) Get(ctx context.Context, taskID string) (baldastate.JobRecord, bool, error) {
 	if s == nil {
-		return baldastate.SwarmTaskRecord{}, false, nil
+		return baldastate.JobRecord{}, false, nil
 	}
-	return s.store.GetTask(ctx, taskID)
+	return s.store.GetJob(ctx, taskID)
 }
 
-func (s *JobService) ListActiveJobsBySession(ctx context.Context, sessionID string) ([]baldastate.SwarmTaskRecord, error) {
+func (s *JobService) ListActiveJobsBySession(ctx context.Context, sessionID string) ([]baldastate.JobRecord, error) {
 	if s == nil {
 		return nil, nil
 	}
 	return s.store.ListActiveJobsBySession(ctx, sessionID)
 }
 
-func (s *JobService) ListActiveGoalJobsBySession(ctx context.Context, sessionID string) ([]baldastate.SwarmTaskRecord, error) {
+func (s *JobService) ListActiveGoalJobsBySession(ctx context.Context, sessionID string) ([]baldastate.JobRecord, error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -113,7 +113,7 @@ func (s *JobService) ListActiveGoalJobsBySession(ctx context.Context, sessionID 
 	if err != nil {
 		return nil, err
 	}
-	out := make([]baldastate.SwarmTaskRecord, 0, len(tasks))
+	out := make([]baldastate.JobRecord, 0, len(tasks))
 	for _, task := range tasks {
 		if IsGoalJob(task) {
 			out = append(out, task)
@@ -127,22 +127,22 @@ func (s *JobService) MarkStatus(ctx context.Context, taskID string, status strin
 		return nil
 	}
 	// Contract: persist lifecycle transition first, then best-effort event emission.
-	if err := s.store.UpdateTaskStatus(ctx, taskID, status, reason); err != nil {
+	if err := s.store.UpdateJobStatus(ctx, taskID, status, reason); err != nil {
 		return s.suppressStaleTerminalTransition(ctx, taskID, status, err)
 	}
 	eventType := ""
 	switch strings.TrimSpace(status) {
-	case baldastate.SwarmTaskStatusQueued, baldastate.SwarmTaskStatusWaitingForAgent, baldastate.SwarmTaskStatusWaitingForUser:
+	case baldastate.JobStatusQueued, baldastate.JobStatusWaitingForAgent, baldastate.JobStatusWaitingForUser:
 		eventType = JobEventAssigned
-	case baldastate.SwarmTaskStatusRunning:
+	case baldastate.JobStatusRunning:
 		eventType = JobEventStarted
-	case baldastate.SwarmTaskStatusValidating:
+	case baldastate.JobStatusValidating:
 		eventType = JobEventValidating
-	case baldastate.SwarmTaskStatusCompleted:
+	case baldastate.JobStatusCompleted:
 		eventType = JobEventCompleted
-	case baldastate.SwarmTaskStatusFailed, baldastate.SwarmTaskStatusDeadLettered:
+	case baldastate.JobStatusFailed, baldastate.JobStatusDeadLettered:
 		eventType = JobEventFailed
-	case baldastate.SwarmTaskStatusCanceled:
+	case baldastate.JobStatusCanceled:
 		eventType = JobEventCanceled
 	}
 	if eventType == "" {
@@ -163,22 +163,22 @@ func (s *JobService) SetResult(ctx context.Context, taskID string, result any, s
 		return err
 	}
 	// Contract: result/state write is authoritative; event emission is best-effort visibility.
-	if err := s.store.SetTaskResult(ctx, taskID, data, status, reason); err != nil {
+	if err := s.store.SetJobResult(ctx, taskID, data, status, reason); err != nil {
 		return s.suppressStaleTerminalTransition(ctx, taskID, status, err)
 	}
 	eventType := ""
 	switch strings.TrimSpace(status) {
-	case baldastate.SwarmTaskStatusQueued, baldastate.SwarmTaskStatusWaitingForAgent, baldastate.SwarmTaskStatusWaitingForUser:
+	case baldastate.JobStatusQueued, baldastate.JobStatusWaitingForAgent, baldastate.JobStatusWaitingForUser:
 		eventType = JobEventAssigned
-	case baldastate.SwarmTaskStatusRunning:
+	case baldastate.JobStatusRunning:
 		eventType = JobEventStarted
-	case baldastate.SwarmTaskStatusValidating:
+	case baldastate.JobStatusValidating:
 		eventType = JobEventValidating
-	case baldastate.SwarmTaskStatusCompleted:
+	case baldastate.JobStatusCompleted:
 		eventType = JobEventCompleted
-	case baldastate.SwarmTaskStatusFailed, baldastate.SwarmTaskStatusDeadLettered:
+	case baldastate.JobStatusFailed, baldastate.JobStatusDeadLettered:
 		eventType = JobEventFailed
-	case baldastate.SwarmTaskStatusCanceled:
+	case baldastate.JobStatusCanceled:
 		eventType = JobEventCanceled
 	}
 	return s.appendEventBestEffort(ctx, taskID, eventType, actor, "", mergePayload(result, map[string]any{
@@ -191,7 +191,7 @@ func (s *JobService) suppressStaleTerminalTransition(ctx context.Context, taskID
 	if err == nil {
 		return nil
 	}
-	if !strings.Contains(err.Error(), "invalid swarm task transition") {
+	if !strings.Contains(err.Error(), "invalid runtime task transition") {
 		return err
 	}
 	if !isTerminalTaskStatus(status) {
@@ -209,10 +209,10 @@ func (s *JobService) suppressStaleTerminalTransition(ctx context.Context, taskID
 
 func isTerminalTaskStatus(status string) bool {
 	switch strings.TrimSpace(status) {
-	case baldastate.SwarmTaskStatusCompleted,
-		baldastate.SwarmTaskStatusFailed,
-		baldastate.SwarmTaskStatusCanceled,
-		baldastate.SwarmTaskStatusDeadLettered:
+	case baldastate.JobStatusCompleted,
+		baldastate.JobStatusFailed,
+		baldastate.JobStatusCanceled,
+		baldastate.JobStatusDeadLettered:
 		return true
 	default:
 		return false
@@ -223,7 +223,7 @@ func (s *JobService) AppendEvent(ctx context.Context, taskID string, eventType s
 	if s == nil {
 		return nil
 	}
-	event, err := taskEventRecord(taskID, eventType, actor, messageID, payload)
+	event, err := jobEventRecord(taskID, eventType, actor, messageID, payload)
 	if err != nil {
 		return err
 	}
@@ -234,7 +234,7 @@ func (s *JobService) appendEventBestEffort(ctx context.Context, taskID string, e
 	if s == nil {
 		return nil
 	}
-	event, err := taskEventRecord(taskID, eventType, actor, messageID, payload)
+	event, err := jobEventRecord(taskID, eventType, actor, messageID, payload)
 	if err != nil {
 		return err
 	}
@@ -242,10 +242,10 @@ func (s *JobService) appendEventBestEffort(ctx context.Context, taskID string, e
 	return nil
 }
 
-func taskEventRecord(taskID string, eventType string, actor string, messageID string, payload any) (baldastate.SwarmTaskEventRecord, error) {
+func jobEventRecord(taskID string, eventType string, actor string, messageID string, payload any) (baldastate.JobEventRecord, error) {
 	data, err := marshalPayload(payload)
 	if err != nil {
-		return baldastate.SwarmTaskEventRecord{}, err
+		return baldastate.JobEventRecord{}, err
 	}
 	eventID := ""
 	if strings.TrimSpace(eventType) == TaskEventAgentProgress {
@@ -283,9 +283,9 @@ func taskEventRecord(taskID string, eventType string, actor string, messageID st
 		}
 		eventID = "task:" + strings.TrimSpace(taskID) + ":event:" + eventTypePart + ":" + hex.EncodeToString(sum[:])[:16]
 	}
-	return baldastate.SwarmTaskEventRecord{
+	return baldastate.JobEventRecord{
 		ID:          eventID,
-		TaskID:      strings.TrimSpace(taskID),
+		JobID:       strings.TrimSpace(taskID),
 		EventType:   strings.TrimSpace(eventType),
 		Actor:       strings.TrimSpace(actor),
 		MessageID:   strings.TrimSpace(messageID),
@@ -303,7 +303,7 @@ func (s *JobService) CancelBySession(ctx context.Context, sessionID string, acto
 	}
 	ids := make([]string, 0, len(tasks))
 	for _, task := range tasks {
-		if err := s.MarkStatus(ctx, task.ID, baldastate.SwarmTaskStatusCanceled, actor, "", reason, nil); err != nil {
+		if err := s.MarkStatus(ctx, task.ID, baldastate.JobStatusCanceled, actor, "", reason, nil); err != nil {
 			return ids, err
 		}
 		ids = append(ids, task.ID)
@@ -315,16 +315,16 @@ func (s *JobService) CancelJob(ctx context.Context, taskID string, actor string,
 	if s == nil {
 		return nil
 	}
-	return s.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusCanceled, actor, "", reason, nil)
+	return s.MarkStatus(ctx, taskID, baldastate.JobStatusCanceled, actor, "", reason, nil)
 }
 
 func (s *JobService) DeadLetter(ctx context.Context, taskID string, actor string, messageID string, reason string) error {
-	return s.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusDeadLettered, actor, messageID, reason, nil)
+	return s.MarkStatus(ctx, taskID, baldastate.JobStatusDeadLettered, actor, messageID, reason, nil)
 }
 
-func (s *JobService) ReserveDelivery(ctx context.Context, record baldastate.SwarmDeliveryRecord) (baldastate.SwarmDeliveryRecord, bool, error) {
+func (s *JobService) ReserveDelivery(ctx context.Context, record baldastate.DeliveryRecord) (baldastate.DeliveryRecord, bool, error) {
 	if s == nil {
-		return baldastate.SwarmDeliveryRecord{}, false, nil
+		return baldastate.DeliveryRecord{}, false, nil
 	}
 	return s.store.ReserveDelivery(ctx, record)
 }
@@ -350,9 +350,9 @@ func (s *JobService) MarkDeliveryFailed(ctx context.Context, deliveryKey string,
 	return s.store.MarkDeliveryFailed(ctx, deliveryKey, reason)
 }
 
-func (s *JobService) ReserveAgentStep(ctx context.Context, record baldastate.SwarmAgentStepRecord) (baldastate.SwarmAgentStepRecord, bool, error) {
+func (s *JobService) ReserveAgentStep(ctx context.Context, record baldastate.AgentStepRecord) (baldastate.AgentStepRecord, bool, error) {
 	if s == nil {
-		return baldastate.SwarmAgentStepRecord{}, false, nil
+		return baldastate.AgentStepRecord{}, false, nil
 	}
 	return s.store.ReserveAgentStep(ctx, record)
 }
@@ -371,7 +371,7 @@ func (s *JobService) FailAgentStep(ctx context.Context, stepKey string, resultJS
 	return s.store.FailAgentStep(ctx, stepKey, resultJSON, reason)
 }
 
-func IsGoalJob(task baldastate.SwarmTaskRecord) bool {
+func IsGoalJob(task baldastate.JobRecord) bool {
 	owner := strings.TrimSpace(task.OwnerActor)
 	assigned := strings.TrimSpace(task.AssignedActor)
 	for _, prefix := range []string{"goalkeeper:", "goal:"} {
@@ -382,7 +382,7 @@ func IsGoalJob(task baldastate.SwarmTaskRecord) bool {
 	return false
 }
 
-func (s *JobService) publishTaskEvent(ctx context.Context, event baldastate.SwarmTaskEventRecord) error {
+func (s *JobService) publishTaskEvent(ctx context.Context, event baldastate.JobEventRecord) error {
 	if s == nil || s.bus == nil {
 		return fmt.Errorf("event bus is required")
 	}
@@ -390,46 +390,45 @@ func (s *JobService) publishTaskEvent(ctx context.Context, event baldastate.Swar
 	if payload == "" {
 		payload = "{}"
 	}
-	subject := baldaruntime.SubjectEventJobUpdated
+	subject := baldaexecution.SubjectEventJobUpdated
 	switch strings.TrimSpace(event.EventType) {
 	case JobEventDeliverySent:
-		subject = baldaruntime.SubjectEventDeliverySent
+		subject = baldaexecution.SubjectEventDeliverySent
 	case JobEventDeliveryFailed:
-		subject = baldaruntime.SubjectEventDeliveryFailed
+		subject = baldaexecution.SubjectEventDeliveryFailed
 	case JobEventCreated:
-		subject = baldaruntime.SubjectEventJobCreated
+		subject = baldaexecution.SubjectEventJobCreated
 	case JobEventCompleted:
-		subject = baldaruntime.SubjectEventJobCompleted
+		subject = baldaexecution.SubjectEventJobCompleted
 	}
 	env := actorlayer.Envelope{
 		ID:          event.ID,
-		Namespace:   baldaruntime.NamespaceTelemetry,
+		Namespace:   baldaexecution.NamespaceTelemetry,
 		Kind:        "job_event",
 		From:        actorlayer.SystemAddress("job-events"),
-		To:          actorlayer.ActorAddress{Target: baldaruntime.ActorTypeJob, Key: event.TaskID},
-		TaskID:      event.TaskID,
+		To:          actorlayer.ActorAddress{Target: baldaexecution.ActorTypeJob, Key: event.JobID},
 		PayloadJSON: payload,
-		Meta: map[string]string{
+		Meta: baldaexecution.WithJobIDMeta(map[string]string{
 			"event_type": event.EventType,
 			"actor":      event.Actor,
 			"message_id": event.MessageID,
-		},
+		}, event.JobID),
 	}
 	return s.bus.PublishEvent(ctx, subject, env)
 }
 
-func (s *JobService) publishEventRecord(ctx context.Context, event baldastate.SwarmTaskEventRecord) error {
+func (s *JobService) publishEventRecord(ctx context.Context, event baldastate.JobEventRecord) error {
 	if s == nil {
 		return nil
 	}
 	return s.publishTaskEvent(ctx, event)
 }
 
-func (s *JobService) publishEventRecordBestEffort(ctx context.Context, event baldastate.SwarmTaskEventRecord) {
+func (s *JobService) publishEventRecordBestEffort(ctx context.Context, event baldastate.JobEventRecord) {
 	if err := s.publishEventRecord(ctx, event); err != nil {
 		log.Ctx(ctx).Warn().
 			Err(err).
-			Str("job_id", event.TaskID).
+			Str("job_id", event.JobID).
 			Str("event_type", event.EventType).
 			Str("event_id", event.ID).
 			Msg("failed to publish job event")

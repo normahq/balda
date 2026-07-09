@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"unsafe"
 
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/pkg/actorlayer"
@@ -36,9 +36,9 @@ func (f *fakeTurnDispatcher) Enqueue(task TurnTask) (int, error) {
 func (f *fakeTurnDispatcher) Dispatch(_ context.Context, env actorlayer.Envelope) (*actortransport.DispatchReceipt, error) {
 	f.commands = append(f.commands, env)
 	return &actortransport.DispatchReceipt{
-		Stream:   baldaruntime.DefaultCommandStream,
+		Stream:   baldaexecution.DefaultCommandStream,
 		Sequence: uint64(len(f.commands)),
-		Subject:  baldaruntime.SubjectForEnvelope(env),
+		Subject:  baldaexecution.SubjectForEnvelope(env),
 		MsgID:    actorlayer.DedupeKeyOrID(env),
 	}, nil
 }
@@ -72,7 +72,7 @@ func (b *recordingHandlerCommandBus) Dispatch(_ context.Context, env actorlayer.
 		}
 	}
 	b.commands = append(b.commands, env)
-	return &actortransport.DispatchReceipt{Stream: baldaruntime.DefaultCommandStream, Sequence: uint64(len(b.commands)), Subject: baldaruntime.SubjectForEnvelope(env), MsgID: actorlayer.DedupeKeyOrID(env)}, nil
+	return &actortransport.DispatchReceipt{Stream: baldaexecution.DefaultCommandStream, Sequence: uint64(len(b.commands)), Subject: baldaexecution.SubjectForEnvelope(env), MsgID: actorlayer.DedupeKeyOrID(env)}, nil
 }
 
 func (b *recordingHandlerCommandBus) PublishEvent(_ context.Context, subject string, env actorlayer.Envelope) error {

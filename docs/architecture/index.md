@@ -31,13 +31,13 @@ Telegram/Zulip/Slack/webhook/scheduler ingress -> actorlayer transport dispatche
 ## Related tests
 
 - `internal/apps/balda/eventbus/nats/connection_test.go`
-- `internal/apps/balda/runtime/host_test.go`
+- `internal/apps/balda/execution/host_test.go`
 - `internal/apps/balda/architecture_contract_test.go`
 
 ## Related packages
 
 - `internal/apps/balda/eventbus/nats`
-- `internal/apps/balda/runtime`
+- `internal/apps/balda/execution`
 - `internal/apps/balda/jobs`
 - `internal/apps/balda/actors`
 - `internal/apps/balda/handlers`

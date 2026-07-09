@@ -1,4 +1,4 @@
-package runtime
+package execution
 
 import (
 	"strconv"
@@ -39,7 +39,6 @@ const (
 const (
 	HeaderEnvelopeID    = "Balda-Envelope-ID"
 	HeaderSessionID     = "Balda-Session-ID"
-	HeaderTaskID        = "Balda-Task-ID"
 	HeaderCorrelationID = "Balda-Correlation-ID"
 	HeaderCausationID   = "Balda-Causation-ID"
 	HeaderDedupeKey     = "Balda-Dedupe-Key"
@@ -87,7 +86,6 @@ func EnvelopeHeaders(env actorlayer.Envelope) map[string]string {
 	out := make(map[string]string, 8)
 	addHeader(out, HeaderEnvelopeID, env.ID)
 	addHeader(out, HeaderSessionID, env.SessionID)
-	addHeader(out, HeaderTaskID, env.TaskID)
 	addHeader(out, HeaderCorrelationID, env.CorrelationID)
 	addHeader(out, HeaderCausationID, env.CausationID)
 	addHeader(out, HeaderDedupeKey, env.DedupeKey)

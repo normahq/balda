@@ -8,10 +8,10 @@ import (
 
 func isTerminalTaskStatus(status string) bool {
 	switch strings.TrimSpace(status) {
-	case baldastate.SwarmTaskStatusCompleted,
-		baldastate.SwarmTaskStatusFailed,
-		baldastate.SwarmTaskStatusCanceled,
-		baldastate.SwarmTaskStatusDeadLettered:
+	case baldastate.JobStatusCompleted,
+		baldastate.JobStatusFailed,
+		baldastate.JobStatusCanceled,
+		baldastate.JobStatusDeadLettered:
 		return true
 	default:
 		return false

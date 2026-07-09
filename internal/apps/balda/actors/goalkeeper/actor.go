@@ -13,9 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
 	"github.com/normahq/balda/internal/apps/balda/progress"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/git"
@@ -215,11 +215,11 @@ func NewActor(params ActorParams) *Actor {
 }
 
 func (a *Actor) Address() string {
-	return actorlayer.WildcardAddress(baldaruntime.ActorTypeGoalkeeper)
+	return actorlayer.WildcardAddress(baldaexecution.ActorTypeGoalkeeper)
 }
 
 func (a *Actor) Handle(ctx context.Context, env actorlayer.Envelope) error {
-	if strings.TrimSpace(env.Namespace) != baldaruntime.NamespaceGoalkeeperCommand {
+	if strings.TrimSpace(env.Namespace) != baldaexecution.NamespaceGoalkeeperCommand {
 		return actorlayer.PolicyError(fmt.Errorf("unsupported goal namespace %q", env.Namespace))
 	}
 	var payload taskEnvelopePayload
@@ -266,27 +266,31 @@ func GoalTaskEnvelopeWithProfile(
 	}
 	return actorlayer.Envelope{
 		ID:          uuid.NewString(),
-		Namespace:   baldaruntime.NamespaceGoalkeeperCommand,
-		Kind:        baldaruntime.KindGoal,
+		Namespace:   baldaexecution.NamespaceGoalkeeperCommand,
+		Kind:        baldaexecution.KindGoal,
 		From:        actorlayer.ActorAddress{Target: "telegram", Key: firstNonEmpty(transportUserID, locator.AddressKey, "unknown")},
-		To:          actorlayer.ActorAddress{Target: baldaruntime.ActorTypeGoalkeeper, Key: taskID},
+		To:          actorlayer.ActorAddress{Target: baldaexecution.ActorTypeGoalkeeper, Key: taskID},
 		SessionID:   locator.SessionID,
-		TaskID:      taskID,
+		Meta:        baldaexecution.WithJobIDMeta(nil, taskID),
 		Priority:    90,
 		PayloadJSON: string(data),
 	}, nil
 }
 
 func (a *Actor) runGoal(ctx context.Context, env actorlayer.Envelope, payload goalTaskPayload) error {
-	taskID := firstNonEmpty(payload.JobID, env.TaskID, env.To.Key)
+	taskID := strings.TrimSpace(payload.JobID)
+	envelopeJobID := strings.TrimSpace(baldaexecution.EnvelopeJobID(env))
 	objective := strings.TrimSpace(payload.Objective)
 	if taskID == "" {
 		return actorlayer.PolicyError(fmt.Errorf("job id is required"))
 	}
+	if envelopeJobID != "" && envelopeJobID != taskID {
+		return actorlayer.PolicyError(fmt.Errorf("goal job id mismatch: envelope=%q payload=%q", envelopeJobID, taskID))
+	}
 	if objective == "" {
 		return actorlayer.PolicyError(fmt.Errorf("goal objective is required"))
 	}
-	if a.taskStatusIs(ctx, taskID, baldastate.SwarmTaskStatusCompleted, baldastate.SwarmTaskStatusFailed, baldastate.SwarmTaskStatusCanceled, baldastate.SwarmTaskStatusDeadLettered) {
+	if a.taskStatusIs(ctx, taskID, baldastate.JobStatusCompleted, baldastate.JobStatusFailed, baldastate.JobStatusCanceled, baldastate.JobStatusDeadLettered) {
 		return nil
 	}
 	maxIterations := normalizeGoalMaxIterations(payload.MaxIterations)
@@ -311,7 +315,7 @@ func (a *Actor) runGoal(ctx context.Context, env actorlayer.Envelope, payload go
 	if err != nil {
 		return actorlayer.TransientError(err)
 	}
-	if err := a.tasks.MarkStatus(ctx, taskID, baldastate.SwarmTaskStatusRunning, actorName, env.ID, "", map[string]any{
+	if err := a.tasks.MarkStatus(ctx, taskID, baldastate.JobStatusRunning, actorName, env.ID, "", map[string]any{
 		"objective": objective,
 	}); err != nil {
 		return actorlayer.TransientError(err)
@@ -353,7 +357,7 @@ func (a *Actor) runGoal(ctx context.Context, env actorlayer.Envelope, payload go
 			if cleanupErr := goalRun.CleanupResources(ctx); cleanupErr != nil {
 				a.logger.Warn().Err(cleanupErr).Str("job_id", taskID).Msg("failed to cleanup canceled goal run")
 			}
-			if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "canceled"}), baldastate.SwarmTaskStatusCanceled, actorName, "goal run canceled"); setErr != nil {
+			if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "canceled"}), baldastate.JobStatusCanceled, actorName, "goal run canceled"); setErr != nil {
 				return actorlayer.TransientError(setErr)
 			}
 			return a.deliver(ctx, taskID, payload, renderGoalStatusMessage(payload.DeliveryProfile, "Goal run canceled."), "canceled")
@@ -362,7 +366,7 @@ func (a *Actor) runGoal(ctx context.Context, env actorlayer.Envelope, payload go
 		if cleanupErr := goalRun.CleanupResources(ctx); cleanupErr != nil {
 			a.logger.Warn().Err(cleanupErr).Str("job_id", taskID).Msg("failed to cleanup failed goal run")
 		}
-		if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "failed", Error: reason}), baldastate.SwarmTaskStatusFailed, actorName, reason); setErr != nil {
+		if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "failed", Error: reason}), baldastate.JobStatusFailed, actorName, reason); setErr != nil {
 			return actorlayer.TransientError(setErr)
 		}
 		return a.deliver(ctx, taskID, payload, renderGoalStatusMessage(payload.DeliveryProfile, "Goal run failed: "+reason), "failed")
@@ -378,13 +382,13 @@ func (a *Actor) runGoal(ctx context.Context, env actorlayer.Envelope, payload go
 				exportSummary.Error = redactSecrets(exportErr.Error())
 			}
 			taskResult := result.toTaskResult(true, artifacts, exportSummary)
-			if setErr := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.SwarmTaskStatusFailed, actorName, exportSummary.Error); setErr != nil {
+			if setErr := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.JobStatusFailed, actorName, exportSummary.Error); setErr != nil {
 				return actorlayer.TransientError(setErr)
 			}
 			return a.deliver(ctx, taskID, payload, a.renderTaskOutcome(ctx, taskID, payload.DeliveryProfile, "Goal validation passed, but export failed."), "export-failed")
 		}
 		taskResult := result.toTaskResult(true, artifacts, exportSummary)
-		if err := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.SwarmTaskStatusCompleted, actorName, ""); err != nil {
+		if err := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.JobStatusCompleted, actorName, ""); err != nil {
 			return actorlayer.TransientError(err)
 		}
 		if cleanupErr := goalRun.CleanupResources(ctx); cleanupErr != nil {
@@ -396,7 +400,7 @@ func (a *Actor) runGoal(ctx context.Context, env actorlayer.Envelope, payload go
 		a.logger.Warn().Err(cleanupErr).Str("job_id", taskID).Msg("failed to cleanup max-iteration goal run")
 	}
 	taskResult := result.toTaskResult(false, artifacts, &taskExportResultV1{Status: goalExportStatusNotExported})
-	if err := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.SwarmTaskStatusFailed, actorName, "max iterations reached"); err != nil {
+	if err := a.tasks.SetResult(ctx, taskID, taskResult, baldastate.JobStatusFailed, actorName, "max iterations reached"); err != nil {
 		return actorlayer.TransientError(err)
 	}
 	return a.deliver(ctx, taskID, payload, a.renderTaskOutcome(ctx, taskID, payload.DeliveryProfile, "Goal run reached max iterations without passing validation."), "max-iterations")
@@ -417,14 +421,14 @@ func (a *Actor) ensureGoalTask(ctx context.Context, payload goalTaskPayload) err
 	} else {
 		title = "Goal"
 	}
-	record := baldastate.SwarmTaskRecord{
+	record := baldastate.JobRecord{
 		ID:            strings.TrimSpace(payload.JobID),
 		SessionID:     strings.TrimSpace(payload.Locator.SessionID),
 		Title:         title,
 		Objective:     strings.TrimSpace(payload.Objective),
-		Status:        baldastate.SwarmTaskStatusCreated,
-		OwnerActor:    baldaruntime.ActorTypeGoalkeeper + ":" + strings.TrimSpace(payload.JobID),
-		AssignedActor: baldaruntime.ActorTypeGoalkeeper + ":" + strings.TrimSpace(payload.JobID),
+		Status:        baldastate.JobStatusCreated,
+		OwnerActor:    baldaexecution.ActorTypeGoalkeeper + ":" + strings.TrimSpace(payload.JobID),
+		AssignedActor: baldaexecution.ActorTypeGoalkeeper + ":" + strings.TrimSpace(payload.JobID),
 		Priority:      90,
 		CreatedBy:     strings.TrimSpace(payload.TransportUserID),
 	}
@@ -439,8 +443,8 @@ func (a *Actor) ensureGoalTask(ctx context.Context, payload goalTaskPayload) err
 		return actorlayer.TransientError(fmt.Errorf("goal task %q was not persisted", payload.JobID))
 	}
 	switch strings.TrimSpace(task.Status) {
-	case "", baldastate.SwarmTaskStatusCreated, baldastate.SwarmTaskStatusQueued:
-		return a.tasks.MarkStatus(ctx, payload.JobID, baldastate.SwarmTaskStatusQueued, actorName, "", "", nil)
+	case "", baldastate.JobStatusCreated, baldastate.JobStatusQueued:
+		return a.tasks.MarkStatus(ctx, payload.JobID, baldastate.JobStatusQueued, actorName, "", "", nil)
 	default:
 		return nil
 	}
@@ -462,7 +466,7 @@ func (a *Actor) ensureNoOtherActiveGoal(ctx context.Context, taskID string, payl
 		if setErr := a.tasks.SetResult(ctx, taskID, goalRunResult{payload: payload}.toTaskResult(false, taskArtifactSnapshot{}, &taskExportResultV1{
 			Status: "canceled",
 			Error:  reason,
-		}), baldastate.SwarmTaskStatusCanceled, actorName, reason); setErr != nil {
+		}), baldastate.JobStatusCanceled, actorName, reason); setErr != nil {
 			return false, actorlayer.TransientError(setErr)
 		}
 		if err := a.deliver(ctx, taskID, payload, renderGoalStatusMessage(payload.DeliveryProfile, "A goal run is already active for this session."), "already-active"); err != nil {
@@ -607,9 +611,9 @@ func (a *Actor) runWorkflow(
 }
 
 func (a *Actor) recordStepStarted(ctx context.Context, payload goalTaskPayload, step string, iteration int) error {
-	status := baldastate.SwarmTaskStatusWaitingForAgent
+	status := baldastate.JobStatusWaitingForAgent
 	if step == ValidatorStep {
-		status = baldastate.SwarmTaskStatusValidating
+		status = baldastate.JobStatusValidating
 	}
 	if err := a.tasks.MarkStatus(ctx, payload.JobID, status, actorName, "", "", map[string]any{
 		"step":      step,
@@ -673,7 +677,7 @@ func (a *Actor) recordStepPlanUpdate(
 	suffix := fmt.Sprintf("progress:%s:%s:%d:%03d", progressKindPlan, step, iteration, valueOrZero(deliverySeq))
 	env, err := deliverycmd.ProgressPlanUpdateEnvelope(
 		strings.TrimSpace(payload.JobID),
-		actorlayer.ActorAddress{Target: baldaruntime.ActorTypeGoalkeeper, Key: payload.JobID},
+		actorlayer.ActorAddress{Target: baldaexecution.ActorTypeGoalkeeper, Key: payload.JobID},
 		loc,
 		deliveryfmt.ProgressPolicy{},
 		true,
@@ -872,7 +876,7 @@ func (a *Actor) deliver(
 	locator := normalizeGoalDeliveryLocator(payload.Locator)
 	env, err := deliverycmd.AgentReplyEnvelopeWithProfile(
 		strings.TrimSpace(taskID),
-		actorlayer.ActorAddress{Target: baldaruntime.ActorTypeGoalkeeper, Key: taskID},
+		actorlayer.ActorAddress{Target: baldaexecution.ActorTypeGoalkeeper, Key: taskID},
 		locator,
 		normalizeGoalDeliveryProfile(payload.DeliveryProfile),
 		message,
@@ -969,7 +973,7 @@ func redactSecrets(raw string) string {
 	return text
 }
 
-func renderReviewableOutcomeWithProfile(profile deliverycmd.Profile, task baldastate.SwarmTaskRecord, artifacts taskArtifactSnapshot) string {
+func renderReviewableOutcomeWithProfile(profile deliverycmd.Profile, task baldastate.JobRecord, artifacts taskArtifactSnapshot) string {
 	_ = artifacts
 	var result map[string]any
 	if err := json.Unmarshal([]byte(strings.TrimSpace(task.ResultJSON)), &result); err != nil {
@@ -1030,7 +1034,7 @@ func renderReviewableOutcomeWithProfile(profile deliverycmd.Profile, task baldas
 	if hasOutcome {
 		whatWasDone = firstNonEmpty(parsedOutcome.WhatWasDone, whatWasDone)
 	}
-	if !goalReached && task.Status != baldastate.SwarmTaskStatusCompleted && resultText("final_text") != "" {
+	if !goalReached && task.Status != baldastate.JobStatusCompleted && resultText("final_text") != "" {
 		whatWasDone = redactSecrets(resultText("final_text"))
 	}
 	validation := reviewerOutput

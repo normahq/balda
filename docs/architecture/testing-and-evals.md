@@ -13,7 +13,7 @@ Status: active
 ## Related tests
 
 - `internal/apps/balda/eventbus/nats/connection_test.go`
-- `internal/apps/balda/runtime/host_test.go`
+- `internal/apps/balda/execution/host_test.go`
 - `internal/apps/balda/architecture_contract_test.go`
 - `internal/apps/balda/handlers/inbound_webhook_test.go`
 - `internal/apps/balda/handlers/command_test.go`
@@ -21,7 +21,7 @@ Status: active
 ## Related packages
 
 - `internal/apps/balda/eventbus/nats`
-- `internal/apps/balda/runtime`
+- `internal/apps/balda/execution`
 - `internal/apps/balda/jobs`
 - `internal/apps/balda/handlers`
 - `internal/apps/balda`

@@ -15,6 +15,7 @@ var registerBaldaGoMigrationsOnce sync.Once
 func registerBaldaGoMigrations() {
 	registerBaldaGoMigrationsOnce.Do(func() {
 		goose.AddNamedMigrationContext("00020_runtime_session_tables.go", up00020RuntimeSessionTables, down00020RuntimeSessionTables)
+		goose.AddNamedMigrationContext("00021_execution_job_tables.go", up00021ExecutionJobTables, down00021ExecutionJobTables)
 	})
 }
 

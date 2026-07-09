@@ -1,7 +1,7 @@
 name: goal_fix_tests
 ingress: goal.inbound
 goal:
-  objective: fix failing tests in swarm runtime
+  objective: fix failing tests in runtime runtime
   max_iterations: 3
 expected:
   command_subject: balda.v1.cmd.job

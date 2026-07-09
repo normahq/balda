@@ -8,12 +8,12 @@ import (
 	"time"
 
 	baldaeventbus "github.com/normahq/balda/internal/apps/balda/eventbus"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 )
 
 type resolvedConfig struct {
 	NATS      baldaeventbus.Config
-	Swarm     baldaruntime.Config
+	Execution baldaexecution.Config
 	StoreDir  string
 	MaxMemory int64
 	MaxStore  int64
@@ -33,16 +33,16 @@ type streamSpec struct {
 	Discard    string
 }
 
-func resolveConfig(natsCfg baldaeventbus.Config, swarmCfg baldaruntime.Config, stateDir string) (resolvedConfig, error) {
+func resolveConfig(natsCfg baldaeventbus.Config, executionCfg baldaexecution.Config, stateDir string) (resolvedConfig, error) {
 	normalizedNATS, err := natsCfg.Normalized()
 	if err != nil {
 		return resolvedConfig{}, err
 	}
-	normalizedSwarm, err := swarmCfg.Normalized()
+	normalizedExecution, err := executionCfg.Normalized()
 	if err != nil {
 		return resolvedConfig{}, err
 	}
-	out := resolvedConfig{NATS: normalizedNATS, Swarm: normalizedSwarm}
+	out := resolvedConfig{NATS: normalizedNATS, Execution: normalizedExecution}
 	trimmedStateDir := strings.TrimSpace(stateDir)
 	if trimmedStateDir == "" {
 		return resolvedConfig{}, fmt.Errorf("balda.state_dir is required")
@@ -59,13 +59,13 @@ func resolveConfig(natsCfg baldaeventbus.Config, swarmCfg baldaruntime.Config, s
 	out.Commands = streamSpec{MaxAge: 7 * 24 * time.Hour, MaxBytes: -1, MaxMsgSize: -1, Discard: "new"}
 	out.Events = streamSpec{MaxAge: 30 * 24 * time.Hour, MaxBytes: -1, MaxMsgSize: -1, Discard: "old"}
 	out.DLQ = streamSpec{MaxAge: 30 * 24 * time.Hour, MaxBytes: -1, MaxMsgSize: -1, Discard: "new"}
-	out.AckWait, err = parseDuration(normalizedSwarm.Commands.AckWait)
+	out.AckWait, err = parseDuration(normalizedExecution.Commands.AckWait)
 	if err != nil {
-		return resolvedConfig{}, fmt.Errorf("balda.baldaruntime.commands.ack_wait: %w", err)
+		return resolvedConfig{}, fmt.Errorf("balda.execution.commands.ack_wait: %w", err)
 	}
-	out.FetchWait, err = parseDuration(normalizedSwarm.Commands.FetchWait)
+	out.FetchWait, err = parseDuration(normalizedExecution.Commands.FetchWait)
 	if err != nil {
-		return resolvedConfig{}, fmt.Errorf("balda.baldaruntime.commands.fetch_wait: %w", err)
+		return resolvedConfig{}, fmt.Errorf("balda.execution.commands.fetch_wait: %w", err)
 	}
 	return out, nil
 }

@@ -2,7 +2,7 @@ package natsbus
 
 import (
 	gnats "github.com/nats-io/nats.go"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/pkg/actorlayer"
 )
 
@@ -13,7 +13,7 @@ func messageFromEnvelope(subject string, env actorlayer.Envelope) (*gnats.Msg, e
 	}
 	msg := gnats.NewMsg(subject)
 	msg.Data = []byte(data)
-	for key, value := range baldaruntime.EnvelopeHeaders(env) {
+	for key, value := range baldaexecution.EnvelopeHeaders(env) {
 		msg.Header.Set(key, value)
 	}
 	return msg, nil

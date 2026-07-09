@@ -141,7 +141,7 @@ func (s *ScheduledTaskScheduler) reconcileConfiguredTasks(ctx context.Context) e
 			return fmt.Errorf("compute next run for scheduler task %q: %w", task.ID, err)
 		}
 		record := baldastate.ScheduledTaskRecord{
-			TaskID:       task.ID,
+			JobID:        task.ID,
 			SessionID:    target.Locator.SessionID,
 			ChannelType:  target.Locator.ChannelType,
 			AddressKey:   target.Locator.AddressKey,
@@ -172,7 +172,7 @@ func (s *ScheduledTaskScheduler) reconcileConfiguredTasks(ctx context.Context) e
 		return fmt.Errorf("list persisted scheduler jobs: %w", err)
 	}
 	for _, existing := range currentTasks {
-		taskID := strings.TrimSpace(existing.TaskID)
+		taskID := strings.TrimSpace(existing.JobID)
 		if _, ok := desired[taskID]; ok {
 			continue
 		}
@@ -192,14 +192,14 @@ func (s *ScheduledTaskScheduler) dispatchDue(ctx context.Context, now time.Time)
 
 	for _, task := range due {
 		if err := s.dispatchTask(ctx, task, now); err != nil {
-			s.logger.Warn().Err(err).Str("job_id", task.TaskID).Msg("failed to dispatch job")
+			s.logger.Warn().Err(err).Str("job_id", task.JobID).Msg("failed to dispatch job")
 		}
 	}
 	return nil
 }
 
 func (s *ScheduledTaskScheduler) dispatchTask(ctx context.Context, task baldastate.ScheduledTaskRecord, now time.Time) error {
-	taskID := strings.TrimSpace(task.TaskID)
+	taskID := strings.TrimSpace(task.JobID)
 	if taskID == "" {
 		return fmt.Errorf("job id is required")
 	}
@@ -285,16 +285,16 @@ func (s *ScheduledTaskScheduler) dispatchScheduledTaskTask(
 	if task.ReportToEnabled {
 		locator, err := baldasession.NewSessionLocator(task.ReportToChannelType, task.ReportToAddressKey, task.ReportToAddressJSON, task.ReportToSessionID)
 		if err != nil {
-			return s.markFailure(ctx, task.TaskID, fmt.Errorf("resolve report_to locator: %w", err))
+			return s.markFailure(ctx, task.JobID, fmt.Errorf("resolve report_to locator: %w", err))
 		}
 		reportTo = &locator
 	}
-	env, err := actors.ScheduledJobEnvelope(task.TaskID, content, target.Locator, reportTo, target.UserID, target.TopicID, dispatchKey)
+	env, err := actors.ScheduledJobEnvelope(task.JobID, content, target.Locator, reportTo, target.UserID, target.TopicID, dispatchKey)
 	if err != nil {
-		return s.markFailure(ctx, task.TaskID, err)
+		return s.markFailure(ctx, task.JobID, err)
 	}
 	if _, err := s.dispatcher.Dispatch(ctx, env); err != nil {
-		return s.markFailure(ctx, task.TaskID, fmt.Errorf("publish scheduled job command: %w", err))
+		return s.markFailure(ctx, task.JobID, fmt.Errorf("publish scheduled job command: %w", err))
 	}
 	return nil
 }

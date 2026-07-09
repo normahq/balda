@@ -1,8 +1,7 @@
-package runtime
+package execution
 
 import (
 	"context"
-	"strings"
 
 	"github.com/normahq/balda/pkg/actorlayer"
 	actorengine "github.com/normahq/balda/pkg/actorlayer/engine"
@@ -12,12 +11,12 @@ func (r *ActorHost) deadletterJob(ctx context.Context, env actorlayer.Envelope, 
 	if r == nil || r.jobs == nil {
 		return
 	}
-	jobID := strings.TrimSpace(env.TaskID)
+	jobID := EnvelopeJobID(env)
 	if jobID == "" {
 		return
 	}
 	if err := r.jobs.DeadLetter(ctx, jobID, "runtime.host", env.ID, reason); err != nil {
-		r.logger.Warn().Err(err).Str("task_id", jobID).Msg("failed to mark job deadlettered")
+		r.logger.Warn().Err(err).Str("job_id", jobID).Msg("failed to mark job deadlettered")
 	}
 }
 

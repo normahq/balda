@@ -13,7 +13,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldaslack "github.com/normahq/balda/internal/apps/balda/channel/slack"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/rs/zerolog"
 )
 
@@ -83,7 +83,7 @@ func TestSlackHandlerHandleMessagePublishesDirectSessionTurn(t *testing.T) {
 	var envFound bool
 	var envPayload actors.SessionTurnPayload
 	for _, env := range dispatcher.commands {
-		if env.To.Target != baldaruntime.ActorTypeSession {
+		if env.To.Target != baldaexecution.ActorTypeSession {
 			continue
 		}
 		if got, want := env.DedupeKey, "slack:1712345678.1234"; got != want {

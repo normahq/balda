@@ -1,4 +1,4 @@
-package runtime
+package execution
 
 import (
 	"go/parser"
@@ -14,7 +14,7 @@ import (
 
 var (
 	_ actorengine.Delivery = (*runtimeDelivery)(nil)
-	_ actorengine.Source   = runtimeSource{}
+	_ actorengine.Source   = executionSource{}
 )
 
 // TestRuntimeCoreNoProviderImports verifies that the runtime core module does

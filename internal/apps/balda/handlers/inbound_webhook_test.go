@@ -11,7 +11,7 @@ import (
 	"text/template"
 
 	"github.com/normahq/balda/internal/apps/balda/actors"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	actortransport "github.com/normahq/balda/pkg/actorlayer/transport"
 	"github.com/rs/zerolog"
 )
@@ -263,7 +263,7 @@ func TestInboundWebhookReceiver_AcceptsWithoutSessionRestore(t *testing.T) {
 func TestInboundWebhookReceiver_QueueFull(t *testing.T) {
 	t.Parallel()
 
-	executor := &fakeInboundTurnExecutor{submitErr: baldaruntime.ErrCommandQueueFull}
+	executor := &fakeInboundTurnExecutor{submitErr: baldaexecution.ErrCommandQueueFull}
 	receiver := newInboundWebhookReceiverForTest(t)
 	receiver.balda = executor
 	receiver.routes = map[string]inboundWebhookRoute{
@@ -511,9 +511,9 @@ func (f *fakeInboundTurnExecutor) submitWebhookTask(
 	f.lastRequestID = requestID
 	taskID := "webhook-" + routeName + "-test"
 	return &actortransport.DispatchReceipt{
-		Stream:   baldaruntime.DefaultCommandStream,
+		Stream:   baldaexecution.DefaultCommandStream,
 		Sequence: 1,
-		Subject:  baldaruntime.SubjectCommandJob,
+		Subject:  baldaexecution.SubjectCommandJob,
 		MsgID:    "webhook:" + routeName + ":" + requestID,
 	}, taskID, nil
 }
@@ -528,9 +528,9 @@ func (f *fakeInboundTurnExecutor) submitSessionTurn(_ context.Context, payload a
 	f.deliver = payload.Deliver
 	f.payload = payload
 	return &actortransport.DispatchReceipt{
-		Stream:   baldaruntime.DefaultCommandStream,
+		Stream:   baldaexecution.DefaultCommandStream,
 		Sequence: 1,
-		Subject:  baldaruntime.SubjectCommandSession,
+		Subject:  baldaexecution.SubjectCommandSession,
 		MsgID:    payload.DedupeKey,
 	}, nil
 }

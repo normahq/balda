@@ -13,7 +13,7 @@ type sqliteScheduledTaskStore struct {
 }
 
 func (s *sqliteScheduledTaskStore) Upsert(ctx context.Context, record ScheduledTaskRecord) error {
-	taskID := strings.TrimSpace(record.TaskID)
+	taskID := strings.TrimSpace(record.JobID)
 	if taskID == "" {
 		return fmt.Errorf("task_id is required")
 	}
@@ -255,7 +255,7 @@ func scanScheduledTask(scan func(dest ...any) error) (ScheduledTaskRecord, bool,
 	)
 
 	err := scan(
-		&record.TaskID,
+		&record.JobID,
 		&record.SessionID,
 		&record.ChannelType,
 		&record.AddressKey,

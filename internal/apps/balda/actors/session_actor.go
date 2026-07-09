@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/pkg/actorlayer"
@@ -64,27 +64,27 @@ func SessionTurnEnvelope(payload SessionTurnPayload) (actorlayer.Envelope, error
 		source = sessionTurnSourceTelegram
 	}
 	priority := 90
-	namespace := baldaruntime.NamespaceHumanInbound
-	kind := baldaruntime.KindMessage
+	namespace := baldaexecution.NamespaceHumanInbound
+	kind := baldaexecution.KindMessage
 	switch {
 	case strings.EqualFold(source, sessionTurnSourceWebhook):
 		priority = 80
-		namespace = baldaruntime.NamespaceWebhookInbound
-		kind = baldaruntime.KindWebhookEvent
+		namespace = baldaexecution.NamespaceWebhookInbound
+		kind = baldaexecution.KindWebhookEvent
 	case strings.EqualFold(source, sessionTurnSourceSchedule):
 		priority = 50
-		namespace = baldaruntime.NamespaceScheduleInbound
+		namespace = baldaexecution.NamespaceScheduleInbound
 	case strings.EqualFold(source, "agent"):
-		namespace = baldaruntime.NamespaceGoalkeeperCommand
+		namespace = baldaexecution.NamespaceGoalkeeperCommand
 	}
 	return actorlayer.Envelope{
 		ID:          uuid.NewString(),
 		Namespace:   namespace,
 		Kind:        kind,
 		From:        actorlayer.ActorAddress{Target: source, Key: firstNonEmpty(payload.UserID, payload.Locator.AddressKey, "unknown")},
-		To:          actorlayer.ActorAddress{Target: baldaruntime.ActorTypeSession, Key: payload.Locator.SessionID},
+		To:          actorlayer.ActorAddress{Target: baldaexecution.ActorTypeSession, Key: payload.Locator.SessionID},
 		SessionID:   payload.Locator.SessionID,
-		TaskID:      strings.TrimSpace(payload.JobID),
+		Meta:        baldaexecution.WithJobIDMeta(nil, payload.JobID),
 		Priority:    priority,
 		DedupeKey:   strings.TrimSpace(payload.DedupeKey),
 		PayloadJSON: string(data),
@@ -108,12 +108,12 @@ type sessionActorExecutorParams struct {
 }
 
 func (e *sessionActorExecutor) Address() string {
-	return actorlayer.WildcardAddress(baldaruntime.ActorTypeSession)
+	return actorlayer.WildcardAddress(baldaexecution.ActorTypeSession)
 }
 
 func (e *sessionActorExecutor) Handle(ctx context.Context, env actorlayer.Envelope) error {
 	switch strings.TrimSpace(env.Namespace) {
-	case baldaruntime.NamespaceHumanInbound, baldaruntime.NamespaceWebhookInbound, baldaruntime.NamespaceScheduleInbound, baldaruntime.NamespaceGoalkeeperCommand, baldaruntime.NamespaceJobControl:
+	case baldaexecution.NamespaceHumanInbound, baldaexecution.NamespaceWebhookInbound, baldaexecution.NamespaceScheduleInbound, baldaexecution.NamespaceGoalkeeperCommand, baldaexecution.NamespaceJobControl:
 		return e.enqueueTurn(ctx, env)
 	default:
 		return actorlayer.PolicyError(fmt.Errorf("unsupported session namespace %q", env.Namespace))
@@ -128,13 +128,21 @@ func (e *sessionActorExecutor) enqueueTurn(ctx context.Context, env actorlayer.E
 	if strings.TrimSpace(payload.Locator.SessionID) == "" {
 		payload.Locator.SessionID = strings.TrimSpace(env.To.Key)
 	}
+	envelopeJobID := strings.TrimSpace(baldaexecution.EnvelopeJobID(env))
+	payloadJobID := strings.TrimSpace(payload.JobID)
+	switch {
+	case envelopeJobID != "" && payloadJobID == "":
+		return actorlayer.PolicyError(fmt.Errorf("session payload job id is required when envelope job scope is set"))
+	case envelopeJobID != "" && payloadJobID != envelopeJobID:
+		return actorlayer.PolicyError(fmt.Errorf("session job id mismatch: envelope=%q payload=%q", envelopeJobID, payloadJobID))
+	}
 	if e.sessionTaskAlreadyDone(ctx, env, payload) {
 		return nil
 	}
 	if e.turns == nil {
 		return actorlayer.TransientError(fmt.Errorf("turn dispatcher is required"))
 	}
-	if env.Meta != nil && strings.TrimSpace(env.Meta["queue_mode"]) == baldaruntime.QueueModeInterrupt {
+	if env.Meta != nil && strings.TrimSpace(env.Meta["queue_mode"]) == baldaexecution.QueueModeInterrupt {
 		_, _, err := e.turns.CancelSession(payload.Locator, true)
 		if err != nil {
 			return actorlayer.TransientError(fmt.Errorf("interrupt session turn: %w", err))
@@ -190,7 +198,7 @@ func (e *sessionActorExecutor) sessionTaskAlreadyDone(ctx context.Context, env a
 	if e == nil || e.tasks == nil || !sessionTurnUsesJobLifecycle(env, payload) {
 		return false
 	}
-	task, ok, err := e.tasks.Get(ctx, strings.TrimSpace(env.TaskID))
+	task, ok, err := e.tasks.Get(ctx, strings.TrimSpace(payload.JobID))
 	if err != nil || !ok {
 		return false
 	}
@@ -216,43 +224,43 @@ func (e *sessionActorExecutor) recordSessionTaskResult(ctx context.Context, env 
 		return nil
 	}
 	if errors.Is(runErr, context.Canceled) {
-		if err := e.tasks.MarkStatus(ctx, env.TaskID, baldastate.SwarmTaskStatusCanceled, "session.actor", env.ID, runErr.Error(), map[string]any{
+		if err := e.tasks.MarkStatus(ctx, payload.JobID, baldastate.JobStatusCanceled, "session.actor", env.ID, runErr.Error(), map[string]any{
 			"namespace": env.Namespace,
 			"kind":      env.Kind,
 		}); err != nil {
-			return fmt.Errorf("mark session task %q canceled: %w", env.TaskID, err)
+			return fmt.Errorf("mark session job %q canceled: %w", payload.JobID, err)
 		}
 		return nil
 	}
 	if runErr == nil {
-		if err := e.tasks.MarkStatus(ctx, env.TaskID, baldastate.SwarmTaskStatusCompleted, "session.actor", env.ID, "", map[string]any{
+		if err := e.tasks.MarkStatus(ctx, payload.JobID, baldastate.JobStatusCompleted, "session.actor", env.ID, "", map[string]any{
 			"namespace": env.Namespace,
 			"kind":      env.Kind,
 		}); err != nil {
-			return fmt.Errorf("mark session task %q completed: %w", env.TaskID, err)
+			return fmt.Errorf("mark session job %q completed: %w", payload.JobID, err)
 		}
 		return nil
 	}
-	if err := e.tasks.MarkStatus(ctx, env.TaskID, baldastate.SwarmTaskStatusFailed, "session.actor", env.ID, runErr.Error(), map[string]any{
+	if err := e.tasks.MarkStatus(ctx, payload.JobID, baldastate.JobStatusFailed, "session.actor", env.ID, runErr.Error(), map[string]any{
 		"namespace": env.Namespace,
 		"kind":      env.Kind,
 	}); err != nil {
-		return fmt.Errorf("mark session task %q failed: %w", env.TaskID, err)
+		return fmt.Errorf("mark session job %q failed: %w", payload.JobID, err)
 	}
 	return nil
 }
 
 func sessionTurnUsesJobLifecycle(env actorlayer.Envelope, payload SessionTurnPayload) bool {
-	if strings.TrimSpace(env.TaskID) == "" {
+	if strings.TrimSpace(payload.JobID) == "" {
 		return false
 	}
 	if strings.TrimSpace(payload.ScheduledJobID) != "" {
 		return true
 	}
 	switch {
-	case strings.EqualFold(env.Namespace, baldaruntime.NamespaceWebhookInbound):
+	case strings.EqualFold(env.Namespace, baldaexecution.NamespaceWebhookInbound):
 		return true
-	case strings.EqualFold(env.Namespace, baldaruntime.NamespaceScheduleInbound):
+	case strings.EqualFold(env.Namespace, baldaexecution.NamespaceScheduleInbound):
 		return true
 	case strings.EqualFold(payload.Source, sessionTurnSourceWebhook):
 		return true

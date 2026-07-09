@@ -1,4 +1,4 @@
-package runtime
+package execution
 
 import (
 	"strings"
@@ -7,7 +7,7 @@ import (
 	"github.com/normahq/balda/pkg/actorlayer"
 )
 
-const subjectTestTaskID = "task-1"
+const subjectTestJobID = "task-1"
 
 func TestSubjectForEnvelope_UsesStableCommandSubjects(t *testing.T) {
 	tests := []struct {
@@ -16,7 +16,7 @@ func TestSubjectForEnvelope_UsesStableCommandSubjects(t *testing.T) {
 		want string
 	}{
 		{name: "session", env: subjectTestEnvelope(actorlayer.ActorAddress{Target: ActorTypeSession, Key: "tg-1.2"}), want: SubjectCommandSession},
-		{name: "task", env: subjectTestEnvelope(actorlayer.ActorAddress{Target: ActorTypeJob, Key: subjectTestTaskID}), want: SubjectCommandJob},
+		{name: "task", env: subjectTestEnvelope(actorlayer.ActorAddress{Target: ActorTypeJob, Key: subjectTestJobID}), want: SubjectCommandJob},
 		{name: "goal", env: subjectTestEnvelope(actorlayer.ActorAddress{Target: ActorTypeGoal, Key: "goal-1"}), want: SubjectCommandGoal},
 		{name: "delivery", env: subjectTestEnvelope(actorlayer.ActorAddress{Target: ActorTypeDelivery, Key: "tg-1"}), want: SubjectCommandDelivery},
 		{name: "control", env: controlTestEnvelope(), want: SubjectCommandControl},
@@ -49,19 +49,15 @@ func TestCommandSubjects_UseCommandNamespacePrefix(t *testing.T) {
 }
 
 func TestEnvelopeHeaders_UseEnvelopeIdentityHeaders(t *testing.T) {
-	env := subjectTestEnvelope(actorlayer.ActorAddress{Target: ActorTypeJob, Key: subjectTestTaskID})
-	env.TaskID = subjectTestTaskID
+	env := subjectTestEnvelope(actorlayer.ActorAddress{Target: ActorTypeJob, Key: subjectTestJobID})
 	env.CorrelationID = "corr-1"
 	env.Priority = 80
 	headers := EnvelopeHeaders(env)
 	if headers[HeaderEnvelopeID] != env.ID {
 		t.Fatalf("%s = %q, want %q", HeaderEnvelopeID, headers[HeaderEnvelopeID], env.ID)
 	}
-	if headers[HeaderTaskID] != subjectTestTaskID {
-		t.Fatalf("%s = %q, want %s", HeaderTaskID, headers[HeaderTaskID], subjectTestTaskID)
-	}
-	if headers[HeaderActorKey] != subjectTestTaskID {
-		t.Fatalf("%s = %q, want %s", HeaderActorKey, headers[HeaderActorKey], subjectTestTaskID)
+	if headers[HeaderActorKey] != subjectTestJobID {
+		t.Fatalf("%s = %q, want %s", HeaderActorKey, headers[HeaderActorKey], subjectTestJobID)
 	}
 	if headers[HeaderPriority] != "80" {
 		t.Fatalf("%s = %q, want 80", HeaderPriority, headers[HeaderPriority])
@@ -81,7 +77,7 @@ func subjectTestEnvelope(to actorlayer.ActorAddress) actorlayer.Envelope {
 }
 
 func controlTestEnvelope() actorlayer.Envelope {
-	env := subjectTestEnvelope(actorlayer.ActorAddress{Target: ActorTypeJob, Key: subjectTestTaskID})
+	env := subjectTestEnvelope(actorlayer.ActorAddress{Target: ActorTypeJob, Key: subjectTestJobID})
 	env.Namespace = NamespaceJobControl
 	return env
 }

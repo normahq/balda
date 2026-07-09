@@ -13,8 +13,8 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 	baldaeventbus "github.com/normahq/balda/internal/apps/balda/eventbus"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
-	baldaruntime "github.com/normahq/balda/internal/apps/balda/runtime"
 	"github.com/normahq/balda/pkg/actorlayer"
 	actorengine "github.com/normahq/balda/pkg/actorlayer/engine"
 	"github.com/rs/zerolog"
@@ -41,12 +41,12 @@ func TestIsRuntimeQueuePressure(t *testing.T) {
 }
 
 func TestBus_DispatchAndConsumeBuiltInRuntime(t *testing.T) {
-	h := StartTestRuntime(t, baldaruntime.Config{})
+	h := StartTestRuntime(t, baldaexecution.Config{})
 	bus := h.Bus
 
 	env := commandTestEnvelope("env-1")
 	ack := h.Dispatch(t, env)
-	if ack.Stream != baldaruntime.DefaultCommandStream || ack.Subject != baldaruntime.SubjectCommandGoal || ack.Sequence == 0 {
+	if ack.Stream != baldaexecution.DefaultCommandStream || ack.Subject != baldaexecution.SubjectCommandGoal || ack.Sequence == 0 {
 		t.Fatalf("Dispatch() ack = %+v", ack)
 	}
 
@@ -70,25 +70,25 @@ func TestBus_DispatchAndConsumeBuiltInRuntime(t *testing.T) {
 }
 
 func TestBus_DispatchSucceedsWhenAcceptedEventCannotPublish(t *testing.T) {
-	h := StartTestRuntime(t, baldaruntime.Config{})
+	h := StartTestRuntime(t, baldaexecution.Config{})
 	bus := h.Bus
-	if err := bus.js.DeleteStream(context.Background(), baldaruntime.DefaultEventStream); err != nil {
+	if err := bus.js.DeleteStream(context.Background(), baldaexecution.DefaultEventStream); err != nil {
 		t.Fatalf("DeleteStream(events) error = %v", err)
 	}
 
 	ack := h.Dispatch(t, commandTestEnvelope("accepted-event-fails"))
-	if ack.Stream != baldaruntime.DefaultCommandStream || ack.Sequence == 0 {
+	if ack.Stream != baldaexecution.DefaultCommandStream || ack.Sequence == 0 {
 		t.Fatalf("Dispatch() ack = %+v, want command stream ack", ack)
 	}
 }
 
 func TestBus_CommandLifecycleEventsUseDistinctDedupeIDs(t *testing.T) {
 	bus, err := NewBus(Params{
-		LC:       fxtest.NewLifecycle(t),
-		Config:   baldaeventbus.Config{Embedded: true},
-		Swarm:    baldaruntime.Config{Commands: baldaruntime.CommandConfig{FetchWait: "50ms"}},
-		StateDir: t.TempDir(),
-		Logger:   zerolog.Nop(),
+		LC:        fxtest.NewLifecycle(t),
+		Config:    baldaeventbus.Config{Embedded: true},
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{FetchWait: "50ms"}},
+		StateDir:  t.TempDir(),
+		Logger:    zerolog.Nop(),
 	})
 	if err != nil {
 		t.Fatalf("NewBus() error = %v", err)
@@ -115,7 +115,7 @@ func TestBus_CommandLifecycleEventsUseDistinctDedupeIDs(t *testing.T) {
 		t.Fatal("timed out waiting for command handler")
 	}
 	for {
-		status, err := bus.streamStatus(context.Background(), baldaruntime.DefaultEventStream)
+		status, err := bus.streamStatus(context.Background(), baldaexecution.DefaultEventStream)
 		if err != nil {
 			t.Fatalf("event stream status: %v", err)
 		}
@@ -134,7 +134,7 @@ func TestBus_CommandRunningEventFailureDoesNotBlockCommandHandling(t *testing.T)
 	bus, err := NewBus(Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
-		Swarm: baldaruntime.Config{Commands: baldaruntime.CommandConfig{
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
 			AckWait:    "1s",
 			FetchWait:  "50ms",
 			MaxDeliver: 2,
@@ -150,7 +150,7 @@ func TestBus_CommandRunningEventFailureDoesNotBlockCommandHandling(t *testing.T)
 	if _, err := bus.Dispatch(context.Background(), commandTestEnvelope("running-event-fails")); err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
-	if err := bus.js.DeleteStream(context.Background(), baldaruntime.DefaultEventStream); err != nil {
+	if err := bus.js.DeleteStream(context.Background(), baldaexecution.DefaultEventStream); err != nil {
 		t.Fatalf("DeleteStream(events) error = %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -170,7 +170,7 @@ func TestBus_CommandRunningEventFailureDoesNotBlockCommandHandling(t *testing.T)
 		t.Fatal("timed out waiting for command handler")
 	}
 	for {
-		status, err := bus.streamStatus(context.Background(), baldaruntime.DefaultCommandStream)
+		status, err := bus.streamStatus(context.Background(), baldaexecution.DefaultCommandStream)
 		if err != nil {
 			t.Fatalf("command stream status: %v", err)
 		}
@@ -196,7 +196,7 @@ func TestBus_CommandAckedEventFailureDoesNotRedeliverCompletedCommand(t *testing
 	bus, err := NewBus(Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
-		Swarm: baldaruntime.Config{Commands: baldaruntime.CommandConfig{
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
 			AckWait:    "100ms",
 			FetchWait:  "50ms",
 			MaxDeliver: 2,
@@ -219,7 +219,7 @@ func TestBus_CommandAckedEventFailureDoesNotRedeliverCompletedCommand(t *testing
 	go func() {
 		_ = bus.Run(ctx, func(context.Context, actorengine.Delivery) error {
 			calls.Add(1)
-			if err := bus.js.DeleteStream(context.Background(), baldaruntime.DefaultEventStream); err != nil {
+			if err := bus.js.DeleteStream(context.Background(), baldaexecution.DefaultEventStream); err != nil {
 				t.Errorf("DeleteStream(events) error = %v", err)
 			}
 			handled <- struct{}{}
@@ -232,7 +232,7 @@ func TestBus_CommandAckedEventFailureDoesNotRedeliverCompletedCommand(t *testing
 		t.Fatal("timed out waiting for command handler")
 	}
 	for {
-		status, err := bus.streamStatus(context.Background(), baldaruntime.DefaultCommandStream)
+		status, err := bus.streamStatus(context.Background(), baldaexecution.DefaultCommandStream)
 		if err != nil {
 			t.Fatalf("command stream status: %v", err)
 		}
@@ -255,7 +255,7 @@ func TestBus_CommandRetryingEventFailureStillRedeliversAndSettles(t *testing.T) 
 	bus, err := NewBus(Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
-		Swarm: baldaruntime.Config{Commands: baldaruntime.CommandConfig{
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
 			AckWait:    "100ms",
 			FetchWait:  "50ms",
 			MaxDeliver: 2,
@@ -279,7 +279,7 @@ func TestBus_CommandRetryingEventFailureStillRedeliversAndSettles(t *testing.T) 
 		_ = bus.Run(ctx, func(context.Context, actorengine.Delivery) error {
 			call := calls.Add(1)
 			if call == 1 {
-				if err := bus.js.DeleteStream(context.Background(), baldaruntime.DefaultEventStream); err != nil {
+				if err := bus.js.DeleteStream(context.Background(), baldaexecution.DefaultEventStream); err != nil {
 					t.Errorf("DeleteStream(events) error = %v", err)
 				}
 				return actorlayer.TransientError(errors.New("retry please"))
@@ -303,7 +303,7 @@ func TestBus_CommandRetryingEventIncludesNextAttemptMetadata(t *testing.T) {
 	bus, err := NewBus(Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
-		Swarm: baldaruntime.Config{Commands: baldaruntime.CommandConfig{
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
 			AckWait:    "100ms",
 			FetchWait:  "50ms",
 			MaxDeliver: 2,
@@ -341,11 +341,11 @@ func TestBus_CommandRetryingEventIncludesNextAttemptMetadata(t *testing.T) {
 		t.Fatalf("handler calls = %d, want 2 (retry + success)", got)
 	}
 
-	retryingConsumer, err := bus.js.CreateOrUpdateConsumer(context.Background(), baldaruntime.DefaultEventStream, jetstream.ConsumerConfig{
+	retryingConsumer, err := bus.js.CreateOrUpdateConsumer(context.Background(), baldaexecution.DefaultEventStream, jetstream.ConsumerConfig{
 		Durable:       "retrying-metadata-inspector",
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		DeliverPolicy: jetstream.DeliverAllPolicy,
-		FilterSubject: baldaruntime.SubjectEventCommandRetrying,
+		FilterSubject: baldaexecution.SubjectEventCommandRetrying,
 	})
 	if err != nil {
 		t.Fatalf("CreateOrUpdateConsumer(retrying-metadata-inspector) error = %v", err)
@@ -386,7 +386,7 @@ func TestBus_CommandDeadletteredEventFailureStillSettlesDLQ(t *testing.T) {
 	bus, err := NewBus(Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
-		Swarm: baldaruntime.Config{Commands: baldaruntime.CommandConfig{
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
 			AckWait:    "100ms",
 			FetchWait:  "50ms",
 			MaxDeliver: 1,
@@ -407,7 +407,7 @@ func TestBus_CommandDeadletteredEventFailureStillSettlesDLQ(t *testing.T) {
 	handled := make(chan struct{}, 1)
 	go func() {
 		_ = bus.Run(ctx, func(context.Context, actorengine.Delivery) error {
-			if err := bus.js.DeleteStream(context.Background(), baldaruntime.DefaultEventStream); err != nil {
+			if err := bus.js.DeleteStream(context.Background(), baldaexecution.DefaultEventStream); err != nil {
 				t.Errorf("DeleteStream(events) error = %v", err)
 			}
 			handled <- struct{}{}
@@ -419,7 +419,7 @@ func TestBus_CommandDeadletteredEventFailureStillSettlesDLQ(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for command handler")
 	}
-	waitStreamMessages(t, bus, baldaruntime.DefaultDLQStream, 1)
+	waitStreamMessages(t, bus, baldaexecution.DefaultDLQStream, 1)
 	assertCommandStreamDrained(t, bus)
 }
 
@@ -443,7 +443,7 @@ func TestBus_CommandSuccessSettlesWithCanceledParent(t *testing.T) {
 	bus, err := NewBus(Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
-		Swarm: baldaruntime.Config{Commands: baldaruntime.CommandConfig{
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
 			AckWait:    "100ms",
 			FetchWait:  "50ms",
 			MaxDeliver: 2,
@@ -487,7 +487,7 @@ func TestBus_CommandDLQSettlesWithCanceledParent(t *testing.T) {
 	bus, err := NewBus(Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
-		Swarm: baldaruntime.Config{Commands: baldaruntime.CommandConfig{
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
 			AckWait:    "100ms",
 			FetchWait:  "50ms",
 			MaxDeliver: 2,
@@ -517,7 +517,7 @@ func TestBus_CommandDLQSettlesWithCanceledParent(t *testing.T) {
 	}()
 
 	waitSignal(t, context.Background(), handled, "command handler")
-	waitStreamMessages(t, bus, baldaruntime.DefaultDLQStream, 1)
+	waitStreamMessages(t, bus, baldaexecution.DefaultDLQStream, 1)
 	assertCommandStreamDrained(t, bus)
 	waitConsumerCanceled(t, done)
 }
@@ -526,7 +526,7 @@ func TestBus_RunHandlesCommandsConcurrently(t *testing.T) {
 	bus, err := NewBus(Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
-		Swarm: baldaruntime.Config{Commands: baldaruntime.CommandConfig{
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
 			FetchBatch:    2,
 			MaxAckPending: 2,
 			FetchWait:     "50ms",
@@ -541,8 +541,7 @@ func TestBus_RunHandlesCommandsConcurrently(t *testing.T) {
 
 	for _, id := range []string{"concurrent-a", "concurrent-b"} {
 		env := commandTestEnvelope(id)
-		env.TaskID = id
-		env.To = actorlayer.ActorAddress{Target: baldaruntime.ActorTypeJob, Key: id}
+		env.To = actorlayer.ActorAddress{Target: baldaexecution.ActorTypeJob, Key: id}
 		if _, err := bus.Dispatch(context.Background(), env); err != nil {
 			t.Fatalf("Dispatch(%s) error = %v", id, err)
 		}
@@ -580,7 +579,7 @@ func TestBus_RunLimitsInFlightToFetchBatch(t *testing.T) {
 	bus, err := NewBus(Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
-		Swarm: baldaruntime.Config{Commands: baldaruntime.CommandConfig{
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
 			FetchBatch:    2,
 			MaxAckPending: 8,
 			FetchWait:     "50ms",
@@ -596,8 +595,7 @@ func TestBus_RunLimitsInFlightToFetchBatch(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		id := fmt.Sprintf("bounded-%d", i)
 		env := commandTestEnvelope(id)
-		env.TaskID = id
-		env.To = actorlayer.ActorAddress{Target: baldaruntime.ActorTypeJob, Key: id}
+		env.To = actorlayer.ActorAddress{Target: baldaexecution.ActorTypeJob, Key: id}
 		if _, err := bus.Dispatch(context.Background(), env); err != nil {
 			t.Fatalf("Dispatch(%d) error = %v", i, err)
 		}
@@ -653,7 +651,7 @@ func TestBus_CommandWorkerLimitUsesFetchBatch(t *testing.T) {
 	t.Parallel()
 
 	bus := &Bus{cfg: resolvedConfig{
-		Swarm: baldaruntime.Config{Commands: baldaruntime.CommandConfig{
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
 			FetchBatch:    3,
 			MaxAckPending: 11,
 		}},
@@ -665,18 +663,18 @@ func TestBus_CommandWorkerLimitUsesFetchBatch(t *testing.T) {
 
 func TestBus_CommandDecodeFailurePublishesRawDLQAndDecodeEvent(t *testing.T) {
 	bus, err := NewBus(Params{
-		LC:       fxtest.NewLifecycle(t),
-		Config:   baldaeventbus.Config{Embedded: true},
-		Swarm:    baldaruntime.Config{Commands: baldaruntime.CommandConfig{MaxDeliver: 1, FetchWait: "50ms"}},
-		StateDir: t.TempDir(),
-		Logger:   zerolog.Nop(),
+		LC:        fxtest.NewLifecycle(t),
+		Config:    baldaeventbus.Config{Embedded: true},
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{MaxDeliver: 1, FetchWait: "50ms"}},
+		StateDir:  t.TempDir(),
+		Logger:    zerolog.Nop(),
 	})
 	if err != nil {
 		t.Fatalf("NewBus() error = %v", err)
 	}
 	defer func() { _ = bus.Drain(context.Background()) }()
 
-	if err := bus.conn.Publish(baldaruntime.SubjectCommandJob, []byte("{not-json")); err != nil {
+	if err := bus.conn.Publish(baldaexecution.SubjectCommandJob, []byte("{not-json")); err != nil {
 		t.Fatalf("raw publish command: %v", err)
 	}
 	if err := bus.conn.Flush(); err != nil {
@@ -694,11 +692,11 @@ func TestBus_CommandDecodeFailurePublishesRawDLQAndDecodeEvent(t *testing.T) {
 		done <- struct{}{}
 	}()
 	for {
-		status, err := bus.streamStatus(context.Background(), baldaruntime.DefaultDLQStream)
+		status, err := bus.streamStatus(context.Background(), baldaexecution.DefaultDLQStream)
 		if err != nil {
 			t.Fatalf("DLQ stream status: %v", err)
 		}
-		eventStatus, err := bus.streamStatus(context.Background(), baldaruntime.DefaultEventStream)
+		eventStatus, err := bus.streamStatus(context.Background(), baldaexecution.DefaultEventStream)
 		if err != nil {
 			t.Fatalf("event stream status: %v", err)
 		}
@@ -711,11 +709,11 @@ func TestBus_CommandDecodeFailurePublishesRawDLQAndDecodeEvent(t *testing.T) {
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
-	eventConsumer, err := bus.js.CreateOrUpdateConsumer(context.Background(), baldaruntime.DefaultEventStream, jetstream.ConsumerConfig{
+	eventConsumer, err := bus.js.CreateOrUpdateConsumer(context.Background(), baldaexecution.DefaultEventStream, jetstream.ConsumerConfig{
 		Durable:       "decode-failed-inspector",
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		DeliverPolicy: jetstream.DeliverAllPolicy,
-		FilterSubject: baldaruntime.SubjectEventCommandDecodeFailed,
+		FilterSubject: baldaexecution.SubjectEventCommandDecodeFailed,
 	})
 	if err != nil {
 		t.Fatalf("CreateOrUpdateConsumer(decode-failed-inspector) error = %v", err)
@@ -744,11 +742,11 @@ func TestBus_CommandDecodeFailurePublishesRawDLQAndDecodeEvent(t *testing.T) {
 
 func TestBus_DispatchReportsDuplicate(t *testing.T) {
 	bus, err := NewBus(Params{
-		LC:       fxtest.NewLifecycle(t),
-		Config:   baldaeventbus.Config{Embedded: true},
-		Swarm:    baldaruntime.Config{},
-		StateDir: t.TempDir(),
-		Logger:   zerolog.Nop(),
+		LC:        fxtest.NewLifecycle(t),
+		Config:    baldaeventbus.Config{Embedded: true},
+		Execution: baldaexecution.Config{},
+		StateDir:  t.TempDir(),
+		Logger:    zerolog.Nop(),
 	})
 	if err != nil {
 		t.Fatalf("NewBus() error = %v", err)
@@ -777,11 +775,11 @@ func TestBus_DispatchReportsDuplicate(t *testing.T) {
 		t.Fatalf("second msg id = %q, want %q", second.MsgID, env.DedupeKey)
 	}
 
-	noopConsumer, err := bus.js.CreateOrUpdateConsumer(context.Background(), baldaruntime.DefaultEventStream, jetstream.ConsumerConfig{
+	noopConsumer, err := bus.js.CreateOrUpdateConsumer(context.Background(), baldaexecution.DefaultEventStream, jetstream.ConsumerConfig{
 		Durable:       "noop-dedupe-inspector",
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		DeliverPolicy: jetstream.DeliverAllPolicy,
-		FilterSubject: baldaruntime.SubjectEventCommandNoop,
+		FilterSubject: baldaexecution.SubjectEventCommandNoop,
 	})
 	if err != nil {
 		t.Fatalf("CreateOrUpdateConsumer(noop-dedupe-inspector) error = %v", err)
@@ -824,11 +822,11 @@ func TestBus_DispatchReportsDuplicate(t *testing.T) {
 
 func TestBus_PublishEventDeduplicatesByEnvelopeID(t *testing.T) {
 	bus, err := NewBus(Params{
-		LC:       fxtest.NewLifecycle(t),
-		Config:   baldaeventbus.Config{Embedded: true},
-		Swarm:    baldaruntime.Config{},
-		StateDir: t.TempDir(),
-		Logger:   zerolog.Nop(),
+		LC:        fxtest.NewLifecycle(t),
+		Config:    baldaeventbus.Config{Embedded: true},
+		Execution: baldaexecution.Config{},
+		StateDir:  t.TempDir(),
+		Logger:    zerolog.Nop(),
 	})
 	if err != nil {
 		t.Fatalf("NewBus() error = %v", err)
@@ -836,16 +834,16 @@ func TestBus_PublishEventDeduplicatesByEnvelopeID(t *testing.T) {
 	defer func() { _ = bus.Drain(context.Background()) }()
 
 	env := commandTestEnvelope("event-dedupe")
-	env.Namespace = baldaruntime.NamespaceTelemetry
+	env.Namespace = baldaexecution.NamespaceTelemetry
 	env.Kind = testEventKindTask
 	env.Meta = map[string]string{"event_type": baldajobs.TaskEventAgentStarted}
-	if err := bus.PublishEvent(context.Background(), baldaruntime.SubjectEventJobUpdated, env); err != nil {
+	if err := bus.PublishEvent(context.Background(), baldaexecution.SubjectEventJobUpdated, env); err != nil {
 		t.Fatalf("PublishEvent(first) error = %v", err)
 	}
-	if err := bus.PublishEvent(context.Background(), baldaruntime.SubjectEventJobUpdated, env); err != nil {
+	if err := bus.PublishEvent(context.Background(), baldaexecution.SubjectEventJobUpdated, env); err != nil {
 		t.Fatalf("PublishEvent(second) error = %v", err)
 	}
-	status, err := bus.streamStatus(context.Background(), baldaruntime.DefaultEventStream)
+	status, err := bus.streamStatus(context.Background(), baldaexecution.DefaultEventStream)
 	if err != nil {
 		t.Fatalf("event stream status: %v", err)
 	}
@@ -856,11 +854,11 @@ func TestBus_PublishEventDeduplicatesByEnvelopeID(t *testing.T) {
 
 func TestBus_RetryExhaustionPublishesDLQ(t *testing.T) {
 	bus, err := NewBus(Params{
-		LC:       fxtest.NewLifecycle(t),
-		Config:   baldaeventbus.Config{Embedded: true},
-		Swarm:    baldaruntime.Config{Commands: baldaruntime.CommandConfig{MaxDeliver: 1, FetchWait: "50ms"}},
-		StateDir: t.TempDir(),
-		Logger:   zerolog.Nop(),
+		LC:        fxtest.NewLifecycle(t),
+		Config:    baldaeventbus.Config{Embedded: true},
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{MaxDeliver: 1, FetchWait: "50ms"}},
+		StateDir:  t.TempDir(),
+		Logger:    zerolog.Nop(),
 	})
 	if err != nil {
 		t.Fatalf("NewBus() error = %v", err)
@@ -889,7 +887,7 @@ func TestBus_RetryExhaustionPublishesDLQ(t *testing.T) {
 		t.Fatal("timed out waiting for command handler")
 	}
 	for {
-		status, err := bus.streamStatus(context.Background(), baldaruntime.DefaultDLQStream)
+		status, err := bus.streamStatus(context.Background(), baldaexecution.DefaultDLQStream)
 		if err != nil {
 			t.Fatalf("DLQ stream status: %v", err)
 		}
@@ -906,11 +904,11 @@ func TestBus_RetryExhaustionPublishesDLQ(t *testing.T) {
 
 func TestBus_PublishDLQIncludesOriginalEnvelopeAndReason(t *testing.T) {
 	bus, err := NewBus(Params{
-		LC:       fxtest.NewLifecycle(t),
-		Config:   baldaeventbus.Config{Embedded: true},
-		Swarm:    baldaruntime.Config{},
-		StateDir: t.TempDir(),
-		Logger:   zerolog.Nop(),
+		LC:        fxtest.NewLifecycle(t),
+		Config:    baldaeventbus.Config{Embedded: true},
+		Execution: baldaexecution.Config{},
+		StateDir:  t.TempDir(),
+		Logger:    zerolog.Nop(),
 	})
 	if err != nil {
 		t.Fatalf("NewBus() error = %v", err)
@@ -923,11 +921,11 @@ func TestBus_PublishDLQIncludesOriginalEnvelopeAndReason(t *testing.T) {
 		t.Fatalf("publishDLQ() error = %v", err)
 	}
 
-	dlqConsumer, err := bus.js.CreateOrUpdateConsumer(context.Background(), baldaruntime.DefaultDLQStream, jetstream.ConsumerConfig{
+	dlqConsumer, err := bus.js.CreateOrUpdateConsumer(context.Background(), baldaexecution.DefaultDLQStream, jetstream.ConsumerConfig{
 		Durable:       "dlq-shape-inspector",
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		DeliverPolicy: jetstream.DeliverAllPolicy,
-		FilterSubject: baldaruntime.SubjectDLQCommand,
+		FilterSubject: baldaexecution.SubjectDLQCommand,
 	})
 	if err != nil {
 		t.Fatalf("CreateOrUpdateConsumer(dlq-shape-inspector) error = %v", err)
@@ -950,8 +948,8 @@ func TestBus_PublishDLQIncludesOriginalEnvelopeAndReason(t *testing.T) {
 	if got.From != env.From || got.To != env.To {
 		t.Fatalf("dlq envelope routing = from:%+v to:%+v, want from:%+v to:%+v", got.From, got.To, env.From, env.To)
 	}
-	if got.TaskID != env.TaskID || got.PayloadJSON != env.PayloadJSON {
-		t.Fatalf("dlq envelope payload = task:%q payload:%q, want task:%q payload:%q", got.TaskID, got.PayloadJSON, env.TaskID, env.PayloadJSON)
+	if baldaexecution.EnvelopeJobID(got) != baldaexecution.EnvelopeJobID(env) || got.PayloadJSON != env.PayloadJSON {
+		t.Fatalf("dlq envelope payload = task:%q payload:%q, want task:%q payload:%q", baldaexecution.EnvelopeJobID(got), got.PayloadJSON, baldaexecution.EnvelopeJobID(env), env.PayloadJSON)
 	}
 	if gotReason := msg.Headers().Get("Balda-DLQ-Reason"); gotReason != reason {
 		t.Fatalf("dlq header reason = %q, want %q", gotReason, reason)
@@ -965,7 +963,7 @@ func TestBus_DLQIncludesErrorClassAndSourceMetadata(t *testing.T) {
 	bus, err := NewBus(Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
-		Swarm: baldaruntime.Config{Commands: baldaruntime.CommandConfig{
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
 			AckWait:    "100ms",
 			FetchWait:  "50ms",
 			MaxDeliver: 1,
@@ -997,13 +995,13 @@ func TestBus_DLQIncludesErrorClassAndSourceMetadata(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for command handler")
 	}
-	waitStreamMessages(t, bus, baldaruntime.DefaultDLQStream, 1)
+	waitStreamMessages(t, bus, baldaexecution.DefaultDLQStream, 1)
 
-	dlqConsumer, err := bus.js.CreateOrUpdateConsumer(context.Background(), baldaruntime.DefaultDLQStream, jetstream.ConsumerConfig{
+	dlqConsumer, err := bus.js.CreateOrUpdateConsumer(context.Background(), baldaexecution.DefaultDLQStream, jetstream.ConsumerConfig{
 		Durable:       "dlq-metadata-inspector",
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		DeliverPolicy: jetstream.DeliverAllPolicy,
-		FilterSubject: baldaruntime.SubjectDLQCommand,
+		FilterSubject: baldaexecution.SubjectDLQCommand,
 	})
 	if err != nil {
 		t.Fatalf("CreateOrUpdateConsumer(dlq-metadata-inspector) error = %v", err)
@@ -1019,14 +1017,14 @@ func TestBus_DLQIncludesErrorClassAndSourceMetadata(t *testing.T) {
 	if got := msg.Headers().Get("Balda-DLQ-Error-Class"); got != string(actorlayer.ErrorKindPermanent) {
 		t.Fatalf("Balda-DLQ-Error-Class = %q, want %q", got, actorlayer.ErrorKindPermanent)
 	}
-	if got := msg.Headers().Get("Balda-DLQ-Source-Stream"); got != baldaruntime.DefaultCommandStream {
-		t.Fatalf("Balda-DLQ-Source-Stream = %q, want %q", got, baldaruntime.DefaultCommandStream)
+	if got := msg.Headers().Get("Balda-DLQ-Source-Stream"); got != baldaexecution.DefaultCommandStream {
+		t.Fatalf("Balda-DLQ-Source-Stream = %q, want %q", got, baldaexecution.DefaultCommandStream)
 	}
-	if got := msg.Headers().Get("Balda-DLQ-Source-Consumer"); got != baldaruntime.DefaultCommandConsumer {
-		t.Fatalf("Balda-DLQ-Source-Consumer = %q, want %q", got, baldaruntime.DefaultCommandConsumer)
+	if got := msg.Headers().Get("Balda-DLQ-Source-Consumer"); got != baldaexecution.DefaultCommandConsumer {
+		t.Fatalf("Balda-DLQ-Source-Consumer = %q, want %q", got, baldaexecution.DefaultCommandConsumer)
 	}
-	if got := msg.Headers().Get("Balda-DLQ-Source-Subject"); got != baldaruntime.SubjectCommandGoal {
-		t.Fatalf("Balda-DLQ-Source-Subject = %q, want %q", got, baldaruntime.SubjectCommandGoal)
+	if got := msg.Headers().Get("Balda-DLQ-Source-Subject"); got != baldaexecution.SubjectCommandGoal {
+		t.Fatalf("Balda-DLQ-Source-Subject = %q, want %q", got, baldaexecution.SubjectCommandGoal)
 	}
 	if got := msg.Headers().Get("Balda-DLQ-Num-Delivered"); got != "1" {
 		t.Fatalf("Balda-DLQ-Num-Delivered = %q, want %q", got, "1")
@@ -1038,11 +1036,11 @@ func TestBus_DLQIncludesErrorClassAndSourceMetadata(t *testing.T) {
 
 func TestBus_EventProjectionPermanentFailurePublishesDLQ(t *testing.T) {
 	bus, err := NewBus(Params{
-		LC:       fxtest.NewLifecycle(t),
-		Config:   baldaeventbus.Config{Embedded: true},
-		Swarm:    baldaruntime.Config{Commands: baldaruntime.CommandConfig{MaxDeliver: 1, FetchWait: "50ms"}},
-		StateDir: t.TempDir(),
-		Logger:   zerolog.Nop(),
+		LC:        fxtest.NewLifecycle(t),
+		Config:    baldaeventbus.Config{Embedded: true},
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{MaxDeliver: 1, FetchWait: "50ms"}},
+		StateDir:  t.TempDir(),
+		Logger:    zerolog.Nop(),
 	})
 	if err != nil {
 		t.Fatalf("NewBus() error = %v", err)
@@ -1050,10 +1048,10 @@ func TestBus_EventProjectionPermanentFailurePublishesDLQ(t *testing.T) {
 	defer func() { _ = bus.Drain(context.Background()) }()
 
 	env := commandTestEnvelope("event-projection-failed")
-	env.Namespace = baldaruntime.NamespaceTelemetry
+	env.Namespace = baldaexecution.NamespaceTelemetry
 	env.Kind = testEventKindTask
 	env.Meta = map[string]string{"event_type": baldajobs.TaskEventAgentProgress}
-	if err := bus.PublishEvent(context.Background(), baldaruntime.SubjectEventJobUpdated, env); err != nil {
+	if err := bus.PublishEvent(context.Background(), baldaexecution.SubjectEventJobUpdated, env); err != nil {
 		t.Fatalf("PublishEvent() error = %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1071,7 +1069,7 @@ func TestBus_EventProjectionPermanentFailurePublishesDLQ(t *testing.T) {
 		t.Fatal("timed out waiting for event handler")
 	}
 	for {
-		status, err := bus.streamStatus(context.Background(), baldaruntime.DefaultDLQStream)
+		status, err := bus.streamStatus(context.Background(), baldaexecution.DefaultDLQStream)
 		if err != nil {
 			t.Fatalf("DLQ stream status: %v", err)
 		}
@@ -1088,11 +1086,11 @@ func TestBus_EventProjectionPermanentFailurePublishesDLQ(t *testing.T) {
 
 func TestBus_EventProjectionFailureDoesNotBlockCommandExecution(t *testing.T) {
 	bus, err := NewBus(Params{
-		LC:       fxtest.NewLifecycle(t),
-		Config:   baldaeventbus.Config{Embedded: true},
-		Swarm:    baldaruntime.Config{Commands: baldaruntime.CommandConfig{MaxDeliver: 1, FetchWait: "50ms"}},
-		StateDir: t.TempDir(),
-		Logger:   zerolog.Nop(),
+		LC:        fxtest.NewLifecycle(t),
+		Config:    baldaeventbus.Config{Embedded: true},
+		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{MaxDeliver: 1, FetchWait: "50ms"}},
+		StateDir:  t.TempDir(),
+		Logger:    zerolog.Nop(),
 	})
 	if err != nil {
 		t.Fatalf("NewBus() error = %v", err)
@@ -1112,10 +1110,10 @@ func TestBus_EventProjectionFailureDoesNotBlockCommandExecution(t *testing.T) {
 		})
 	}()
 	eventEnv := commandTestEnvelope("projection-failure-does-not-block")
-	eventEnv.Namespace = baldaruntime.NamespaceTelemetry
+	eventEnv.Namespace = baldaexecution.NamespaceTelemetry
 	eventEnv.Kind = testEventKindTask
 	eventEnv.Meta = map[string]string{"event_type": baldajobs.TaskEventAgentProgress}
-	if err := bus.PublishEvent(context.Background(), baldaruntime.SubjectEventJobUpdated, eventEnv); err != nil {
+	if err := bus.PublishEvent(context.Background(), baldaexecution.SubjectEventJobUpdated, eventEnv); err != nil {
 		t.Fatalf("PublishEvent() error = %v", err)
 	}
 	select {
@@ -1146,7 +1144,7 @@ func TestBus_EventProjectionFailureDoesNotBlockCommandExecution(t *testing.T) {
 func TestBus_EnsureRuntimeRequiresTransport(t *testing.T) {
 	cfg, err := resolveConfig(
 		baldaeventbus.Config{Embedded: true},
-		baldaruntime.Config{},
+		baldaexecution.Config{},
 		t.TempDir(),
 	)
 	if err != nil {
@@ -1161,71 +1159,71 @@ func TestBus_EnsureRuntimeRequiresTransport(t *testing.T) {
 
 func TestBus_EnsureRuntimeCreatesRequiredStreamsAndConsumers(t *testing.T) {
 	bus, err := NewBus(Params{
-		LC:       fxtest.NewLifecycle(t),
-		Config:   baldaeventbus.Config{Embedded: true},
-		Swarm:    baldaruntime.Config{},
-		StateDir: t.TempDir(),
-		Logger:   zerolog.Nop(),
+		LC:        fxtest.NewLifecycle(t),
+		Config:    baldaeventbus.Config{Embedded: true},
+		Execution: baldaexecution.Config{},
+		StateDir:  t.TempDir(),
+		Logger:    zerolog.Nop(),
 	})
 	if err != nil {
 		t.Fatalf("NewBus() error = %v", err)
 	}
 	defer func() { _ = bus.Drain(context.Background()) }()
 
-	commandStream, err := bus.js.Stream(context.Background(), baldaruntime.DefaultCommandStream)
+	commandStream, err := bus.js.Stream(context.Background(), baldaexecution.DefaultCommandStream)
 	if err != nil {
-		t.Fatalf("Stream(%s) error = %v", baldaruntime.DefaultCommandStream, err)
+		t.Fatalf("Stream(%s) error = %v", baldaexecution.DefaultCommandStream, err)
 	}
 	commandInfo, err := commandStream.Info(context.Background())
 	if err != nil {
-		t.Fatalf("Info(%s) error = %v", baldaruntime.DefaultCommandStream, err)
+		t.Fatalf("Info(%s) error = %v", baldaexecution.DefaultCommandStream, err)
 	}
 	if commandInfo.Config.Retention != jetstream.WorkQueuePolicy {
-		t.Fatalf("%s retention = %v, want %v", baldaruntime.DefaultCommandStream, commandInfo.Config.Retention, jetstream.WorkQueuePolicy)
+		t.Fatalf("%s retention = %v, want %v", baldaexecution.DefaultCommandStream, commandInfo.Config.Retention, jetstream.WorkQueuePolicy)
 	}
-	if !slices.Equal(commandInfo.Config.Subjects, []string{baldaruntime.SubjectCommandAll}) {
-		t.Fatalf("%s subjects = %#v, want %#v", baldaruntime.DefaultCommandStream, commandInfo.Config.Subjects, []string{baldaruntime.SubjectCommandAll})
+	if !slices.Equal(commandInfo.Config.Subjects, []string{baldaexecution.SubjectCommandAll}) {
+		t.Fatalf("%s subjects = %#v, want %#v", baldaexecution.DefaultCommandStream, commandInfo.Config.Subjects, []string{baldaexecution.SubjectCommandAll})
 	}
 
-	eventStream, err := bus.js.Stream(context.Background(), baldaruntime.DefaultEventStream)
+	eventStream, err := bus.js.Stream(context.Background(), baldaexecution.DefaultEventStream)
 	if err != nil {
-		t.Fatalf("Stream(%s) error = %v", baldaruntime.DefaultEventStream, err)
+		t.Fatalf("Stream(%s) error = %v", baldaexecution.DefaultEventStream, err)
 	}
 	eventInfo, err := eventStream.Info(context.Background())
 	if err != nil {
-		t.Fatalf("Info(%s) error = %v", baldaruntime.DefaultEventStream, err)
+		t.Fatalf("Info(%s) error = %v", baldaexecution.DefaultEventStream, err)
 	}
 	if eventInfo.Config.Retention != jetstream.LimitsPolicy {
-		t.Fatalf("%s retention = %v, want %v", baldaruntime.DefaultEventStream, eventInfo.Config.Retention, jetstream.LimitsPolicy)
+		t.Fatalf("%s retention = %v, want %v", baldaexecution.DefaultEventStream, eventInfo.Config.Retention, jetstream.LimitsPolicy)
 	}
-	if !slices.Equal(eventInfo.Config.Subjects, []string{baldaruntime.SubjectEventAll}) {
-		t.Fatalf("%s subjects = %#v, want %#v", baldaruntime.DefaultEventStream, eventInfo.Config.Subjects, []string{baldaruntime.SubjectEventAll})
+	if !slices.Equal(eventInfo.Config.Subjects, []string{baldaexecution.SubjectEventAll}) {
+		t.Fatalf("%s subjects = %#v, want %#v", baldaexecution.DefaultEventStream, eventInfo.Config.Subjects, []string{baldaexecution.SubjectEventAll})
 	}
 
-	dlqStream, err := bus.js.Stream(context.Background(), baldaruntime.DefaultDLQStream)
+	dlqStream, err := bus.js.Stream(context.Background(), baldaexecution.DefaultDLQStream)
 	if err != nil {
-		t.Fatalf("Stream(%s) error = %v", baldaruntime.DefaultDLQStream, err)
+		t.Fatalf("Stream(%s) error = %v", baldaexecution.DefaultDLQStream, err)
 	}
 	dlqInfo, err := dlqStream.Info(context.Background())
 	if err != nil {
-		t.Fatalf("Info(%s) error = %v", baldaruntime.DefaultDLQStream, err)
+		t.Fatalf("Info(%s) error = %v", baldaexecution.DefaultDLQStream, err)
 	}
 	if dlqInfo.Config.Retention != jetstream.LimitsPolicy {
-		t.Fatalf("%s retention = %v, want %v", baldaruntime.DefaultDLQStream, dlqInfo.Config.Retention, jetstream.LimitsPolicy)
+		t.Fatalf("%s retention = %v, want %v", baldaexecution.DefaultDLQStream, dlqInfo.Config.Retention, jetstream.LimitsPolicy)
 	}
-	if !slices.Equal(dlqInfo.Config.Subjects, []string{baldaruntime.SubjectDLQAll}) {
-		t.Fatalf("%s subjects = %#v, want %#v", baldaruntime.DefaultDLQStream, dlqInfo.Config.Subjects, []string{baldaruntime.SubjectDLQAll})
+	if !slices.Equal(dlqInfo.Config.Subjects, []string{baldaexecution.SubjectDLQAll}) {
+		t.Fatalf("%s subjects = %#v, want %#v", baldaexecution.DefaultDLQStream, dlqInfo.Config.Subjects, []string{baldaexecution.SubjectDLQAll})
 	}
 
 	workerInfo, err := bus.consumer.Info(context.Background())
 	if err != nil {
 		t.Fatalf("worker consumer Info() error = %v", err)
 	}
-	if workerInfo.Name != baldaruntime.DefaultCommandConsumer {
-		t.Fatalf("worker consumer name = %q, want %q", workerInfo.Name, baldaruntime.DefaultCommandConsumer)
+	if workerInfo.Name != baldaexecution.DefaultCommandConsumer {
+		t.Fatalf("worker consumer name = %q, want %q", workerInfo.Name, baldaexecution.DefaultCommandConsumer)
 	}
-	if workerInfo.Config.FilterSubject != baldaruntime.SubjectCommandAll {
-		t.Fatalf("worker filter subject = %q, want %q", workerInfo.Config.FilterSubject, baldaruntime.SubjectCommandAll)
+	if workerInfo.Config.FilterSubject != baldaexecution.SubjectCommandAll {
+		t.Fatalf("worker filter subject = %q, want %q", workerInfo.Config.FilterSubject, baldaexecution.SubjectCommandAll)
 	}
 	if workerInfo.Config.AckPolicy != jetstream.AckExplicitPolicy {
 		t.Fatalf("worker ack policy = %v, want %v", workerInfo.Config.AckPolicy, jetstream.AckExplicitPolicy)
@@ -1235,11 +1233,11 @@ func TestBus_EnsureRuntimeCreatesRequiredStreamsAndConsumers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("projector consumer Info() error = %v", err)
 	}
-	if projectorInfo.Name != baldaruntime.DefaultEventProjectorConsumer {
-		t.Fatalf("projector consumer name = %q, want %q", projectorInfo.Name, baldaruntime.DefaultEventProjectorConsumer)
+	if projectorInfo.Name != baldaexecution.DefaultEventProjectorConsumer {
+		t.Fatalf("projector consumer name = %q, want %q", projectorInfo.Name, baldaexecution.DefaultEventProjectorConsumer)
 	}
-	if projectorInfo.Config.FilterSubject != baldaruntime.SubjectEventAll {
-		t.Fatalf("projector filter subject = %q, want %q", projectorInfo.Config.FilterSubject, baldaruntime.SubjectEventAll)
+	if projectorInfo.Config.FilterSubject != baldaexecution.SubjectEventAll {
+		t.Fatalf("projector filter subject = %q, want %q", projectorInfo.Config.FilterSubject, baldaexecution.SubjectEventAll)
 	}
 	if projectorInfo.Config.AckPolicy != jetstream.AckExplicitPolicy {
 		t.Fatalf("projector ack policy = %v, want %v", projectorInfo.Config.AckPolicy, jetstream.AckExplicitPolicy)
@@ -1261,11 +1259,11 @@ func (e fakeJetStreamAPIError) APIError() *jetstream.APIError {
 func commandTestEnvelope(id string) actorlayer.Envelope {
 	return actorlayer.Envelope{
 		ID:          id,
-		Namespace:   baldaruntime.NamespaceGoalCommand,
-		Kind:        baldaruntime.KindGoal,
+		Namespace:   baldaexecution.NamespaceGoalCommand,
+		Kind:        baldaexecution.KindGoal,
 		From:        actorlayer.SystemAddress("test"),
-		To:          actorlayer.ActorAddress{Target: baldaruntime.ActorTypeGoal, Key: "task-1"},
-		TaskID:      "task-1",
+		To:          actorlayer.ActorAddress{Target: baldaexecution.ActorTypeGoal, Key: "task-1"},
+		Meta:        baldaexecution.WithJobIDMeta(nil, "task-1"),
 		PayloadJSON: `{"ok":true}`,
 	}
 }
@@ -1316,7 +1314,7 @@ func assertCommandStreamDrained(t *testing.T, bus *Bus) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for {
-		status, err := bus.streamStatus(context.Background(), baldaruntime.DefaultCommandStream)
+		status, err := bus.streamStatus(context.Background(), baldaexecution.DefaultCommandStream)
 		if err != nil {
 			t.Fatalf("command stream status: %v", err)
 		}
