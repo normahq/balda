@@ -47,8 +47,8 @@ type SessionTurnRunner interface {
 }
 
 type ScheduledTaskRecorder interface {
-	MarkSuccess(ctx context.Context, taskID string) error
-	RecordExecutionFailure(ctx context.Context, taskID string, cause error) error
+	MarkSuccess(ctx context.Context, jobID string) error
+	RecordExecutionFailure(ctx context.Context, jobID string, cause error) error
 }
 
 func SessionTurnEnvelope(payload SessionTurnPayload) (actorlayer.Envelope, error) {

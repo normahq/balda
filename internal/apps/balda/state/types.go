@@ -159,11 +159,11 @@ type ScheduledTaskRecord struct {
 // ScheduledTaskStore persists scheduler tasks bound to canonical locators.
 type ScheduledTaskStore interface {
 	Upsert(ctx context.Context, record ScheduledTaskRecord) error
-	GetByID(ctx context.Context, taskID string) (ScheduledTaskRecord, bool, error)
+	GetByID(ctx context.Context, jobID string) (ScheduledTaskRecord, bool, error)
 	List(ctx context.Context) ([]ScheduledTaskRecord, error)
 	ListByAddress(ctx context.Context, channelType, addressKey string) ([]ScheduledTaskRecord, error)
 	ListDue(ctx context.Context, now time.Time, limit int) ([]ScheduledTaskRecord, error)
-	Delete(ctx context.Context, taskID string) error
+	Delete(ctx context.Context, jobID string) error
 }
 
 // JobRecord persists one assignable work item.
@@ -237,12 +237,12 @@ type AgentStepRecord struct {
 // JobStore persists Balda job orchestration state and read models.
 type JobStore interface {
 	CreateJob(ctx context.Context, record JobRecord) (bool, error)
-	GetJob(ctx context.Context, taskID string) (JobRecord, bool, error)
+	GetJob(ctx context.Context, jobID string) (JobRecord, bool, error)
 	ListActiveJobsBySession(ctx context.Context, sessionID string) ([]JobRecord, error)
-	UpdateJobStatus(ctx context.Context, taskID string, status string, reason string) error
-	SetJobResult(ctx context.Context, taskID string, resultJSON string, status string, reason string) error
+	UpdateJobStatus(ctx context.Context, jobID string, status string, reason string) error
+	SetJobResult(ctx context.Context, jobID string, resultJSON string, status string, reason string) error
 	AppendJobEvent(ctx context.Context, record JobEventRecord) error
-	ListJobEvents(ctx context.Context, taskID string) ([]JobEventRecord, error)
+	ListJobEvents(ctx context.Context, jobID string) ([]JobEventRecord, error)
 	ReserveDelivery(ctx context.Context, record DeliveryRecord) (DeliveryRecord, bool, error)
 	MarkDeliverySending(ctx context.Context, deliveryKey string) error
 	MarkDeliverySent(ctx context.Context, deliveryKey string, providerMessageID string) error

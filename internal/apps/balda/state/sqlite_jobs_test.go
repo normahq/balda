@@ -108,7 +108,7 @@ func TestSQLiteJobStore_TaskStatusTransitionsAreGuarded(t *testing.T) {
 	}
 
 	err = store.UpdateJobStatus(ctx, "task-guarded", JobStatusRunning, "reopen")
-	if err == nil || !strings.Contains(err.Error(), "invalid runtime task transition") {
+	if err == nil || !strings.Contains(err.Error(), "invalid runtime job transition") {
 		t.Fatalf("UpdateJobStatus(reopen) error = %v, want invalid transition", err)
 	}
 	got, ok, err := store.GetJob(ctx, "task-guarded")
@@ -142,7 +142,7 @@ func TestSQLiteJobStore_SetTaskResultTransitionGuarded(t *testing.T) {
 	}
 
 	err = store.SetJobResult(ctx, "task-canceled", `{"ok":true}`, JobStatusCompleted, "should fail")
-	if err == nil || !strings.Contains(err.Error(), "invalid runtime task transition") {
+	if err == nil || !strings.Contains(err.Error(), "invalid runtime job transition") {
 		t.Fatalf("SetJobResult() error = %v, want invalid transition", err)
 	}
 	got, ok, err := store.GetJob(ctx, "task-canceled")

@@ -162,7 +162,7 @@ func (s *ScheduledTaskScheduler) reconcileConfiguredTasks(ctx context.Context) e
 			record.ReportToAddressJSON = reportTo.Locator.AddressJSON
 		}
 		if err := s.taskStore.Upsert(ctx, record); err != nil {
-			return fmt.Errorf("upsert scheduler task %q: %w", task.ID, err)
+			return fmt.Errorf("upsert scheduler job %q: %w", task.ID, err)
 		}
 		desired[task.ID] = struct{}{}
 	}
@@ -172,12 +172,12 @@ func (s *ScheduledTaskScheduler) reconcileConfiguredTasks(ctx context.Context) e
 		return fmt.Errorf("list persisted scheduler jobs: %w", err)
 	}
 	for _, existing := range currentTasks {
-		taskID := strings.TrimSpace(existing.JobID)
-		if _, ok := desired[taskID]; ok {
+		jobID := strings.TrimSpace(existing.JobID)
+		if _, ok := desired[jobID]; ok {
 			continue
 		}
-		if err := s.taskStore.Delete(ctx, taskID); err != nil {
-			return fmt.Errorf("delete unmanaged scheduler task %q: %w", taskID, err)
+		if err := s.taskStore.Delete(ctx, jobID); err != nil {
+			return fmt.Errorf("delete unmanaged scheduler job %q: %w", jobID, err)
 		}
 	}
 
@@ -187,7 +187,7 @@ func (s *ScheduledTaskScheduler) reconcileConfiguredTasks(ctx context.Context) e
 func (s *ScheduledTaskScheduler) dispatchDue(ctx context.Context, now time.Time) error {
 	due, err := s.taskStore.ListDue(ctx, now, s.dueBatchSize)
 	if err != nil {
-		return fmt.Errorf("list due tasks: %w", err)
+		return fmt.Errorf("list due jobs: %w", err)
 	}
 
 	for _, task := range due {
@@ -199,17 +199,17 @@ func (s *ScheduledTaskScheduler) dispatchDue(ctx context.Context, now time.Time)
 }
 
 func (s *ScheduledTaskScheduler) dispatchTask(ctx context.Context, task baldastate.ScheduledTaskRecord, now time.Time) error {
-	taskID := strings.TrimSpace(task.JobID)
-	if taskID == "" {
+	jobID := strings.TrimSpace(task.JobID)
+	if jobID == "" {
 		return fmt.Errorf("job id is required")
 	}
 
-	current, ok, err := s.taskStore.GetByID(ctx, taskID)
+	current, ok, err := s.taskStore.GetByID(ctx, jobID)
 	if err != nil {
-		return fmt.Errorf("load scheduled job %q: %w", taskID, err)
+		return fmt.Errorf("load scheduled job %q: %w", jobID, err)
 	}
 	if !ok {
-		return fmt.Errorf("scheduled job %q not found", taskID)
+		return fmt.Errorf("scheduled job %q not found", jobID)
 	}
 	if strings.TrimSpace(current.Status) != baldastate.ScheduledTaskStatusActive {
 		return nil
@@ -218,20 +218,20 @@ func (s *ScheduledTaskScheduler) dispatchTask(ctx context.Context, task baldasta
 		return nil
 	}
 
-	dispatchKey := fmt.Sprintf("%s@%s", taskID, current.NextRunAt.UTC().Format(time.RFC3339Nano))
+	dispatchKey := fmt.Sprintf("%s@%s", jobID, current.NextRunAt.UTC().Format(time.RFC3339Nano))
 	if strings.TrimSpace(current.LastDispatchKey) == dispatchKey {
 		return nil
 	}
 
 	target, err := s.resolveScheduledTaskTarget(ctx, current)
 	if err != nil {
-		return s.markFailure(ctx, taskID, fmt.Errorf("resolve scheduler target: %w", err))
+		return s.markFailure(ctx, jobID, fmt.Errorf("resolve scheduler target: %w", err))
 	}
 	locator := target.Locator
 
 	nextRunAt, err := nextRunAtFromSpec(current.ScheduleSpec, now)
 	if err != nil {
-		return s.markFailure(ctx, taskID, fmt.Errorf("invalid schedule_spec: %w", err))
+		return s.markFailure(ctx, jobID, fmt.Errorf("invalid schedule_spec: %w", err))
 	}
 
 	content := strings.TrimSpace(current.Content)
@@ -249,7 +249,7 @@ func (s *ScheduledTaskScheduler) dispatchTask(ctx context.Context, task baldasta
 	current.AddressKey = locator.AddressKey
 	current.AddressJSON = locator.AddressJSON
 	if err := s.taskStore.Upsert(ctx, current); err != nil {
-		return fmt.Errorf("update scheduled job %q after publish: %w", taskID, err)
+		return fmt.Errorf("update scheduled job %q after publish: %w", jobID, err)
 	}
 
 	return nil
@@ -299,46 +299,46 @@ func (s *ScheduledTaskScheduler) dispatchScheduledTaskTask(
 	return nil
 }
 
-func (s *ScheduledTaskScheduler) MarkSuccess(ctx context.Context, taskID string) error {
-	task, ok, err := s.taskStore.GetByID(ctx, taskID)
+func (s *ScheduledTaskScheduler) MarkSuccess(ctx context.Context, jobID string) error {
+	job, ok, err := s.taskStore.GetByID(ctx, jobID)
 	if err != nil {
-		return fmt.Errorf("load scheduled job %q: %w", taskID, err)
+		return fmt.Errorf("load scheduled job %q: %w", jobID, err)
 	}
 	if !ok {
-		return fmt.Errorf("scheduled job %q not found", taskID)
+		return fmt.Errorf("scheduled job %q not found", jobID)
 	}
-	task.LastRunAt = s.now().UTC()
-	task.LastError = ""
-	task.RetryCount = 0
-	task.Status = baldastate.ScheduledTaskStatusActive
-	if err := s.taskStore.Upsert(ctx, task); err != nil {
-		return fmt.Errorf("upsert scheduled job %q: %w", taskID, err)
+	job.LastRunAt = s.now().UTC()
+	job.LastError = ""
+	job.RetryCount = 0
+	job.Status = baldastate.ScheduledTaskStatusActive
+	if err := s.taskStore.Upsert(ctx, job); err != nil {
+		return fmt.Errorf("upsert scheduled job %q: %w", jobID, err)
 	}
 	return nil
 }
 
-func (s *ScheduledTaskScheduler) markFailure(ctx context.Context, taskID string, cause error) error {
-	task, ok, err := s.taskStore.GetByID(ctx, taskID)
+func (s *ScheduledTaskScheduler) markFailure(ctx context.Context, jobID string, cause error) error {
+	job, ok, err := s.taskStore.GetByID(ctx, jobID)
 	if err != nil {
-		return fmt.Errorf("load scheduled job %q: %w", taskID, err)
+		return fmt.Errorf("load scheduled job %q: %w", jobID, err)
 	}
 	if !ok {
-		return fmt.Errorf("scheduled job %q not found", taskID)
+		return fmt.Errorf("scheduled job %q not found", jobID)
 	}
 	now := s.now().UTC()
-	task.RetryCount++
-	task.LastError = strings.TrimSpace(cause.Error())
-	task.LastRunAt = now
+	job.RetryCount++
+	job.LastError = strings.TrimSpace(cause.Error())
+	job.LastRunAt = now
 
-	maxRetries := task.MaxRetries
+	maxRetries := job.MaxRetries
 	if maxRetries < 0 {
 		maxRetries = 0
 	}
-	if task.RetryCount > maxRetries {
-		task.Status = baldastate.ScheduledTaskStatusPaused
+	if job.RetryCount > maxRetries {
+		job.Status = baldastate.ScheduledTaskStatusPaused
 	} else {
-		task.Status = baldastate.ScheduledTaskStatusActive
-		retryCount := task.RetryCount
+		job.Status = baldastate.ScheduledTaskStatusActive
+		retryCount := job.RetryCount
 		if retryCount < 1 {
 			retryCount = 1
 		}
@@ -346,28 +346,28 @@ func (s *ScheduledTaskScheduler) markFailure(ctx context.Context, taskID string,
 		if delay > 60*time.Second {
 			delay = 60 * time.Second
 		}
-		task.NextRunAt = now.Add(delay)
+		job.NextRunAt = now.Add(delay)
 	}
-	if err := s.taskStore.Upsert(ctx, task); err != nil {
-		return fmt.Errorf("upsert scheduled job %q: %w", taskID, err)
+	if err := s.taskStore.Upsert(ctx, job); err != nil {
+		return fmt.Errorf("upsert scheduled job %q: %w", jobID, err)
 	}
 	return cause
 }
 
-func (s *ScheduledTaskScheduler) RecordExecutionFailure(ctx context.Context, taskID string, cause error) error {
-	task, ok, err := s.taskStore.GetByID(ctx, taskID)
+func (s *ScheduledTaskScheduler) RecordExecutionFailure(ctx context.Context, jobID string, cause error) error {
+	job, ok, err := s.taskStore.GetByID(ctx, jobID)
 	if err != nil {
-		return fmt.Errorf("load scheduled job %q: %w", taskID, err)
+		return fmt.Errorf("load scheduled job %q: %w", jobID, err)
 	}
 	if !ok {
-		return fmt.Errorf("scheduled job %q not found", taskID)
+		return fmt.Errorf("scheduled job %q not found", jobID)
 	}
 	now := s.now().UTC()
-	task.LastError = strings.TrimSpace(cause.Error())
-	task.LastRunAt = now
-	task.Status = baldastate.ScheduledTaskStatusActive
-	if err := s.taskStore.Upsert(ctx, task); err != nil {
-		return fmt.Errorf("upsert scheduled job %q execution failure: %w", taskID, err)
+	job.LastError = strings.TrimSpace(cause.Error())
+	job.LastRunAt = now
+	job.Status = baldastate.ScheduledTaskStatusActive
+	if err := s.taskStore.Upsert(ctx, job); err != nil {
+		return fmt.Errorf("upsert scheduled job %q execution failure: %w", jobID, err)
 	}
 	return cause
 }
@@ -379,14 +379,14 @@ func normalizeScheduledTaskSchedulerConfig(raw ScheduledTaskSchedulerConfig) (Sc
 
 	seenJobIDs := make(map[string]struct{}, len(raw.Jobs))
 	for idx, rawTask := range raw.Jobs {
-		taskID := strings.TrimSpace(rawTask.ID)
-		if taskID == "" {
+		jobID := strings.TrimSpace(rawTask.ID)
+		if jobID == "" {
 			return ScheduledTaskSchedulerConfig{}, fmt.Errorf("balda.scheduler.tasks[%d].id is required", idx)
 		}
-		if _, exists := seenJobIDs[taskID]; exists {
-			return ScheduledTaskSchedulerConfig{}, fmt.Errorf("duplicate balda.scheduler.tasks id %q", taskID)
+		if _, exists := seenJobIDs[jobID]; exists {
+			return ScheduledTaskSchedulerConfig{}, fmt.Errorf("duplicate balda.scheduler.tasks id %q", jobID)
 		}
-		seenJobIDs[taskID] = struct{}{}
+		seenJobIDs[jobID] = struct{}{}
 
 		cronSpec := strings.TrimSpace(rawTask.Cron)
 		if cronSpec == "" {
@@ -423,7 +423,7 @@ func normalizeScheduledTaskSchedulerConfig(raw ScheduledTaskSchedulerConfig) (Sc
 		}
 
 		cfg.Jobs = append(cfg.Jobs, ConfiguredScheduledTask{
-			ID:       taskID,
+			ID:       jobID,
 			Cron:     cronSpec,
 			Target:   target,
 			Key:      key,

@@ -191,7 +191,7 @@ func (s *JobService) suppressStaleTerminalTransition(ctx context.Context, jobID 
 	if err == nil {
 		return nil
 	}
-	if !strings.Contains(err.Error(), "invalid runtime task transition") {
+	if !strings.Contains(err.Error(), "invalid runtime job transition") {
 		return err
 	}
 	if !isTerminalTaskStatus(status) {

@@ -13,9 +13,9 @@ type sqliteScheduledTaskStore struct {
 }
 
 func (s *sqliteScheduledTaskStore) Upsert(ctx context.Context, record ScheduledTaskRecord) error {
-	taskID := strings.TrimSpace(record.JobID)
-	if taskID == "" {
-		return fmt.Errorf("task_id is required")
+	jobID := strings.TrimSpace(record.JobID)
+	if jobID == "" {
+		return fmt.Errorf("job id is required")
 	}
 	channelType := strings.TrimSpace(record.ChannelType)
 	if channelType == "" {
@@ -95,7 +95,7 @@ func (s *sqliteScheduledTaskStore) Upsert(ctx context.Context, record ScheduledT
 			last_error = excluded.last_error,
 			updated_at = excluded.updated_at,
 			created_at = balda_scheduled_tasks.created_at`,
-		taskID,
+		jobID,
 		strings.TrimSpace(record.SessionID),
 		channelType,
 		addressKey,
@@ -123,13 +123,13 @@ func (s *sqliteScheduledTaskStore) Upsert(ctx context.Context, record ScheduledT
 		createdAt.Format(time.RFC3339),
 		updatedAt.Format(time.RFC3339),
 	); err != nil {
-		return fmt.Errorf("upsert scheduled task %q: %w", taskID, err)
+		return fmt.Errorf("upsert scheduled job %q: %w", jobID, err)
 	}
 
 	return nil
 }
 
-func (s *sqliteScheduledTaskStore) GetByID(ctx context.Context, taskID string) (ScheduledTaskRecord, bool, error) {
+func (s *sqliteScheduledTaskStore) GetByID(ctx context.Context, jobID string) (ScheduledTaskRecord, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT task_id, session_id, channel_type, address_key, address_json,
 		       report_to_enabled, report_to_session_id, report_to_channel_type, report_to_address_key, report_to_address_json,
@@ -137,7 +137,7 @@ func (s *sqliteScheduledTaskStore) GetByID(ctx context.Context, taskID string) (
 		       max_retries, retry_count, last_dispatch_key, next_run_at, last_run_at, last_error, created_at, updated_at
 		FROM balda_scheduled_tasks
 		WHERE task_id = ?`,
-		strings.TrimSpace(taskID),
+		strings.TrimSpace(jobID),
 	)
 
 	record, ok, err := scanScheduledTask(row.Scan)
@@ -156,7 +156,7 @@ func (s *sqliteScheduledTaskStore) List(ctx context.Context) ([]ScheduledTaskRec
 		FROM balda_scheduled_tasks
 		ORDER BY task_id ASC`)
 	if err != nil {
-		return nil, fmt.Errorf("list scheduled tasks: %w", err)
+		return nil, fmt.Errorf("list scheduled jobs: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -179,7 +179,7 @@ func (s *sqliteScheduledTaskStore) ListByAddress(
 		strings.TrimSpace(channelType), strings.TrimSpace(addressKey),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list scheduled tasks by address: %w", err)
+		return nil, fmt.Errorf("list scheduled jobs by address: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -205,15 +205,15 @@ func (s *sqliteScheduledTaskStore) ListDue(ctx context.Context, now time.Time, l
 		limit,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list due scheduled tasks: %w", err)
+		return nil, fmt.Errorf("list due scheduled jobs: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	return readScheduledTasks(rows)
 }
 
-func (s *sqliteScheduledTaskStore) Delete(ctx context.Context, taskID string) error {
-	trimmed := strings.TrimSpace(taskID)
+func (s *sqliteScheduledTaskStore) Delete(ctx context.Context, jobID string) error {
+	trimmed := strings.TrimSpace(jobID)
 	if trimmed == "" {
 		return nil
 	}
@@ -223,7 +223,7 @@ func (s *sqliteScheduledTaskStore) Delete(ctx context.Context, taskID string) er
 		WHERE task_id = ?`,
 		trimmed,
 	); err != nil {
-		return fmt.Errorf("delete scheduled task %q: %w", trimmed, err)
+		return fmt.Errorf("delete scheduled job %q: %w", trimmed, err)
 	}
 	return nil
 }
@@ -240,7 +240,7 @@ func readScheduledTasks(rows *sql.Rows) ([]ScheduledTaskRecord, error) {
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate scheduled tasks: %w", err)
+		return nil, fmt.Errorf("iterate scheduled jobs: %w", err)
 	}
 	return out, nil
 }
@@ -282,7 +282,7 @@ func scanScheduledTask(scan func(dest ...any) error) (ScheduledTaskRecord, bool,
 		if err == sql.ErrNoRows {
 			return ScheduledTaskRecord{}, false, nil
 		}
-		return ScheduledTaskRecord{}, false, fmt.Errorf("scan scheduled task: %w", err)
+		return ScheduledTaskRecord{}, false, fmt.Errorf("scan scheduled job: %w", err)
 	}
 
 	nextRunAt, err := parseRequiredRFC3339(nextRunAtRaw)

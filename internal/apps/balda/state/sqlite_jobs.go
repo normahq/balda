@@ -14,7 +14,7 @@ type sqliteJobStore struct {
 
 func (s *sqliteJobStore) CreateJob(ctx context.Context, record JobRecord) (bool, error) {
 	now := time.Now().UTC()
-	normalized, err := normalizeExecutionTask(record, now)
+	normalized, err := normalizeExecutionJob(record, now)
 	if err != nil {
 		return false, err
 	}
@@ -44,17 +44,17 @@ func (s *sqliteJobStore) CreateJob(ctx context.Context, record JobRecord) (bool,
 		optionalTimeValue(normalized.CanceledAt),
 	)
 	if err != nil {
-		return false, fmt.Errorf("insert runtime task %q: %w", normalized.ID, err)
+		return false, fmt.Errorf("insert runtime job %q: %w", normalized.ID, err)
 	}
 	count, err := res.RowsAffected()
 	if err != nil {
-		return false, fmt.Errorf("count inserted runtime task %q: %w", normalized.ID, err)
+		return false, fmt.Errorf("count inserted runtime job %q: %w", normalized.ID, err)
 	}
 	return count > 0, nil
 }
 
-func (s *sqliteJobStore) GetJob(ctx context.Context, taskID string) (JobRecord, bool, error) {
-	record, ok, err := scanExecutionTask(s.db.QueryRowContext(ctx, executionTaskSelectSQL+` WHERE id = ?`, strings.TrimSpace(taskID)).Scan)
+func (s *sqliteJobStore) GetJob(ctx context.Context, jobID string) (JobRecord, bool, error) {
+	record, ok, err := scanExecutionJob(s.db.QueryRowContext(ctx, executionJobSelectSQL+` WHERE id = ?`, strings.TrimSpace(jobID)).Scan)
 	if err != nil {
 		return JobRecord{}, false, err
 	}
@@ -66,7 +66,7 @@ func (s *sqliteJobStore) ListActiveJobsBySession(ctx context.Context, sessionID 
 	if trimmed == "" {
 		return nil, fmt.Errorf("session id is required")
 	}
-	rows, err := s.db.QueryContext(ctx, executionTaskSelectSQL+`
+	rows, err := s.db.QueryContext(ctx, executionJobSelectSQL+`
 		WHERE session_id = ?
 		  AND status NOT IN (?, ?, ?, ?)
 		ORDER BY created_at ASC`,
@@ -77,13 +77,13 @@ func (s *sqliteJobStore) ListActiveJobsBySession(ctx context.Context, sessionID 
 		JobStatusDeadLettered,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list active runtime tasks: %w", err)
+		return nil, fmt.Errorf("list active runtime jobs: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	var out []JobRecord
 	for rows.Next() {
-		record, ok, err := scanExecutionTask(rows.Scan)
+		record, ok, err := scanExecutionJob(rows.Scan)
 		if err != nil {
 			return nil, err
 		}
@@ -92,25 +92,25 @@ func (s *sqliteJobStore) ListActiveJobsBySession(ctx context.Context, sessionID 
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate active runtime tasks: %w", err)
+		return nil, fmt.Errorf("iterate active runtime jobs: %w", err)
 	}
 	return out, nil
 }
 
-func (s *sqliteJobStore) UpdateJobStatus(ctx context.Context, taskID string, status string, reason string) error {
-	trimmedJobID := strings.TrimSpace(taskID)
+func (s *sqliteJobStore) UpdateJobStatus(ctx context.Context, jobID string, status string, reason string) error {
+	trimmedJobID := strings.TrimSpace(jobID)
 	if trimmedJobID == "" {
-		return fmt.Errorf("task id is required")
+		return fmt.Errorf("job id is required")
 	}
-	currentStatus, err := s.currentTaskStatus(ctx, trimmedJobID)
+	currentStatus, err := s.currentJobStatus(ctx, trimmedJobID)
 	if err != nil {
 		return err
 	}
-	normalizedStatus, err := normalizeExecutionTaskStatus(status)
+	normalizedStatus, err := normalizeExecutionJobStatus(status)
 	if err != nil {
 		return err
 	}
-	if err := guardTaskStatusTransition(currentStatus, normalizedStatus); err != nil {
+	if err := guardJobStatusTransition(currentStatus, normalizedStatus); err != nil {
 		return err
 	}
 	now := time.Now().UTC()
@@ -133,25 +133,25 @@ func (s *sqliteJobStore) UpdateJobStatus(ctx context.Context, taskID string, sta
 		trimmedJobID,
 	)
 	if err != nil {
-		return fmt.Errorf("update runtime task %q status: %w", trimmedJobID, err)
+		return fmt.Errorf("update runtime job %q status: %w", trimmedJobID, err)
 	}
 	return nil
 }
 
-func (s *sqliteJobStore) SetJobResult(ctx context.Context, taskID string, resultJSON string, status string, reason string) error {
-	trimmedJobID := strings.TrimSpace(taskID)
+func (s *sqliteJobStore) SetJobResult(ctx context.Context, jobID string, resultJSON string, status string, reason string) error {
+	trimmedJobID := strings.TrimSpace(jobID)
 	if trimmedJobID == "" {
-		return fmt.Errorf("task id is required")
+		return fmt.Errorf("job id is required")
 	}
-	currentStatus, err := s.currentTaskStatus(ctx, trimmedJobID)
+	currentStatus, err := s.currentJobStatus(ctx, trimmedJobID)
 	if err != nil {
 		return err
 	}
-	normalizedStatus, err := normalizeExecutionTaskStatus(status)
+	normalizedStatus, err := normalizeExecutionJobStatus(status)
 	if err != nil {
 		return err
 	}
-	if err := guardTaskStatusTransition(currentStatus, normalizedStatus); err != nil {
+	if err := guardJobStatusTransition(currentStatus, normalizedStatus); err != nil {
 		return err
 	}
 	now := time.Now().UTC()
@@ -175,14 +175,14 @@ func (s *sqliteJobStore) SetJobResult(ctx context.Context, taskID string, result
 		optionalTimeValue(canceledAt),
 		trimmedJobID,
 	); err != nil {
-		return fmt.Errorf("set runtime task %q result: %w", trimmedJobID, err)
+		return fmt.Errorf("set runtime job %q result: %w", trimmedJobID, err)
 	}
 	return nil
 }
 
 func (s *sqliteJobStore) AppendJobEvent(ctx context.Context, record JobEventRecord) error {
 	now := time.Now().UTC()
-	normalized, err := normalizeExecutionTaskEvent(record, now)
+	normalized, err := normalizeExecutionJobEvent(record, now)
 	if err != nil {
 		return err
 	}
@@ -197,36 +197,36 @@ func (s *sqliteJobStore) AppendJobEvent(ctx context.Context, record JobEventReco
 		nullIfEmpty(normalized.PayloadJSON),
 		normalized.CreatedAt.Format(time.RFC3339),
 	); err != nil {
-		return fmt.Errorf("insert runtime task event %q: %w", normalized.ID, err)
+		return fmt.Errorf("insert runtime job event %q: %w", normalized.ID, err)
 	}
 	return nil
 }
 
-func (s *sqliteJobStore) ListJobEvents(ctx context.Context, taskID string) ([]JobEventRecord, error) {
-	trimmed := strings.TrimSpace(taskID)
+func (s *sqliteJobStore) ListJobEvents(ctx context.Context, jobID string) ([]JobEventRecord, error) {
+	trimmed := strings.TrimSpace(jobID)
 	if trimmed == "" {
-		return nil, fmt.Errorf("task id is required")
+		return nil, fmt.Errorf("job id is required")
 	}
-	rows, err := s.db.QueryContext(ctx, executionTaskEventSelectSQL+`
+	rows, err := s.db.QueryContext(ctx, executionJobEventSelectSQL+`
 		WHERE task_id = ?
 		ORDER BY created_at ASC`,
 		trimmed,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list runtime task events: %w", err)
+		return nil, fmt.Errorf("list runtime job events: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	var out []JobEventRecord
 	for rows.Next() {
-		record, err := scanExecutionTaskEvent(rows.Scan)
+		record, err := scanExecutionJobEvent(rows.Scan)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, record)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate runtime task events: %w", err)
+		return nil, fmt.Errorf("iterate runtime job events: %w", err)
 	}
 	return out, nil
 }
@@ -441,14 +441,14 @@ func (s *sqliteJobStore) getAgentStepByKey(ctx context.Context, stepKey string) 
 	return record, ok, nil
 }
 
-const executionTaskSelectSQL = `
+const executionJobSelectSQL = `
 	SELECT id, COALESCE(session_id, ''), COALESCE(parent_task_id, ''), COALESCE(title, ''), objective,
 	       status, COALESCE(owner_actor, ''), COALESCE(assigned_actor, ''), priority,
 	       COALESCE(created_by, ''), COALESCE(result_json, ''), COALESCE(error, ''),
 	       created_at, updated_at, COALESCE(started_at, ''), COALESCE(completed_at, ''), COALESCE(canceled_at, '')
 	FROM execution_tasks`
 
-const executionTaskEventSelectSQL = `
+const executionJobEventSelectSQL = `
 	SELECT id, task_id, event_type, COALESCE(actor, ''), COALESCE(message_id, ''), COALESCE(payload_json, ''), created_at
 	FROM execution_task_events`
 
@@ -463,7 +463,7 @@ const executionAgentStepSelectSQL = `
 	       COALESCE(result_json, ''), COALESCE(error, ''), created_at, updated_at, COALESCE(completed_at, '')
 	FROM execution_agent_steps`
 
-func scanExecutionTask(scan func(dest ...any) error) (JobRecord, bool, error) {
+func scanExecutionJob(scan func(dest ...any) error) (JobRecord, bool, error) {
 	var (
 		record         JobRecord
 		createdAtRaw   string
@@ -495,27 +495,27 @@ func scanExecutionTask(scan func(dest ...any) error) (JobRecord, bool, error) {
 		if err == sql.ErrNoRows {
 			return JobRecord{}, false, nil
 		}
-		return JobRecord{}, false, fmt.Errorf("scan runtime task: %w", err)
+		return JobRecord{}, false, fmt.Errorf("scan runtime job: %w", err)
 	}
 	createdAt, err := parseRequiredRFC3339(createdAtRaw)
 	if err != nil {
-		return JobRecord{}, false, fmt.Errorf("parse task created_at: %w", err)
+		return JobRecord{}, false, fmt.Errorf("parse job created_at: %w", err)
 	}
 	updatedAt, err := parseRequiredRFC3339(updatedAtRaw)
 	if err != nil {
-		return JobRecord{}, false, fmt.Errorf("parse task updated_at: %w", err)
+		return JobRecord{}, false, fmt.Errorf("parse job updated_at: %w", err)
 	}
 	startedAt, err := parseOptionalRFC3339(startedAtRaw)
 	if err != nil {
-		return JobRecord{}, false, fmt.Errorf("parse task started_at: %w", err)
+		return JobRecord{}, false, fmt.Errorf("parse job started_at: %w", err)
 	}
 	completedAt, err := parseOptionalRFC3339(completedAtRaw)
 	if err != nil {
-		return JobRecord{}, false, fmt.Errorf("parse task completed_at: %w", err)
+		return JobRecord{}, false, fmt.Errorf("parse job completed_at: %w", err)
 	}
 	canceledAt, err := parseOptionalRFC3339(canceledAtRaw)
 	if err != nil {
-		return JobRecord{}, false, fmt.Errorf("parse task canceled_at: %w", err)
+		return JobRecord{}, false, fmt.Errorf("parse job canceled_at: %w", err)
 	}
 	record.CreatedAt = createdAt
 	record.UpdatedAt = updatedAt
@@ -525,7 +525,7 @@ func scanExecutionTask(scan func(dest ...any) error) (JobRecord, bool, error) {
 	return record, true, nil
 }
 
-func scanExecutionTaskEvent(scan func(dest ...any) error) (JobEventRecord, error) {
+func scanExecutionJobEvent(scan func(dest ...any) error) (JobEventRecord, error) {
 	var record JobEventRecord
 	var createdAtRaw string
 	if err := scan(
@@ -537,11 +537,11 @@ func scanExecutionTaskEvent(scan func(dest ...any) error) (JobEventRecord, error
 		&record.PayloadJSON,
 		&createdAtRaw,
 	); err != nil {
-		return JobEventRecord{}, fmt.Errorf("scan runtime task event: %w", err)
+		return JobEventRecord{}, fmt.Errorf("scan runtime job event: %w", err)
 	}
 	createdAt, err := parseRequiredRFC3339(createdAtRaw)
 	if err != nil {
-		return JobEventRecord{}, fmt.Errorf("parse task event created_at: %w", err)
+		return JobEventRecord{}, fmt.Errorf("parse job event created_at: %w", err)
 	}
 	record.CreatedAt = createdAt
 	return record, nil
@@ -641,16 +641,16 @@ func scanExecutionAgentStep(scan func(dest ...any) error) (AgentStepRecord, bool
 	return record, true, nil
 }
 
-func normalizeExecutionTask(record JobRecord, now time.Time) (JobRecord, error) {
+func normalizeExecutionJob(record JobRecord, now time.Time) (JobRecord, error) {
 	record.ID = strings.TrimSpace(record.ID)
 	if record.ID == "" {
-		return JobRecord{}, fmt.Errorf("runtime task id is required")
+		return JobRecord{}, fmt.Errorf("runtime job id is required")
 	}
 	record.Objective = strings.TrimSpace(record.Objective)
 	if record.Objective == "" {
-		return JobRecord{}, fmt.Errorf("runtime task objective is required")
+		return JobRecord{}, fmt.Errorf("runtime job objective is required")
 	}
-	status, err := normalizeExecutionTaskStatus(record.Status)
+	status, err := normalizeExecutionJobStatus(record.Status)
 	if err != nil {
 		return JobRecord{}, err
 	}
@@ -729,7 +729,7 @@ func normalizeExecutionAgentStep(record AgentStepRecord, now time.Time) (AgentSt
 	}
 	record.JobID = strings.TrimSpace(record.JobID)
 	if record.JobID == "" {
-		return AgentStepRecord{}, fmt.Errorf("runtime agent step task id is required")
+		return AgentStepRecord{}, fmt.Errorf("runtime agent step job id is required")
 	}
 	record.AgentName = strings.TrimSpace(record.AgentName)
 	if record.AgentName == "" {
@@ -762,18 +762,18 @@ func normalizeExecutionAgentStep(record AgentStepRecord, now time.Time) (AgentSt
 	return record, nil
 }
 
-func normalizeExecutionTaskEvent(record JobEventRecord, now time.Time) (JobEventRecord, error) {
+func normalizeExecutionJobEvent(record JobEventRecord, now time.Time) (JobEventRecord, error) {
 	record.ID = strings.TrimSpace(record.ID)
 	if record.ID == "" {
-		return JobEventRecord{}, fmt.Errorf("runtime task event id is required")
+		return JobEventRecord{}, fmt.Errorf("runtime job event id is required")
 	}
 	record.JobID = strings.TrimSpace(record.JobID)
 	if record.JobID == "" {
-		return JobEventRecord{}, fmt.Errorf("runtime task event task id is required")
+		return JobEventRecord{}, fmt.Errorf("runtime job event job id is required")
 	}
 	record.EventType = strings.TrimSpace(record.EventType)
 	if record.EventType == "" {
-		return JobEventRecord{}, fmt.Errorf("runtime task event type is required")
+		return JobEventRecord{}, fmt.Errorf("runtime job event type is required")
 	}
 	record.Actor = strings.TrimSpace(record.Actor)
 	record.MessageID = strings.TrimSpace(record.MessageID)
@@ -811,7 +811,7 @@ func normalizeExecutionDeliveryStatus(status string) (string, error) {
 	}
 }
 
-func normalizeExecutionTaskStatus(status string) (string, error) {
+func normalizeExecutionJobStatus(status string) (string, error) {
 	trimmed := strings.TrimSpace(status)
 	if trimmed == "" {
 		trimmed = JobStatusCreated
@@ -829,7 +829,7 @@ func normalizeExecutionTaskStatus(status string) (string, error) {
 		JobStatusDeadLettered:
 		return trimmed, nil
 	default:
-		return "", fmt.Errorf("invalid runtime task status %q", status)
+		return "", fmt.Errorf("invalid runtime job status %q", status)
 	}
 }
 
@@ -864,38 +864,38 @@ func optionalTimeValue(value time.Time) any {
 	return value.UTC().Format(time.RFC3339)
 }
 
-func (s *sqliteJobStore) currentTaskStatus(ctx context.Context, taskID string) (string, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT status FROM execution_tasks WHERE id = ?`, taskID)
+func (s *sqliteJobStore) currentJobStatus(ctx context.Context, jobID string) (string, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT status FROM execution_tasks WHERE id = ?`, jobID)
 	var status string
 	if err := row.Scan(&status); err != nil {
 		if err == sql.ErrNoRows {
-			return "", fmt.Errorf("runtime task %q not found", taskID)
+			return "", fmt.Errorf("runtime job %q not found", jobID)
 		}
-		return "", fmt.Errorf("read runtime task %q status: %w", taskID, err)
+		return "", fmt.Errorf("read runtime job %q status: %w", jobID, err)
 	}
-	normalized, err := normalizeExecutionTaskStatus(status)
+	normalized, err := normalizeExecutionJobStatus(status)
 	if err != nil {
 		return "", err
 	}
 	return normalized, nil
 }
 
-func guardTaskStatusTransition(current string, next string) error {
+func guardJobStatusTransition(current string, next string) error {
 	current = strings.TrimSpace(current)
 	next = strings.TrimSpace(next)
 	if current == "" || current == next {
 		return nil
 	}
-	if isTerminalRuntimeTaskStatus(current) {
-		return fmt.Errorf("invalid runtime task transition %q -> %q: terminal status", current, next)
+	if isTerminalRuntimeJobStatus(current) {
+		return fmt.Errorf("invalid runtime job transition %q -> %q: terminal status", current, next)
 	}
 	if next == JobStatusCreated {
-		return fmt.Errorf("invalid runtime task transition %q -> %q", current, next)
+		return fmt.Errorf("invalid runtime job transition %q -> %q", current, next)
 	}
 	return nil
 }
 
-func isTerminalRuntimeTaskStatus(status string) bool {
+func isTerminalRuntimeJobStatus(status string) bool {
 	switch strings.TrimSpace(status) {
 	case JobStatusCompleted, JobStatusFailed, JobStatusCanceled, JobStatusDeadLettered:
 		return true
