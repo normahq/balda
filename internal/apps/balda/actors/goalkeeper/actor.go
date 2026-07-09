@@ -14,6 +14,7 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
+	"github.com/normahq/balda/internal/apps/balda/goaldelivery"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
 	"github.com/normahq/balda/internal/apps/balda/progress"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
@@ -51,10 +52,10 @@ const (
 	progressKindPlan              = "plan"
 	progressKindOutput            = "output"
 	progressKindCompleted         = "completed"
-	defaultNotVerifiedText        = "manual review still required"
-	defaultInspectNextAction      = "Inspect events and decide whether to continue, cancel, or ask a human."
-	defaultExportedNextAction     = "Review the exported result and continue with follow-up work if needed."
-	defaultNotExportedNextAction  = "Review the direct working directory changes and commit or follow up manually if needed."
+	defaultNotVerifiedText        = goaldelivery.DefaultNotVerifiedText
+	defaultInspectNextAction      = goaldelivery.DefaultInspectNextAction
+	defaultExportedNextAction     = goaldelivery.DefaultExportedNextAction
+	defaultNotExportedNextAction  = goaldelivery.DefaultNotExportedNextAction
 )
 
 var (
@@ -317,7 +318,7 @@ func (a *Actor) runGoal(ctx context.Context, env actorlayer.Envelope, payload go
 	}); err != nil {
 		return actorlayer.TransientError(err)
 	}
-	if err := a.deliver(ctx, taskID, payload, renderGoalStartedMessage(goalDeliveryProfile(payload), maxIterations, objective), "started"); err != nil {
+	if err := a.deliver(ctx, taskID, payload, goaldelivery.RenderStartedMessage(goalDeliveryProfile(payload), maxIterations, objective), "started"); err != nil {
 		return err
 	}
 
@@ -357,7 +358,7 @@ func (a *Actor) runGoal(ctx context.Context, env actorlayer.Envelope, payload go
 			if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "canceled"}), baldastate.JobStatusCanceled, actorName, "goal run canceled"); setErr != nil {
 				return actorlayer.TransientError(setErr)
 			}
-			return a.deliver(ctx, taskID, payload, renderGoalStatusMessage(goalDeliveryProfile(payload), "Goal run canceled."), "canceled")
+			return a.deliver(ctx, taskID, payload, goaldelivery.RenderStatusMessage(goalDeliveryProfile(payload), "Goal run canceled."), "canceled")
 		}
 		reason := redactSecrets(err.Error())
 		if cleanupErr := goalRun.CleanupResources(ctx); cleanupErr != nil {
@@ -366,7 +367,7 @@ func (a *Actor) runGoal(ctx context.Context, env actorlayer.Envelope, payload go
 		if setErr := a.tasks.SetResult(ctx, taskID, result.toTaskResult(false, artifacts, &taskExportResultV1{Status: "failed", Error: reason}), baldastate.JobStatusFailed, actorName, reason); setErr != nil {
 			return actorlayer.TransientError(setErr)
 		}
-		return a.deliver(ctx, taskID, payload, renderGoalStatusMessage(goalDeliveryProfile(payload), "Goal run failed: "+reason), "failed")
+		return a.deliver(ctx, taskID, payload, goaldelivery.RenderStatusMessage(goalDeliveryProfile(payload), "Goal run failed: "+reason), "failed")
 	}
 	if reviewerPassed(result.latestValidatorOutput) {
 		finalization, exportErr := goalRun.Finalize(ctx, payload.Objective, result.latestWorkerOutput, result.latestValidatorOutput)
@@ -466,7 +467,7 @@ func (a *Actor) ensureNoOtherActiveGoal(ctx context.Context, taskID string, payl
 		}), baldastate.JobStatusCanceled, actorName, reason); setErr != nil {
 			return false, actorlayer.TransientError(setErr)
 		}
-		if err := a.deliver(ctx, taskID, payload, renderGoalStatusMessage(goalDeliveryProfile(payload), "A goal run is already active for this session."), "already-active"); err != nil {
+		if err := a.deliver(ctx, taskID, payload, goaldelivery.RenderStatusMessage(goalDeliveryProfile(payload), "A goal run is already active for this session."), "already-active"); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -621,7 +622,7 @@ func (a *Actor) recordStepStarted(ctx context.Context, payload goalTaskPayload, 
 	}); err != nil {
 		return actorlayer.TransientError(err)
 	}
-	return a.deliver(ctx, payload.JobID, payload, renderGoalStepMessage(goalDeliveryProfile(payload), iteration, normalizeGoalMaxIterations(payload.MaxIterations), step, "started", ""), "started:"+step+":"+strconv.Itoa(iteration))
+	return a.deliver(ctx, payload.JobID, payload, goaldelivery.RenderStepMessage(goalDeliveryProfile(payload), iteration, normalizeGoalMaxIterations(payload.MaxIterations), step, "started", ""), "started:"+step+":"+strconv.Itoa(iteration))
 }
 
 func (a *Actor) recordStepCompleted(
@@ -722,9 +723,9 @@ func (r goalRunResult) toTaskResult(goalReached bool, artifacts taskArtifactSnap
 	if reviewerPassed(latestValidatorOutput) {
 		verified = "validator returned pass"
 	}
-	nextAction := defaultInspectNextAction
+	nextAction := goaldelivery.DefaultInspectNextAction
 	if goalReached {
-		nextAction = defaultExportedNextAction
+		nextAction = goaldelivery.DefaultExportedNextAction
 		if export != nil {
 			switch strings.TrimSpace(export.Status) {
 			case goalExportStatusFailed:
@@ -757,7 +758,7 @@ func (r goalRunResult) toTaskResult(goalReached bool, artifacts taskArtifactSnap
 			WhatWasDone:   whatWasDone,
 			Validation:    validation,
 			Verified:      verified,
-			NotVerified:   defaultNotVerifiedText,
+			NotVerified:   goaldelivery.DefaultNotVerifiedText,
 			NextAction:    nextAction,
 		},
 	}
@@ -830,13 +831,13 @@ func (a *Actor) taskStatusIs(ctx context.Context, taskID string, statuses ...str
 
 func (a *Actor) renderTaskOutcome(ctx context.Context, taskID string, profile deliverycmd.Profile, fallback string) string {
 	if a == nil || a.tasks == nil {
-		return renderGoalStatusMessage(profile, fallback)
+		return goaldelivery.RenderStatusMessage(profile, fallback)
 	}
 	task, ok, err := a.tasks.Get(ctx, taskID)
 	if err != nil || !ok {
-		return renderGoalStatusMessage(profile, fallback)
+		return goaldelivery.RenderStatusMessage(profile, fallback)
 	}
-	return renderReviewableOutcomeWithProfile(profile, task, taskArtifactSnapshot{})
+	return goaldelivery.RenderReviewableOutcome(profile, task)
 }
 
 func (a *Actor) deliver(
@@ -967,191 +968,6 @@ func redactSecrets(raw string) string {
 	text = secretGitHubTokenPattern.ReplaceAllString(text, "[REDACTED_TOKEN]")
 	text = secretTelegramToken.ReplaceAllString(text, "[REDACTED_TOKEN]")
 	return text
-}
-
-func renderReviewableOutcomeWithProfile(profile deliverycmd.Profile, task baldastate.JobRecord, artifacts taskArtifactSnapshot) string {
-	_ = artifacts
-	var result map[string]any
-	if err := json.Unmarshal([]byte(strings.TrimSpace(task.ResultJSON)), &result); err != nil {
-		result = nil
-	}
-	parsedOutcome := struct {
-		WhatWasDone string
-		Validation  string
-		Verified    string
-		NotVerified string
-		NextAction  string
-	}{}
-	hasOutcome := false
-	if len(result) != 0 {
-		if outcomeMap, ok := result["reviewable_outcome"].(map[string]any); ok {
-			parsedOutcome.WhatWasDone = redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["what_was_done"])))
-			parsedOutcome.Validation = redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["validation_output"])))
-			parsedOutcome.Verified = redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["what_was_verified"])))
-			parsedOutcome.NotVerified = redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["what_was_not_verified"])))
-			parsedOutcome.NextAction = redactSecrets(strings.TrimSpace(fmt.Sprint(outcomeMap["next_action"])))
-			hasOutcome = parsedOutcome.WhatWasDone != "" ||
-				parsedOutcome.Validation != "" ||
-				parsedOutcome.Verified != "" ||
-				parsedOutcome.NotVerified != "" ||
-				parsedOutcome.NextAction != ""
-		}
-	}
-	goalReached := false
-	switch typed := result["goal_reached"].(type) {
-	case bool:
-		goalReached = typed
-	case string:
-		goalReached = strings.EqualFold(strings.TrimSpace(typed), "true")
-	}
-	exportStatus := ""
-	exportReason := ""
-	exportError := ""
-	if len(result) != 0 {
-		if exportMap, ok := result["export"].(map[string]any); ok {
-			exportStatus = redactSecrets(strings.TrimSpace(fmt.Sprint(exportMap["status"])))
-			exportReason = redactSecrets(strings.TrimSpace(fmt.Sprint(exportMap["reason"])))
-			exportError = redactSecrets(strings.TrimSpace(fmt.Sprint(exportMap["error"])))
-		}
-	}
-	resultText := func(key string) string {
-		if len(result) == 0 {
-			return ""
-		}
-		value, ok := result[key]
-		if !ok || value == nil {
-			return ""
-		}
-		return strings.TrimSpace(fmt.Sprint(value))
-	}
-	executorOutput := redactSecrets(firstNonEmpty(resultText("executor_output"), resultText("final_text")))
-	reviewerOutput := redactSecrets(firstNonEmpty(resultText("reviewer_output"), resultText("reviewer_feedback")))
-	whatWasDone := firstNonEmpty(executorOutput, task.Objective)
-	if hasOutcome {
-		whatWasDone = firstNonEmpty(parsedOutcome.WhatWasDone, whatWasDone)
-	}
-	if !goalReached && task.Status != baldastate.JobStatusCompleted && resultText("final_text") != "" {
-		whatWasDone = redactSecrets(resultText("final_text"))
-	}
-	validation := reviewerOutput
-	if hasOutcome {
-		validation = firstNonEmpty(parsedOutcome.Validation, validation)
-	}
-	routineSuccessfulOutcome := goalReached && exportStatusIsRoutineSuccess(exportStatus)
-	verified := firstNonEmpty(parsedOutcome.Verified, "validator returned feedback")
-	notVerified := firstNonEmpty(parsedOutcome.NotVerified, defaultNotVerifiedText)
-	nextAction := firstNonEmpty(parsedOutcome.NextAction, defaultInspectNextAction)
-	renderNotVerified := shouldRenderNotVerified(parsedOutcome.NotVerified)
-	renderNextAction := shouldRenderNextAction(parsedOutcome.NextAction, goalReached, exportStatus)
-	renderVerified := shouldRenderVerified(verified, routineSuccessfulOutcome)
-	renderValidation := shouldRenderValidation(validation, goalReached)
-
-	var parts []string
-	if goalReached {
-		parts = append(parts, goalOutcomeLine(profile, "Result", "Goal completed."))
-	} else {
-		parts = append(parts, goalOutcomeLine(profile, "Result", "Goal not completed."))
-	}
-	if goalReached && exportStatus != "" {
-		switch exportStatus {
-		case goalExportStatusExported:
-			// Routine success; do not add export noise to chat output.
-		case goalExportStatusNotExported:
-			// Workspace-disabled/direct mode is expected; keep it out of final chat output.
-		case goalExportStatusFailed:
-			parts = append(parts, goalOutcomeLine(profile, "Export", "failed: "+goalSystemText(goalMessageStyleForProfile(profile), firstNonEmpty(exportError, exportReason, "unknown error"))))
-		default:
-			parts = append(parts, goalOutcomeLine(profile, "Export", goalSystemText(goalMessageStyleForProfile(profile), exportStatus)+"."))
-		}
-	}
-	if whatWasDone != "" {
-		if routineSuccessfulOutcome {
-			parts = append(parts, strings.TrimSpace(whatWasDone))
-		} else {
-			parts = append(parts, goalOutcomeBlock(profile, "What was done", whatWasDone))
-		}
-	}
-	if renderValidation && validation != "" {
-		parts = append(parts, goalOutcomeBlock(profile, "Validation", validation))
-	}
-	if renderVerified && verified != "" {
-		parts = append(parts, goalOutcomeLine(profile, "Verified", verified))
-	}
-	if renderNotVerified && notVerified != "" {
-		parts = append(parts, goalOutcomeLine(profile, "Not verified", notVerified))
-	}
-	if renderNextAction && nextAction != "" {
-		parts = append(parts, goalOutcomeLine(profile, "Next action", nextAction))
-	}
-	return strings.TrimSpace(strings.Join(parts, "\n\n"))
-}
-
-func shouldRenderNotVerified(value string) bool {
-	trimmed := strings.TrimSpace(value)
-	return trimmed != "" && !strings.EqualFold(trimmed, defaultNotVerifiedText)
-}
-
-func shouldRenderVerified(value string, routineSuccessfulOutcome bool) bool {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return false
-	}
-	if !routineSuccessfulOutcome {
-		return true
-	}
-	return !strings.EqualFold(trimmed, "validator returned pass")
-}
-
-func shouldRenderValidation(value string, goalReached bool) bool {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return false
-	}
-	if !goalReached {
-		return true
-	}
-	return !validationIsRoutinePass(trimmed)
-}
-
-func validationIsRoutinePass(value string) bool {
-	lowered := strings.ToLower(strings.TrimSpace(value))
-	if strings.Contains(lowered, "evidence:") || strings.Contains(lowered, "verdict: fail") || strings.Contains(lowered, "verdict fail") {
-		return false
-	}
-	normalized := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(value, ":", " ")))
-	normalized = strings.Join(strings.Fields(normalized), " ")
-	return strings.Contains(normalized, "verdict pass")
-}
-
-func shouldRenderNextAction(value string, goalReached bool, exportStatus string) bool {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return false
-	}
-	if !goalReached {
-		return true
-	}
-	if !strings.EqualFold(trimmed, defaultExportedNextAction) {
-		if goalReached && strings.TrimSpace(exportStatus) == goalExportStatusNotExported && strings.EqualFold(trimmed, defaultNotExportedNextAction) {
-			return false
-		}
-		return true
-	}
-	switch strings.TrimSpace(exportStatus) {
-	case goalExportStatusFailed, goalExportStatusNotExported:
-		return true
-	default:
-		return false
-	}
-}
-
-func exportStatusIsRoutineSuccess(status string) bool {
-	switch strings.TrimSpace(status) {
-	case "", goalExportStatusExported, goalExportStatusNotExported:
-		return true
-	default:
-		return false
-	}
 }
 
 func nextDeliverySequence(value *int) int {

@@ -7,6 +7,7 @@ import (
 
 	deliverycmd "github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
+	"github.com/normahq/balda/internal/apps/balda/goaldelivery"
 	"github.com/normahq/balda/internal/apps/balda/progress"
 	"github.com/normahq/balda/pkg/actorlayer"
 	actortransport "github.com/normahq/balda/pkg/actorlayer/transport"
@@ -67,7 +68,7 @@ func goalProgressEventPayload(update baldaexecution.GoalProgressUpdate) map[stri
 
 func renderGoalProgressText(update baldaexecution.GoalProgressUpdate) string {
 	body := redactSecrets(strings.TrimSpace(update.Text))
-	return renderGoalStepMessage(update.Profile, update.Iteration, update.MaxIterations, update.Step, renderGoalProgressAction(update.Kind), body)
+	return goaldelivery.RenderStepMessage(update.Profile, update.Iteration, update.MaxIterations, update.Step, renderGoalProgressAction(update.Kind), body)
 }
 
 func renderGoalProgressAction(kind baldaexecution.GoalProgressKind) string {
