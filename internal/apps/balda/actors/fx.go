@@ -38,24 +38,22 @@ var Module = fx.Module("balda_actors",
 			func(params struct {
 				fx.In
 
-				JobService         *baldajobs.JobService
-				Dispatcher         actortransport.Dispatcher
-				SessionManager     *baldasession.Manager
-				RuntimeManager     *baldaagent.RuntimeManager
-				JobRuns            *JobRunRegistry
-				MaxIterations      int  `name:"balda_goal_max_iterations"`
-				PlanUpdatesEnabled bool `name:"balda_telegram_plan_updates"`
-				Logger             zerolog.Logger
+				JobService     *baldajobs.JobService
+				Dispatcher     actortransport.Dispatcher
+				SessionManager *baldasession.Manager
+				RuntimeManager *baldaagent.RuntimeManager
+				JobRuns        *JobRunRegistry
+				MaxIterations  int `name:"balda_goal_max_iterations"`
+				Logger         zerolog.Logger
 			}) dispatch.Actor {
 				return goalkeeper.NewActor(goalkeeper.ActorParams{
-					JobService:         params.JobService,
-					Dispatcher:         params.Dispatcher,
-					SessionManager:     params.SessionManager,
-					GoalRunPreparer:    goalRunPreparerAdapter{manager: params.RuntimeManager},
-					JobRuns:            params.JobRuns,
-					MaxIterations:      params.MaxIterations,
-					PlanUpdatesEnabled: params.PlanUpdatesEnabled,
-					Logger:             params.Logger,
+					JobService:      params.JobService,
+					Dispatcher:      params.Dispatcher,
+					SessionManager:  params.SessionManager,
+					GoalRunPreparer: goalRunPreparerAdapter{manager: params.RuntimeManager},
+					JobRuns:         params.JobRuns,
+					MaxIterations:   params.MaxIterations,
+					Logger:          params.Logger,
 				})
 			},
 			fx.As(new(dispatch.Actor)),

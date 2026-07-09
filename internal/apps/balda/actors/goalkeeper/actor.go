@@ -105,25 +105,23 @@ type JobRuns interface {
 type ActorParams struct {
 	fx.In
 
-	JobService         *baldajobs.JobService
-	Dispatcher         actortransport.Dispatcher
-	SessionManager     *baldasession.Manager
-	GoalRunPreparer    GoalRunPreparer
-	JobRuns            JobRuns
-	MaxIterations      int  `name:"balda_goal_max_iterations"`
-	PlanUpdatesEnabled bool `name:"balda_telegram_plan_updates"`
-	Logger             zerolog.Logger
+	JobService      *baldajobs.JobService
+	Dispatcher      actortransport.Dispatcher
+	SessionManager  *baldasession.Manager
+	GoalRunPreparer GoalRunPreparer
+	JobRuns         JobRuns
+	MaxIterations   int `name:"balda_goal_max_iterations"`
+	Logger          zerolog.Logger
 }
 
 type Actor struct {
-	tasks              *baldajobs.JobService
-	dispatcher         actortransport.Dispatcher
-	sessions           *baldasession.Manager
-	goalRunPreparer    GoalRunPreparer
-	taskRuns           JobRuns
-	maxIters           int
-	planUpdatesEnabled bool
-	logger             zerolog.Logger
+	tasks           *baldajobs.JobService
+	dispatcher      actortransport.Dispatcher
+	sessions        *baldasession.Manager
+	goalRunPreparer GoalRunPreparer
+	taskRuns        JobRuns
+	maxIters        int
+	logger          zerolog.Logger
 }
 
 type taskEnvelopePayload struct {
@@ -203,14 +201,13 @@ type stepProgressState struct {
 
 func NewActor(params ActorParams) *Actor {
 	return &Actor{
-		tasks:              params.JobService,
-		dispatcher:         params.Dispatcher,
-		sessions:           params.SessionManager,
-		goalRunPreparer:    params.GoalRunPreparer,
-		taskRuns:           params.JobRuns,
-		maxIters:           normalizeGoalMaxIterations(params.MaxIterations),
-		planUpdatesEnabled: params.PlanUpdatesEnabled,
-		logger:             params.Logger.With().Str("component", "balda.goalkeeper_actor").Logger(),
+		tasks:           params.JobService,
+		dispatcher:      params.Dispatcher,
+		sessions:        params.SessionManager,
+		goalRunPreparer: params.GoalRunPreparer,
+		taskRuns:        params.JobRuns,
+		maxIters:        normalizeGoalMaxIterations(params.MaxIterations),
+		logger:          params.Logger.With().Str("component", "balda.goalkeeper_actor").Logger(),
 	}
 }
 
@@ -568,14 +565,12 @@ func (a *Actor) runWorkflow(
 			state = &stepProgressState{}
 			stepStates[currentStep] = state
 		}
-		if a.planUpdatesEnabled {
-			if planSnapshot, ok := progress.ParsePlanUpdate(ev); ok {
-				planText := planSnapshot.PlainText()
-				if planText != "" && planText != state.lastPlanText {
-					state.lastPlanText = planText
-					if err := a.recordStepPlanUpdate(ctx, payload, currentStep, iteration, planSnapshot, planText, &deliverySeq); err != nil {
-						return result, err
-					}
+		if planSnapshot, ok := progress.ParsePlanUpdate(ev); ok {
+			planText := planSnapshot.PlainText()
+			if planText != "" && planText != state.lastPlanText {
+				state.lastPlanText = planText
+				if err := a.recordStepPlanUpdate(ctx, payload, currentStep, iteration, planSnapshot, planText, &deliverySeq); err != nil {
+					return result, err
 				}
 			}
 		}

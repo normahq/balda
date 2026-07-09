@@ -35,14 +35,13 @@ func TestGoalKeeperActorRejectsMismatchedEnvelopeAndPayloadJobID(t *testing.T) {
 	setUnexportedField(t, ts, "workspaceDir", t.TempDir())
 	manager := newBaldaSessionManagerWithSession(t, locator, ts)
 	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
-		JobService:         tasks,
-		Dispatcher:         dispatcher,
-		SessionManager:     manager,
-		GoalRunPreparer:    &fakeGoalRunPreparer{t: t, finalValidatorText: "verdict: pass"},
-		JobRuns:            NewJobRunRegistry(),
-		MaxIterations:      1,
-		PlanUpdatesEnabled: false,
-		Logger:             zerolog.Nop(),
+		JobService:      tasks,
+		Dispatcher:      dispatcher,
+		SessionManager:  manager,
+		GoalRunPreparer: &fakeGoalRunPreparer{t: t, finalValidatorText: "verdict: pass"},
+		JobRuns:         NewJobRunRegistry(),
+		MaxIterations:   1,
+		Logger:          zerolog.Nop(),
 	})
 	env, err := goalkeeper.GoalTaskEnvelope(locator, "ship release", "101", 1)
 	if err != nil {
@@ -72,14 +71,13 @@ func TestGoalKeeperActorCompletesPassingRun(t *testing.T) {
 	manager := newBaldaSessionManagerWithSession(t, locator, ts)
 	runtimeBuilder := &fakeGoalRunPreparer{t: t, finalValidatorText: "verdict: pass\nvalidated"}
 	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
-		JobService:         tasks,
-		Dispatcher:         dispatcher,
-		SessionManager:     manager,
-		GoalRunPreparer:    runtimeBuilder,
-		JobRuns:            NewJobRunRegistry(),
-		MaxIterations:      3,
-		PlanUpdatesEnabled: false,
-		Logger:             zerolog.Nop(),
+		JobService:      tasks,
+		Dispatcher:      dispatcher,
+		SessionManager:  manager,
+		GoalRunPreparer: runtimeBuilder,
+		JobRuns:         NewJobRunRegistry(),
+		MaxIterations:   3,
+		Logger:          zerolog.Nop(),
 	})
 	profile := deliveryfmt.Profile{Format: deliveryfmt.FormatAuto, TelegramMode: "rich_markdown"}
 	env, err := goalkeeper.GoalTaskEnvelopeWithProfile(locator, profile, "ship release", "101", 3)
@@ -146,14 +144,13 @@ func TestGoalKeeperActorCompletesPassingRunWithoutWorkspaceExport(t *testing.T) 
 		exportReason:       "workspace_disabled",
 	}
 	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
-		JobService:         tasks,
-		Dispatcher:         dispatcher,
-		SessionManager:     manager,
-		GoalRunPreparer:    runtimeBuilder,
-		JobRuns:            NewJobRunRegistry(),
-		MaxIterations:      3,
-		PlanUpdatesEnabled: false,
-		Logger:             zerolog.Nop(),
+		JobService:      tasks,
+		Dispatcher:      dispatcher,
+		SessionManager:  manager,
+		GoalRunPreparer: runtimeBuilder,
+		JobRuns:         NewJobRunRegistry(),
+		MaxIterations:   3,
+		Logger:          zerolog.Nop(),
 	})
 	env, err := goalkeeper.GoalTaskEnvelope(locator, "ship release", "101", 3)
 	if err != nil {
@@ -202,14 +199,13 @@ func TestGoalKeeperActorUsesLatestValidatorVerdictForCompletion(t *testing.T) {
 		events: goalEventsAfterInitialFailure("verdict: pass\nEvidence: final pass"),
 	}
 	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
-		JobService:         tasks,
-		Dispatcher:         dispatcher,
-		SessionManager:     manager,
-		GoalRunPreparer:    runtimeBuilder,
-		JobRuns:            NewJobRunRegistry(),
-		MaxIterations:      3,
-		PlanUpdatesEnabled: false,
-		Logger:             zerolog.Nop(),
+		JobService:      tasks,
+		Dispatcher:      dispatcher,
+		SessionManager:  manager,
+		GoalRunPreparer: runtimeBuilder,
+		JobRuns:         NewJobRunRegistry(),
+		MaxIterations:   3,
+		Logger:          zerolog.Nop(),
 	})
 	env, err := goalkeeper.GoalTaskEnvelope(locator, "count lines", "101", 3)
 	if err != nil {
@@ -287,14 +283,13 @@ func TestGoalKeeperActorFinalFailureUsesLatestValidatorOutput(t *testing.T) {
 		events: goalEventsAfterInitialFailure("verdict: fail\nEvidence: final failure"),
 	}
 	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
-		JobService:         tasks,
-		Dispatcher:         dispatcher,
-		SessionManager:     manager,
-		GoalRunPreparer:    runtimeBuilder,
-		JobRuns:            NewJobRunRegistry(),
-		MaxIterations:      2,
-		PlanUpdatesEnabled: false,
-		Logger:             zerolog.Nop(),
+		JobService:      tasks,
+		Dispatcher:      dispatcher,
+		SessionManager:  manager,
+		GoalRunPreparer: runtimeBuilder,
+		JobRuns:         NewJobRunRegistry(),
+		MaxIterations:   2,
+		Logger:          zerolog.Nop(),
 	})
 	env, err := goalkeeper.GoalTaskEnvelope(locator, "count lines", "101", 2)
 	if err != nil {
@@ -369,14 +364,13 @@ func TestGoalKeeperActorRejectsSecondActiveGoalInSession(t *testing.T) {
 	}
 	runtimeBuilder := &fakeGoalRunPreparer{t: t}
 	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
-		JobService:         tasks,
-		Dispatcher:         dispatcher,
-		SessionManager:     manager,
-		GoalRunPreparer:    runtimeBuilder,
-		JobRuns:            NewJobRunRegistry(),
-		MaxIterations:      3,
-		PlanUpdatesEnabled: false,
-		Logger:             zerolog.Nop(),
+		JobService:      tasks,
+		Dispatcher:      dispatcher,
+		SessionManager:  manager,
+		GoalRunPreparer: runtimeBuilder,
+		JobRuns:         NewJobRunRegistry(),
+		MaxIterations:   3,
+		Logger:          zerolog.Nop(),
 	})
 	env, err := goalkeeper.GoalTaskEnvelope(locator, "run tests", "101", 3)
 	if err != nil {
@@ -429,14 +423,13 @@ func TestGoalKeeperActorDeliversWorkerProgressAndDedupesRepeatedOutput(t *testin
 		},
 	}
 	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
-		JobService:         tasks,
-		Dispatcher:         dispatcher,
-		SessionManager:     manager,
-		GoalRunPreparer:    runtimeBuilder,
-		JobRuns:            NewJobRunRegistry(),
-		MaxIterations:      3,
-		PlanUpdatesEnabled: false,
-		Logger:             zerolog.Nop(),
+		JobService:      tasks,
+		Dispatcher:      dispatcher,
+		SessionManager:  manager,
+		GoalRunPreparer: runtimeBuilder,
+		JobRuns:         NewJobRunRegistry(),
+		MaxIterations:   3,
+		Logger:          zerolog.Nop(),
 	})
 	env, err := goalkeeper.GoalTaskEnvelope(locator, "run tests", "101", 3)
 	if err != nil {
@@ -504,14 +497,13 @@ func TestGoalKeeperActorDeliversPlanUpdatesWhenEnabled(t *testing.T) {
 		},
 	}
 	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
-		JobService:         tasks,
-		Dispatcher:         dispatcher,
-		SessionManager:     manager,
-		GoalRunPreparer:    runtimeBuilder,
-		JobRuns:            NewJobRunRegistry(),
-		MaxIterations:      3,
-		PlanUpdatesEnabled: true,
-		Logger:             zerolog.Nop(),
+		JobService:      tasks,
+		Dispatcher:      dispatcher,
+		SessionManager:  manager,
+		GoalRunPreparer: runtimeBuilder,
+		JobRuns:         NewJobRunRegistry(),
+		MaxIterations:   3,
+		Logger:          zerolog.Nop(),
 	})
 	env, err := goalkeeper.GoalTaskEnvelope(locator, "run tests", "101", 3)
 	if err != nil {
@@ -664,14 +656,13 @@ func TestGoalKeeperActorPreservesWorkspaceOnExportFailure(t *testing.T) {
 		exportErr:          context.DeadlineExceeded,
 	}
 	actor := goalkeeper.NewActor(goalkeeper.ActorParams{
-		JobService:         tasks,
-		Dispatcher:         dispatcher,
-		SessionManager:     manager,
-		GoalRunPreparer:    runtimeBuilder,
-		JobRuns:            NewJobRunRegistry(),
-		MaxIterations:      3,
-		PlanUpdatesEnabled: false,
-		Logger:             zerolog.Nop(),
+		JobService:      tasks,
+		Dispatcher:      dispatcher,
+		SessionManager:  manager,
+		GoalRunPreparer: runtimeBuilder,
+		JobRuns:         NewJobRunRegistry(),
+		MaxIterations:   3,
+		Logger:          zerolog.Nop(),
 	})
 	env, err := goalkeeper.GoalTaskEnvelope(locator, "ship release", "101", 3)
 	if err != nil {
