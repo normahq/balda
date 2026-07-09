@@ -665,7 +665,7 @@ func TestCommandHandlerSubmitGoalTask_PublishesDurableCommandOnly(t *testing.T) 
 	handler := &CommandHandler{actorDispatcher: bus, goalMaxIterations: 7}
 
 	profile := deliveryfmt.Profile{Format: deliveryfmt.FormatAuto, TelegramMode: "rich_markdown"}
-	started, err := handler.submitGoalTaskWithProfile(ctx, locator, profile, "deploy release", testTelegramUserID101)
+	started, err := handler.submitGoalTaskWithOptions(ctx, locator, deliveryfmt.Options{Profile: profile}, "deploy release", testTelegramUserID101)
 	if err != nil {
 		t.Fatalf("submitGoalTask() error = %v", err)
 	}

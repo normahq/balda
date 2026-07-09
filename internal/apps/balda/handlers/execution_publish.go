@@ -8,7 +8,6 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	"github.com/normahq/balda/internal/apps/balda/actors/goalkeeper"
-	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	actortransport "github.com/normahq/balda/pkg/actorlayer/transport"
@@ -103,10 +102,6 @@ func (h *BaldaHandler) RunSessionTurnPayload(ctx context.Context, payload actors
 
 func (h *CommandHandler) submitGoalTask(ctx context.Context, locator baldasession.SessionLocator, objective string, transportUserID string) (bool, error) {
 	return h.submitGoalTaskWithOptions(ctx, locator, deliveryfmt.Options{}, objective, transportUserID)
-}
-
-func (h *CommandHandler) submitGoalTaskWithProfile(ctx context.Context, locator baldasession.SessionLocator, deliveryProfile deliverycmd.Profile, objective string, transportUserID string) (bool, error) {
-	return h.submitGoalTaskWithOptions(ctx, locator, deliveryfmt.Options{Profile: deliveryProfile}, objective, transportUserID)
 }
 
 func (h *CommandHandler) submitGoalTaskWithOptions(ctx context.Context, locator baldasession.SessionLocator, deliveryOptions deliveryfmt.Options, objective string, transportUserID string) (bool, error) {

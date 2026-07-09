@@ -80,7 +80,7 @@ func TestGoalKeeperActorCompletesPassingRun(t *testing.T) {
 		Logger:          zerolog.Nop(),
 	})
 	profile := deliveryfmt.Profile{Format: deliveryfmt.FormatAuto, TelegramMode: "rich_markdown"}
-	env, err := goalkeeper.GoalTaskEnvelopeWithProfile(locator, profile, "ship release", "101", 3)
+	env, err := goalkeeper.GoalTaskEnvelopeWithOptions(locator, deliveryfmt.Options{Profile: profile}, "ship release", "101", 3)
 	if err != nil {
 		t.Fatalf("GoalTaskEnvelope() error = %v", err)
 	}

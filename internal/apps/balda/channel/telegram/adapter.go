@@ -65,7 +65,6 @@ type MessageContext struct {
 type CommandContext struct {
 	Locator         baldasession.SessionLocator
 	DeliveryOptions deliveryfmt.Options
-	DeliveryProfile deliverycmd.Profile
 	ChatID          int64
 	TopicID         int
 	UserID          int64
@@ -430,10 +429,6 @@ func (a *Adapter) CommandContextFromEvent(event *events.CommandEvent) (CommandCo
 				Thinking:    event.Message.Chat.Type == chatTypePrivate,
 				PlanUpdates: a.planUpdatesEnabled,
 			},
-		},
-		DeliveryProfile: deliverycmd.Profile{
-			Format:       deliveryfmt.FormatAuto,
-			TelegramMode: a.messenger.TelegramFormattingMode(),
 		},
 		ChatID:  event.Message.Chat.Id,
 		TopicID: topicID,

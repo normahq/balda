@@ -238,16 +238,6 @@ func GoalTaskEnvelope(
 	return GoalTaskEnvelopeWithOptions(locator, deliveryfmt.Options{}, objective, transportUserID, maxIterations)
 }
 
-func GoalTaskEnvelopeWithProfile(
-	locator baldasession.SessionLocator,
-	deliveryProfile deliverycmd.Profile,
-	objective string,
-	transportUserID string,
-	maxIterations int,
-) (actorlayer.Envelope, error) {
-	return GoalTaskEnvelopeWithOptions(locator, deliveryfmt.Options{Profile: normalizeGoalDeliveryProfile(deliveryProfile)}, objective, transportUserID, maxIterations)
-}
-
 func GoalTaskEnvelopeWithOptions(
 	locator baldasession.SessionLocator,
 	deliveryOptions deliveryfmt.Options,
