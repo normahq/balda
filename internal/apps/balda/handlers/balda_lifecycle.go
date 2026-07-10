@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/normahq/balda/internal/apps/balda/auth"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
@@ -227,13 +226,6 @@ func (h *BaldaHandler) welcomeDisplayName(messageCtx baldatelegram.MessageContex
 		return ""
 	}
 	return ts.GetAgentName()
-}
-
-func (h *BaldaHandler) currentTime() time.Time {
-	if h.now != nil {
-		return h.now()
-	}
-	return time.Now()
 }
 
 func (h *BaldaHandler) getBotIdentity() (int64, string) {

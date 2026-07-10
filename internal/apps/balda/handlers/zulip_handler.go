@@ -1069,7 +1069,7 @@ func (h *ZulipBaldaHandler) submitGoalJob(
 		return false, err
 	}
 	if h.actorDispatcher == nil {
-		return false, fmt.Errorf("runtime runtime is unavailable")
+		return false, fmt.Errorf("runtime is unavailable")
 	}
 	if _, err = h.actorDispatcher.Dispatch(ctx, env); err != nil {
 		return false, err
@@ -1253,7 +1253,7 @@ func (h *ZulipBaldaHandler) enqueueTurn(
 		return fmt.Errorf("topic session is required")
 	}
 	if h.actorDispatcher == nil {
-		return fmt.Errorf("runtime runtime is unavailable")
+		return fmt.Errorf("runtime is unavailable")
 	}
 	progressPolicy := baldachannel.ProgressPolicy{Typing: true, Thinking: false, PlanUpdates: true}
 	payload := actors.SessionTurnPayload{
@@ -1410,7 +1410,7 @@ func (h *ZulipBaldaHandler) sendZulipAgentReply(
 	text string,
 ) error {
 	if h == nil || h.actorDispatcher == nil {
-		return fmt.Errorf("runtime runtime is unavailable")
+		return fmt.Errorf("runtime is unavailable")
 	}
 	env, err := actors.AgentReplyDeliveryEnvelopeWithSettlement("", zulipHandlerActorAddress, locator, deliverycmd.SettlementBypass, text, "")
 	if err != nil {

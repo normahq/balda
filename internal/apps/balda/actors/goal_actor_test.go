@@ -27,7 +27,7 @@ func TestGoalKeeperActorRejectsMismatchedEnvelopeAndPayloadJobID(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, _, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
+	_, dispatcher, tasks := newTaskActorDispatchServices(t, ctx)
 	locator := session.SessionLocator{ChannelType: "telegram", SessionID: "tg-101-202", AddressKey: "101"}
 	ts := newBaldaTopicSession(t, locator.SessionID)
 	setUnexportedField(t, ts, "userID", "101")

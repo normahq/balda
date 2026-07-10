@@ -974,13 +974,7 @@ func nextDeliverySequence(value *int) int {
 	if value == nil {
 		return 0
 	}
-	*value = *value + 1
+	*value++
 	return *value
 }
 
-func valueOrZero(value *int) int {
-	if value == nil {
-		return 0
-	}
-	return *value
-}

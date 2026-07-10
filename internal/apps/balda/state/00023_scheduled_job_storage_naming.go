@@ -5,12 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/pressly/goose/v3"
 )
-
-func init() {
-	goose.AddNamedMigrationContext("00023_scheduled_job_storage_naming.go", up00023ScheduledJobStorageNaming, down00023ScheduledJobStorageNaming)
-}
 
 func up00023ScheduledJobStorageNaming(ctx context.Context, tx *sql.Tx) error {
 	if err := renameTableIfExists(ctx, tx, "balda_scheduled_tasks", "balda_scheduled_jobs"); err != nil {

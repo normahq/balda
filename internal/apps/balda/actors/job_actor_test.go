@@ -21,7 +21,7 @@ func TestTaskActorDispatchesWebhookSessionTurn(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
+	bus, dispatcher, tasks := newTaskActorDispatchServices(t, ctx)
 	exec := &jobActorExecutor{tasks: tasks, dispatcher: dispatcher}
 	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
 	env, taskID, err := WebhookJobEnvelope(SessionTurnPayload{
@@ -65,7 +65,7 @@ func TestTaskActorRejectsWebhookSessionTurnWithoutEnvelopeJobID(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, _, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
+	_, dispatcher, tasks := newTaskActorDispatchServices(t, ctx)
 	exec := &jobActorExecutor{tasks: tasks, dispatcher: dispatcher}
 	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
 	env, _, err := WebhookJobEnvelope(SessionTurnPayload{
@@ -92,7 +92,7 @@ func TestTaskActorRejectsNonWebhookSessionTurnTask(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, _, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
+	_, dispatcher, tasks := newTaskActorDispatchServices(t, ctx)
 	exec := &jobActorExecutor{tasks: tasks, dispatcher: dispatcher}
 	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
 	data, err := json.Marshal(jobEnvelopePayload{
@@ -128,7 +128,7 @@ func TestScheduledJobEnvelopeDispatchesSessionTurn(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	_, bus, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
+	bus, dispatcher, tasks := newTaskActorDispatchServices(t, ctx)
 	exec := &jobActorExecutor{tasks: tasks, dispatcher: dispatcher}
 	locator := session.SessionLocator{SessionID: "tg-101-202", AddressKey: "101"}
 	env, err := ScheduledJobEnvelope("daily", "summarize", locator, nil, "101", 0, "tick-1")
@@ -183,4 +183,10 @@ func newTaskActorRuntimeServices(t *testing.T, ctx context.Context) (baldastate.
 	app.RequireStart()
 	t.Cleanup(func() { app.RequireStop() })
 	return provider, bus, dispatcher, tasks, nil
+}
+
+func newTaskActorDispatchServices(t *testing.T, ctx context.Context) (*recordingHandlerCommandBus, actortransport.Dispatcher, *baldajobs.JobService) {
+	t.Helper()
+	_, bus, dispatcher, tasks, _ := newTaskActorRuntimeServices(t, ctx)
+	return bus, dispatcher, tasks
 }

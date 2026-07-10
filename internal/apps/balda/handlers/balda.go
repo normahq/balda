@@ -794,7 +794,7 @@ func (h *BaldaHandler) dispatchJobDelivery(
 	dedupeSuffix string,
 ) error {
 	if h == nil || h.actorDispatcher == nil {
-		return fmt.Errorf("runtime runtime is unavailable")
+		return fmt.Errorf("runtime is unavailable")
 	}
 	env, err := actors.AgentReplyDeliveryEnvelopeWithProfileAndSettlement(jobID, actorlayer.ActorAddress{Target: baldaexecution.ActorTypeSession, Key: sessionID}, locator, profile, deliverycmd.SettlementOutbox, text, dedupeSuffix)
 	if err != nil {

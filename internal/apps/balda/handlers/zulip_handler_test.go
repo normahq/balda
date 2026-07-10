@@ -1029,7 +1029,7 @@ func TestZulipBaldaHandlerReturnsDeliveryErrorWhenRuntimeMissing(t *testing.T) {
 		t.Fatal("deliverZulipAgentReply() error = nil, want missing runtime error")
 	}
 	if got := err.Error(); !strings.Contains(got, "deliver zulip response") ||
-		!strings.Contains(got, "runtime runtime is unavailable") {
+		!strings.Contains(got, "runtime is unavailable") {
 		t.Fatalf("deliverZulipAgentReply() error = %q, want wrapped missing runtime error", got)
 	}
 }

@@ -22,7 +22,7 @@ var (
 
 func dispatchOutbound(ctx context.Context, dispatcher actortransport.Dispatcher, env actorlayer.Envelope) error {
 	if dispatcher == nil {
-		return fmt.Errorf("runtime runtime is unavailable")
+		return fmt.Errorf("runtime is unavailable")
 	}
 	_, err := dispatcher.Dispatch(ctx, env)
 	return err
@@ -50,22 +50,6 @@ func sendAgentReply(ctx context.Context, dispatcher actortransport.Dispatcher, f
 
 func sendAgentReplyWithProfile(ctx context.Context, dispatcher actortransport.Dispatcher, from actorlayer.ActorAddress, locator baldasession.SessionLocator, profile deliveryfmt.Profile, text string) error {
 	env, err := actors.AgentReplyDeliveryEnvelopeWithProfileAndSettlement("", from, locator, profile, deliverycmd.SettlementBypass, text, "")
-	if err != nil {
-		return err
-	}
-	return dispatchOutbound(ctx, dispatcher, env)
-}
-
-func sendDraftPlain(ctx context.Context, dispatcher actortransport.Dispatcher, from actorlayer.ActorAddress, locator baldasession.SessionLocator, draftID int, text string) error {
-	env, err := actors.DraftPlainDeliveryEnvelope("", from, locator, draftID, text)
-	if err != nil {
-		return err
-	}
-	return dispatchOutbound(ctx, dispatcher, env)
-}
-
-func sendTyping(ctx context.Context, dispatcher actortransport.Dispatcher, from actorlayer.ActorAddress, locator baldasession.SessionLocator) error {
-	env, err := actors.ChatActionDeliveryEnvelope("", from, locator, "typing")
 	if err != nil {
 		return err
 	}

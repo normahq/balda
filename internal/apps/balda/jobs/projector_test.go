@@ -55,52 +55,49 @@ func TestEventProjectorProjectsJobEventIdempotently(t *testing.T) {
 }
 
 func TestEventProjectorProjectsCommandEventForTask(t *testing.T) {
-	ctx := context.Background()
-	provider := newEventProjectorStateProvider(t, ctx)
-	projector := &EventProjector{store: provider.Jobs(), logger: zerolog.Nop()}
-	env := actorlayer.Envelope{
-		ID:          "cmd-1:event:deadlettered",
-		Namespace:   baldaexecution.NamespaceTelemetry,
-		Kind:        "command_event",
-		From:        actorlayer.SystemAddress("transport"),
-		To:          actorlayer.ActorAddress{Target: baldaexecution.ActorTypeJob, Key: "task-1"},
-		PayloadJSON: `{"reason":"retry exhausted"}`,
-		Meta:        map[string]string{baldaexecution.JobIDMetaKey: "task-1"},
-	}
-	if err := projector.Project(ctx, baldaexecution.SubjectEventCommandDeadLettered, env); err != nil {
-		t.Fatalf("Project() error = %v", err)
-	}
-	events, err := provider.Jobs().ListJobEvents(ctx, "task-1")
-	if err != nil {
-		t.Fatalf("ListJobEvents() error = %v", err)
-	}
-	if len(events) != 1 || events[0].EventType != "command.deadlettered" {
-		t.Fatalf("events = %+v, want command.deadlettered projection", events)
-	}
+	testEventProjectorProjectsCommandEventForTask(
+		t,
+		baldaexecution.SubjectEventCommandDeadLettered,
+		"cmd-1:event:deadlettered",
+		`{"reason":"retry exhausted"}`,
+		"command.deadlettered",
+	)
 }
 
 func TestEventProjectorProjectsCommandDecodeFailedEventForTask(t *testing.T) {
+	testEventProjectorProjectsCommandEventForTask(
+		t,
+		baldaexecution.SubjectEventCommandDecodeFailed,
+		"cmd-1:event:decode_failed",
+		`{"reason":"decode failed: invalid json"}`,
+		"command.decode_failed",
+	)
+}
+
+func testEventProjectorProjectsCommandEventForTask(t *testing.T, subject string, envelopeID string, payloadJSON string, eventType string) {
+	t.Helper()
+
 	ctx := context.Background()
 	provider := newEventProjectorStateProvider(t, ctx)
 	projector := &EventProjector{store: provider.Jobs(), logger: zerolog.Nop()}
 	env := actorlayer.Envelope{
-		ID:          "cmd-1:event:decode_failed",
+		ID:          envelopeID,
 		Namespace:   baldaexecution.NamespaceTelemetry,
 		Kind:        "command_event",
 		From:        actorlayer.SystemAddress("transport"),
 		To:          actorlayer.ActorAddress{Target: baldaexecution.ActorTypeJob, Key: "task-1"},
-		PayloadJSON: `{"reason":"decode failed: invalid json"}`,
+		PayloadJSON: payloadJSON,
 		Meta:        map[string]string{baldaexecution.JobIDMetaKey: "task-1"},
 	}
-	if err := projector.Project(ctx, baldaexecution.SubjectEventCommandDecodeFailed, env); err != nil {
+	if err := projector.Project(ctx, subject, env); err != nil {
 		t.Fatalf("Project() error = %v", err)
 	}
 	events, err := provider.Jobs().ListJobEvents(ctx, "task-1")
 	if err != nil {
 		t.Fatalf("ListJobEvents() error = %v", err)
 	}
-	if len(events) != 1 || events[0].EventType != "command.decode_failed" {
-		t.Fatalf("events = %+v, want command.decode_failed projection", events)
+	if len(events) != 1 || events[0].EventType != eventType {
+		t.Fatalf("events = %+v, want %s projection", events, eventType)
 	}
 }
 

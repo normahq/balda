@@ -15,7 +15,7 @@ import (
 
 func (h *BaldaHandler) submitSessionTurn(ctx context.Context, payload actors.SessionTurnPayload) (*actortransport.DispatchReceipt, error) {
 	if h.actorDispatcher == nil {
-		return nil, fmt.Errorf("runtime runtime is unavailable")
+		return nil, fmt.Errorf("runtime is unavailable")
 	}
 	env, err := actors.SessionTurnEnvelope(payload)
 	if err != nil {
@@ -26,7 +26,7 @@ func (h *BaldaHandler) submitSessionTurn(ctx context.Context, payload actors.Ses
 
 func (h *BaldaHandler) submitWebhookTask(ctx context.Context, payload actors.SessionTurnPayload, routeName string, requestID string) (*actortransport.DispatchReceipt, string, error) {
 	if h.actorDispatcher == nil {
-		return nil, "", fmt.Errorf("runtime runtime is unavailable")
+		return nil, "", fmt.Errorf("runtime is unavailable")
 	}
 	env, jobID, err := actors.WebhookJobEnvelope(payload, routeName, requestID)
 	if err != nil {
@@ -120,7 +120,7 @@ func (h *CommandHandler) submitGoalJobWithOptions(ctx context.Context, locator b
 		return false, err
 	}
 	if h.actorDispatcher == nil {
-		return false, fmt.Errorf("runtime runtime is unavailable")
+		return false, fmt.Errorf("runtime is unavailable")
 	}
 	_, err = h.actorDispatcher.Dispatch(ctx, env)
 	if err != nil {
