@@ -1,11 +1,8 @@
 package handlers
 
 import (
-	"strings"
 	"testing"
 
-	acpagent "github.com/normahq/go-adk-acpagent/v2"
-	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -44,39 +41,5 @@ func TestUsageSnapshotFromMap(t *testing.T) {
 	}
 	if snapshot.PromptTokenCount != 10 || snapshot.TotalTokenCount != 15 {
 		t.Fatalf("snapshot = %+v", snapshot)
-	}
-}
-
-func TestUsageSnapshotFromACPEvent(t *testing.T) {
-	ev := &adksession.Event{}
-	ev.CustomMetadata = map[string]any{
-		acpagent.SessionUsageMetadataKey: map[string]any{
-			"size": 100,
-			"used": 25,
-			"cost": map[string]any{"amount": 1.25, "currency": "USD"},
-		},
-	}
-	snapshot, ok := usageSnapshotFromACPEvent(ev)
-	if !ok {
-		t.Fatal("usageSnapshotFromACPEvent() ok = false, want true")
-	}
-	if snapshot.ContextWindowSize != 100 || snapshot.ContextUsedTokens != 25 {
-		t.Fatalf("session usage snapshot = %+v", snapshot)
-	}
-	if snapshot.CostAmount != 1.25 || snapshot.CostCurrency != "USD" {
-		t.Fatalf("cost snapshot = %+v", snapshot)
-	}
-}
-
-func TestRenderUsageSnapshotIncludesLimitsOnly(t *testing.T) {
-	text := renderUsageSnapshot(usageSnapshot{ContextWindowSize: 100, ContextUsedTokens: 25, CostAmount: 1.25, CostCurrency: "USD"})
-	if want := "Token usage: provider did not include token counts in the last response."; !strings.Contains(text, want) {
-		t.Fatalf("renderUsageSnapshot() = %q, want %q", text, want)
-	}
-	if want := "Context usage: 25 / 100 tokens"; !strings.Contains(text, want) {
-		t.Fatalf("renderUsageSnapshot() = %q, want %q", text, want)
-	}
-	if want := "Session cost: 1.2500 USD"; !strings.Contains(text, want) {
-		t.Fatalf("renderUsageSnapshot() = %q, want %q", text, want)
 	}
 }

@@ -591,8 +591,8 @@ github.com/nishanths/exhaustive v0.12.0 h1:vIY9sALmw6T/yxiASewa4TQcFsVYZQQRUQJhK
 github.com/nishanths/exhaustive v0.12.0/go.mod h1:mEZ95wPIZW+x8kC4TgC+9YCUgiST7ecevsVDTgc2obs=
 github.com/nishanths/predeclared v0.2.2 h1:V2EPdZPliZymNAn79T8RkNApBjMmVKh5XRpLm/w98Vk=
 github.com/nishanths/predeclared v0.2.2/go.mod h1:RROzoN6TnGQupbC+lqggsOlcgysk3LMK/HI84Mp280c=
-github.com/normahq/go-adk-acpagent/v2 v2.2.1-0.20260710144032-f11e8b359187 h1:IA7c5SjoYwRlWzv7QE0br0FRrRO51mqzT68z5JcTzwE=
-github.com/normahq/go-adk-acpagent/v2 v2.2.1-0.20260710144032-f11e8b359187/go.mod h1:UeUbMJYzo5mHMdc3s7y3N3uI7xJMazVJpd15+4DqlN0=
+github.com/normahq/go-adk-acpagent/v2 v2.2.1-0.20260710145435-71892397d36f h1:EIVU7LRhHufLzKcq/QJe0NeEsvclvymhcFFzLqQcaZo=
+github.com/normahq/go-adk-acpagent/v2 v2.2.1-0.20260710145435-71892397d36f/go.mod h1:UeUbMJYzo5mHMdc3s7y3N3uI7xJMazVJpd15+4DqlN0=
 github.com/normahq/runtime/v2 v2.0.4 h1:6WXlxTRxCzwcYSU90zDK5zKKEfXkrK+keLdUhdJ0sC8=
 github.com/normahq/runtime/v2 v2.0.4/go.mod h1:m+yM8xXcQ6TFfW2l3wLj+nNdB6TfopYGjsemXi/90OU=
 github.com/nunnatsa/ginkgolinter v0.23.0 h1:x3o4DGYOWbBMP/VdNQKgSj+25aJKx2Pe6lHr8gBcgf8=

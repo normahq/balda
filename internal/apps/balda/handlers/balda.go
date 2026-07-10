@@ -521,24 +521,19 @@ func (h *BaldaHandler) runTurnWithDeliveryOptions(
 		if errorMessage := strings.TrimSpace(ev.ErrorMessage); errorMessage != "" {
 			terminalErrorMessage = errorMessage
 		}
-		var usageState usageSnapshot
-		var hasUsageState bool
 		if snapshot, ok := usageSnapshotFromMetadata(ev.UsageMetadata); ok {
-			usageState = mergeUsageSnapshots(usageState, snapshot)
-			hasUsageState = true
-		}
-		if snapshot, ok := usageSnapshotFromACPEvent(ev); ok {
-			usageState = mergeUsageSnapshots(usageState, snapshot)
-			hasUsageState = true
-		}
-		if hasUsageState {
 			if ev.Actions.StateDelta == nil {
 				ev.Actions.StateDelta = make(map[string]any)
 			}
-			if existing, ok, err := loadUsageSnapshot(runCtx, h.sessionManager, locator); err == nil && ok {
-				usageState = mergeUsageSnapshots(existing, usageState)
+			ev.Actions.StateDelta[usageStateKey] = map[string]any{
+				"prompt_token_count":          snapshot.PromptTokenCount,
+				"cached_content_token_count":  snapshot.CachedContentTokenCount,
+				"response_token_count":        snapshot.ResponseTokenCount,
+				"tool_use_prompt_token_count": snapshot.ToolUsePromptTokenCount,
+				"thoughts_token_count":        snapshot.ThoughtsTokenCount,
+				"total_token_count":           snapshot.TotalTokenCount,
+				"traffic_type":                snapshot.TrafficType,
 			}
-			ev.Actions.StateDelta[usageStateKey] = usageSnapshotStateMap(usageState)
 		}
 		planProgress, planProgressText, hasPlanUpdate := baldaPlanProgress(ev)
 		reasoningText, hasThoughtUpdate := progress.ReasoningText(ev)
