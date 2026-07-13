@@ -20,8 +20,10 @@ type EventProjector struct {
 	store    ProjectionStore
 	logger   zerolog.Logger
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
+	stateMu sync.Mutex
+	runErr  error
 }
 
 type eventProjectorParams struct {
@@ -52,16 +54,24 @@ func NewEventProjector(params eventProjectorParams) (*EventProjector, error) {
 	return p, nil
 }
 
-func (p *EventProjector) Start(context.Context) error {
+func (p *EventProjector) Start(ctx context.Context) error {
 	if p == nil || p.consumer == nil {
 		return nil
 	}
-	runCtx, cancel := context.WithCancel(context.Background())
+	p.stateMu.Lock()
+	defer p.stateMu.Unlock()
+	if p.cancel != nil {
+		return nil
+	}
+	runCtx, cancel := context.WithCancel(ctx)
 	p.cancel = cancel
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
 		if err := p.consumer.RunEventConsumer(runCtx, p.Project); err != nil && !errors.Is(err, context.Canceled) {
+			p.stateMu.Lock()
+			p.runErr = err
+			p.stateMu.Unlock()
 			p.logger.Error().Err(err).Msg("event projector stopped")
 		}
 	}()
@@ -69,10 +79,16 @@ func (p *EventProjector) Start(context.Context) error {
 }
 
 func (p *EventProjector) Stop(ctx context.Context) error {
-	if p == nil || p.cancel == nil {
+	if p == nil {
 		return nil
 	}
-	p.cancel()
+	p.stateMu.Lock()
+	cancel := p.cancel
+	p.stateMu.Unlock()
+	if cancel == nil {
+		return nil
+	}
+	cancel()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -84,6 +100,22 @@ func (p *EventProjector) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// Ready reports whether the projector is started and healthy.
+func (p *EventProjector) Ready() error {
+	if p == nil {
+		return errors.New("event projector is nil")
+	}
+	p.stateMu.Lock()
+	defer p.stateMu.Unlock()
+	if p.runErr != nil {
+		return fmt.Errorf("event projector stopped: %w", p.runErr)
+	}
+	if p.cancel == nil {
+		return errors.New("event projector is not started")
+	}
+	return nil
 }
 
 func (p *EventProjector) Project(ctx context.Context, subject string, env actorlayer.Envelope) error {

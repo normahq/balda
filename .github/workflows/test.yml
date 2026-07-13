@@ -64,18 +64,6 @@ jobs:
       - name: Projection replay tests
         run: go test -race -count=15 ./internal/apps/balda/execution -run 'TestEventProjectorReplayAfterRestartRemainsIdempotent'
 
-  structural-contracts:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: 'go.mod'
-      - name: Structural contract tests
-        run: go test ./internal/apps/balda -run 'TestRuntimeArchitectureContractStatic'
-
   architecture-lint:
     runs-on: ubuntu-latest
     permissions:

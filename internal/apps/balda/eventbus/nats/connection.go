@@ -5,15 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/baldaworks/go-actorlayer"
+	actorengine "github.com/baldaworks/go-actorlayer/engine"
+	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	gnats "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	baldaeventbus "github.com/normahq/balda/internal/apps/balda/eventbus"
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
-	"github.com/baldaworks/go-actorlayer"
-	actorengine "github.com/baldaworks/go-actorlayer/engine"
-	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 )
@@ -26,6 +27,8 @@ type Bus struct {
 	consumer      jetstream.Consumer
 	eventConsumer jetstream.Consumer
 	logger        zerolog.Logger
+	startMu       sync.Mutex
+	started       bool
 }
 
 type Params struct {
@@ -43,45 +46,72 @@ func NewBus(params Params) (*Bus, error) {
 	if err != nil {
 		return nil, err
 	}
-	bus := &Bus{cfg: cfg, logger: params.Logger.With().Str("component", "balda.execution_bus").Logger()}
-	if cfg.NATS.Embedded {
-		embedded, err := StartEmbeddedNATS(context.Background(), cfg)
+	return &Bus{cfg: cfg, logger: params.Logger.With().Str("component", "balda.execution_bus").Logger()}, nil
+}
+
+// Start connects the bus, ensures its streams and consumers, and makes it
+// available to dispatchers and consumers. Construction is intentionally free
+// of network and filesystem side effects; the application lifecycle owns this
+// operation.
+func (b *Bus) Start(ctx context.Context) error {
+	if b == nil {
+		return nil
+	}
+	b.startMu.Lock()
+	defer b.startMu.Unlock()
+	if b.started {
+		return nil
+	}
+
+	if b.cfg.NATS.Embedded {
+		embedded, err := StartEmbeddedNATS(ctx, b.cfg)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		bus.embedded = embedded
-		bus.conn = embedded.Conn
-		bus.js = embedded.JS
+		b.embedded = embedded
+		b.conn = embedded.Conn
+		b.js = embedded.JS
 	} else {
 		conn, err := gnats.Connect(
-			cfg.NATS.URLs[0],
+			b.cfg.NATS.URLs[0],
 			gnats.Name("balda-worker"),
 			gnats.Timeout(5*time.Second),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("connect nats: %w", err)
+			return fmt.Errorf("connect nats: %w", err)
 		}
-		bus.conn = conn
+		b.conn = conn
 		js, err := jetstream.New(conn)
 		if err != nil {
 			conn.Close()
-			return nil, fmt.Errorf("create runtime client: %w", err)
+			b.conn = nil
+			return fmt.Errorf("create runtime client: %w", err)
 		}
-		bus.js = js
+		b.js = js
 	}
-	if bus.js == nil {
-		_ = bus.Drain(context.Background())
-		return nil, fmt.Errorf("runtime transport is required")
+	if b.js == nil {
+		_ = b.drainResources(context.Background())
+		return fmt.Errorf("runtime transport is required")
 	}
-	if err := bus.ensureRuntime(context.Background()); err != nil {
-		_ = bus.Drain(context.Background())
-		return nil, err
+		if err := b.ensureRuntime(ctx); err != nil {
+		_ = b.drainResources(context.Background())
+		return err
 	}
-	params.LC.Append(fx.Hook{OnStop: bus.Drain})
-	return bus, nil
+	b.started = true
+	return nil
+}
+
+func (b *Bus) ensureStarted(ctx context.Context) error {
+	if b == nil {
+		return fmt.Errorf("runtime transport is required")
+	}
+	return b.Start(ctx)
 }
 
 func (b *Bus) Dispatch(ctx context.Context, env actorlayer.Envelope) (*actortransport.DispatchReceipt, error) {
+	if err := b.ensureStarted(ctx); err != nil {
+		return nil, err
+	}
 	if err := env.Validate(); err != nil {
 		return nil, err
 	}
@@ -177,6 +207,9 @@ func isRuntimeQueuePressure(err error) bool {
 }
 
 func (b *Bus) PublishEvent(ctx context.Context, subject string, env actorlayer.Envelope) error {
+	if err := b.ensureStarted(ctx); err != nil {
+		return err
+	}
 	if err := env.Validate(); err != nil {
 		return err
 	}
@@ -237,10 +270,23 @@ func (b *Bus) Drain(ctx context.Context) error {
 	if b == nil {
 		return nil
 	}
+	b.startMu.Lock()
+	defer b.startMu.Unlock()
+	return b.drainResources(ctx)
+}
+
+func (b *Bus) drainResources(ctx context.Context) error {
+	if b == nil {
+		return nil
+	}
 	if b.embedded != nil {
-		return b.embedded.Drain(ctx)
+		err := b.embedded.Drain(ctx)
+		b.embedded = nil
+		b.started = false
+		return err
 	}
 	if b.conn == nil {
+		b.started = false
 		return nil
 	}
 	done := make(chan error, 1)
@@ -254,6 +300,7 @@ func (b *Bus) Drain(ctx context.Context) error {
 		return ctx.Err()
 	}
 	b.conn.Close()
+	b.started = false
 	return nil
 }
 

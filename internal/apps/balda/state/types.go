@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/normahq/balda/internal/apps/balda/auth"
+	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/tgbotkit/runtime/updatepoller"
 	adksession "google.golang.org/adk/v2/session"
 )
@@ -19,13 +20,13 @@ const (
 	SessionStatusActive = "active"
 
 	// ChannelTypeTelegram is the current balda channel type backed by Telegram.
-	ChannelTypeTelegram = "telegram"
+	ChannelTypeTelegram = string(deliverycmd.ChannelTypeTelegram)
 
 	// ChannelTypeZulip is the balda channel type backed by Zulip.
-	ChannelTypeZulip = "zulip"
+	ChannelTypeZulip = string(deliverycmd.ChannelTypeZulip)
 
 	// ChannelTypeSlack is the balda channel type backed by Slack.
-	ChannelTypeSlack = "slack"
+	ChannelTypeSlack = string(deliverycmd.ChannelTypeSlack)
 
 	// ScheduledJobStatusActive means the job is eligible for scheduler dispatch.
 	ScheduledJobStatusActive = "active"

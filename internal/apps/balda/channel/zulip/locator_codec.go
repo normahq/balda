@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
-	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 )
 
 const (
@@ -37,7 +36,7 @@ func NewStreamLocator(streamID int, topic string) deliverycmd.Locator {
 		Topic:    topic,
 	}
 	raw, _ := json.Marshal(address)
-	channelType := baldastate.ChannelTypeZulip
+	channelType := string(deliverycmd.ChannelTypeZulip)
 	escapedTopic := url.PathEscape(topic)
 	addressKey := fmt.Sprintf("s:%d:%s", streamID, escapedTopic)
 	addressJSON := string(raw)
@@ -65,7 +64,7 @@ func NewDMLocator(userID int) deliverycmd.Locator {
 		UserID: userID,
 	}
 	raw, _ := json.Marshal(address)
-	channelType := baldastate.ChannelTypeZulip
+	channelType := string(deliverycmd.ChannelTypeZulip)
 	addressKey := fmt.Sprintf("dm:%d", userID)
 	addressJSON := string(raw)
 	sessionID := fmt.Sprintf("%s-dm-%d", zulipSessionIDPrefix, userID)
@@ -85,7 +84,7 @@ func NewDMLocator(userID int) deliverycmd.Locator {
 // DecodeLocator decodes a Zulip locator payload from canonical session locator
 // fields. Returns false if the locator is not a Zulip channel type.
 func DecodeLocator(locator deliverycmd.Locator) (LocatorAddress, bool, error) {
-	if strings.TrimSpace(locator.ChannelType) != baldastate.ChannelTypeZulip {
+	if strings.TrimSpace(locator.ChannelType) != string(deliverycmd.ChannelTypeZulip) {
 		return LocatorAddress{}, false, nil
 	}
 	var address LocatorAddress

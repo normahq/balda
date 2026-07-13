@@ -27,8 +27,10 @@ type ActorHost struct {
 	logger        zerolog.Logger
 	heartbeatTick time.Duration
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
+	stateMu sync.Mutex
+	runErr  error
 }
 
 type executionParams struct {
@@ -76,20 +78,25 @@ func NewActorHost(params executionParams) (*ActorHost, error) {
 	return r, nil
 }
 
-func (r *ActorHost) Start(context.Context) error {
+func (r *ActorHost) Start(ctx context.Context) error {
 	if r == nil {
 		return nil
 	}
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
 	if r.cancel != nil {
 		return nil
 	}
-	runCtx, cancel := context.WithCancel(context.Background())
+	runCtx, cancel := context.WithCancel(ctx)
 	r.cancel = cancel
 	source := executionSource{source: r.source, prepareFn: r.prepareDelivery}
 	r.wg.Add(1)
 	go func() {
 		defer r.wg.Done()
 		if err := r.engine.Run(runCtx, source); err != nil && !errors.Is(err, context.Canceled) {
+			r.stateMu.Lock()
+			r.runErr = err
+			r.stateMu.Unlock()
 			r.logger.Error().Err(err).Msg("actor delivery source stopped")
 		}
 	}()
@@ -97,10 +104,13 @@ func (r *ActorHost) Start(context.Context) error {
 }
 
 func (r *ActorHost) Stop(ctx context.Context) error {
-	if r.cancel == nil {
+	r.stateMu.Lock()
+	cancel := r.cancel
+	r.stateMu.Unlock()
+	if cancel == nil {
 		return nil
 	}
-	r.cancel()
+	cancel()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -112,6 +122,22 @@ func (r *ActorHost) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// Ready reports whether the actor runtime is started and healthy.
+func (r *ActorHost) Ready() error {
+	if r == nil {
+		return errors.New("actor host is nil")
+	}
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	if r.runErr != nil {
+		return fmt.Errorf("actor host stopped: %w", r.runErr)
+	}
+	if r.cancel == nil {
+		return errors.New("actor host is not started")
+	}
+	return nil
 }
 
 type executionSource struct {

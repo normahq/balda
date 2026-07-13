@@ -8,6 +8,7 @@ import (
 
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	baldaagent "github.com/normahq/balda/internal/apps/balda/agent"
+	natsbus "github.com/normahq/balda/internal/apps/balda/eventbus/nats"
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/internal/apps/balda/handlers"
 	"github.com/normahq/balda/internal/apps/balda/internalmcp"
@@ -135,6 +136,7 @@ type applicationLifecycleParams struct {
 	MCP             *internalmcp.InternalMCPManager
 	Runtime         *baldaagent.RuntimeManager
 	Sessions        *session.Manager
+	Bus             *natsbus.Bus
 	Projector       *baldajobs.EventProjector
 	OutboxPublisher *baldajobs.OutboxPublisher
 	ActorHost       *baldaexecution.ActorHost
@@ -159,6 +161,7 @@ func registerApplicationLifecycle(p applicationLifecycleParams) {
 		{name: "provider runtime", start: p.Runtime.EnsureRuntime, stop: p.Runtime.Stop},
 		{name: "session manager", start: p.Sessions.Start, stop: p.Sessions.Stop},
 		{name: "turn dispatcher", stop: p.TurnDispatcher.Shutdown},
+		{name: "durable transport", start: p.Bus.Start, stop: p.Bus.Drain},
 		{name: "job event projector", start: p.Projector.Start, stop: p.Projector.Stop},
 		{name: "job event outbox", start: p.OutboxPublisher.Start, stop: p.OutboxPublisher.Stop},
 		{name: "actor host", start: p.ActorHost.Start, stop: p.ActorHost.Stop},

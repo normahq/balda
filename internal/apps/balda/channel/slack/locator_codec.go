@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
-	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 )
 
 const (
@@ -50,7 +49,7 @@ func NewThreadLocator(teamID, channel, threadTS string) deliverycmd.Locator {
 
 func newLocator(address LocatorAddress, addressKey string) deliverycmd.Locator {
 	raw, _ := json.Marshal(address)
-	channelType := baldastate.ChannelTypeSlack
+	channelType := string(deliverycmd.ChannelTypeSlack)
 	addressJSON := string(raw)
 	sessionID := slackSessionID(addressKey)
 	locator, err := deliverycmd.NewLocator(channelType, addressKey, addressJSON, sessionID)
@@ -72,7 +71,7 @@ func slackSessionID(addressKey string) string {
 
 // DecodeLocator decodes a Slack locator payload from canonical session locator fields.
 func DecodeLocator(locator deliverycmd.Locator) (LocatorAddress, bool, error) {
-	if strings.TrimSpace(locator.ChannelType) != baldastate.ChannelTypeSlack {
+	if strings.TrimSpace(locator.ChannelType) != string(deliverycmd.ChannelTypeSlack) {
 		return LocatorAddress{}, false, nil
 	}
 	var address LocatorAddress

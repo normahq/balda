@@ -2,6 +2,15 @@ package deliverycmd
 
 import "context"
 
+// ChannelType identifies the transport backing a delivery locator.
+type ChannelType string
+
+const (
+	ChannelTypeTelegram ChannelType = "telegram"
+	ChannelTypeZulip    ChannelType = "zulip"
+	ChannelTypeSlack    ChannelType = "slack"
+)
+
 type OperationKind string
 
 const (

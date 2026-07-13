@@ -9,7 +9,6 @@ import (
 	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
-	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"go.uber.org/fx"
@@ -45,9 +44,9 @@ var Module = fx.Module("balda_deliveryfx",
 		baldaslack.NewAdapter,
 		func(tg *baldatelegram.Adapter, zu *baldazulip.Adapter, sl *baldaslack.Adapter) *baldachannel.Router {
 			return baldachannel.NewRouter(map[string]deliverycmd.Adapter{
-				baldastate.ChannelTypeTelegram: tg,
-				baldastate.ChannelTypeZulip:    zu,
-				baldastate.ChannelTypeSlack:    sl,
+				string(deliverycmd.ChannelTypeTelegram): tg,
+				string(deliverycmd.ChannelTypeZulip):    zu,
+				string(deliverycmd.ChannelTypeSlack):    sl,
 			})
 		},
 	),

@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	baldaeventbus "github.com/normahq/balda/internal/apps/balda/eventbus"
-	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/baldaworks/go-actorlayer"
 	actortransport "github.com/baldaworks/go-actorlayer/transport"
+	baldaeventbus "github.com/normahq/balda/internal/apps/balda/eventbus"
+	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx/fxtest"
 )
@@ -21,7 +21,7 @@ type TestRuntimeHarness struct {
 // It ensures required streams/consumers are available through NewBus startup.
 func StartTestRuntime(t *testing.T, executionCfg baldaexecution.Config) *TestRuntimeHarness {
 	t.Helper()
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:        fxtest.NewLifecycle(t),
 		Config:    baldaeventbus.Config{Embedded: true},
 		Execution: executionCfg,
@@ -33,6 +33,18 @@ func StartTestRuntime(t *testing.T, executionCfg baldaexecution.Config) *TestRun
 	}
 	t.Cleanup(func() { _ = bus.Drain(context.Background()) })
 	return &TestRuntimeHarness{Bus: bus}
+}
+
+func newStartedBus(t *testing.T, params Params) (*Bus, error) {
+	t.Helper()
+	bus, err := NewBus(params)
+	if err != nil {
+		return nil, err
+	}
+	if err := bus.Start(context.Background()); err != nil {
+		return nil, err
+	}
+	return bus, nil
 }
 
 // Dispatch is a test command publisher helper for fixtures/scenarios.

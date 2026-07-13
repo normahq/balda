@@ -82,7 +82,7 @@ func TestBus_DispatchSucceedsWhenAcceptedEventCannotPublish(t *testing.T) {
 }
 
 func TestBus_CommandLifecycleEventsUseDistinctDedupeIDs(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:        fxtest.NewLifecycle(t),
 		Config:    baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{FetchWait: "50ms"}},
@@ -130,7 +130,7 @@ func TestBus_CommandLifecycleEventsUseDistinctDedupeIDs(t *testing.T) {
 }
 
 func TestBus_CommandRunningEventFailureDoesNotBlockCommandHandling(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
@@ -192,7 +192,7 @@ func TestBus_CommandRunningEventFailureDoesNotBlockCommandHandling(t *testing.T)
 }
 
 func TestBus_CommandAckedEventFailureDoesNotRedeliverCompletedCommand(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
@@ -251,7 +251,7 @@ func TestBus_CommandAckedEventFailureDoesNotRedeliverCompletedCommand(t *testing
 }
 
 func TestBus_CommandRetryingEventFailureStillRedeliversAndSettles(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
@@ -299,7 +299,7 @@ func TestBus_CommandRetryingEventFailureStillRedeliversAndSettles(t *testing.T) 
 }
 
 func TestBus_CommandRetryingEventIncludesNextAttemptMetadata(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
@@ -382,7 +382,7 @@ func TestBus_CommandRetryingEventIncludesNextAttemptMetadata(t *testing.T) {
 }
 
 func TestBus_CommandDeadletteredEventFailureStillSettlesDLQ(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
@@ -439,7 +439,7 @@ func TestRetryDelayAppliesExponentialDelayWithJitter(t *testing.T) {
 }
 
 func TestBus_CommandSuccessSettlesWithCanceledParent(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
@@ -483,7 +483,7 @@ func TestBus_CommandSuccessSettlesWithCanceledParent(t *testing.T) {
 }
 
 func TestBus_CommandDLQSettlesWithCanceledParent(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
@@ -522,7 +522,7 @@ func TestBus_CommandDLQSettlesWithCanceledParent(t *testing.T) {
 }
 
 func TestBus_RunHandlesCommandsConcurrently(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
@@ -575,7 +575,7 @@ func TestBus_RunHandlesCommandsConcurrently(t *testing.T) {
 }
 
 func TestBus_RunLimitsInFlightToFetchBatch(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
@@ -661,7 +661,7 @@ func TestBus_CommandWorkerLimitUsesFetchBatch(t *testing.T) {
 }
 
 func TestBus_CommandDecodeFailurePublishesRawDLQAndDecodeEvent(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:        fxtest.NewLifecycle(t),
 		Config:    baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{MaxDeliver: 1, FetchWait: "50ms"}},
@@ -740,7 +740,7 @@ func TestBus_CommandDecodeFailurePublishesRawDLQAndDecodeEvent(t *testing.T) {
 }
 
 func TestBus_DispatchReportsDuplicate(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:        fxtest.NewLifecycle(t),
 		Config:    baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{},
@@ -820,7 +820,7 @@ func TestBus_DispatchReportsDuplicate(t *testing.T) {
 }
 
 func TestBus_PublishEventDeduplicatesByEnvelopeID(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:        fxtest.NewLifecycle(t),
 		Config:    baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{},
@@ -852,7 +852,7 @@ func TestBus_PublishEventDeduplicatesByEnvelopeID(t *testing.T) {
 }
 
 func TestBus_RetryExhaustionPublishesDLQ(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:        fxtest.NewLifecycle(t),
 		Config:    baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{MaxDeliver: 1, FetchWait: "50ms"}},
@@ -902,7 +902,7 @@ func TestBus_RetryExhaustionPublishesDLQ(t *testing.T) {
 }
 
 func TestBus_PublishDLQIncludesOriginalEnvelopeAndReason(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:        fxtest.NewLifecycle(t),
 		Config:    baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{},
@@ -959,7 +959,7 @@ func TestBus_PublishDLQIncludesOriginalEnvelopeAndReason(t *testing.T) {
 }
 
 func TestBus_DLQIncludesErrorClassAndSourceMetadata(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:     fxtest.NewLifecycle(t),
 		Config: baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{
@@ -1034,7 +1034,7 @@ func TestBus_DLQIncludesErrorClassAndSourceMetadata(t *testing.T) {
 }
 
 func TestBus_EventProjectionPermanentFailurePublishesDLQ(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:        fxtest.NewLifecycle(t),
 		Config:    baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{MaxDeliver: 1, FetchWait: "50ms"}},
@@ -1084,7 +1084,7 @@ func TestBus_EventProjectionPermanentFailurePublishesDLQ(t *testing.T) {
 }
 
 func TestBus_EventProjectionFailureDoesNotBlockCommandExecution(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:        fxtest.NewLifecycle(t),
 		Config:    baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{Commands: baldaexecution.CommandConfig{MaxDeliver: 1, FetchWait: "50ms"}},
@@ -1157,7 +1157,7 @@ func TestBus_EnsureRuntimeRequiresTransport(t *testing.T) {
 }
 
 func TestBus_EnsureRuntimeCreatesRequiredStreamsAndConsumers(t *testing.T) {
-	bus, err := NewBus(Params{
+	bus, err := newStartedBus(t, Params{
 		LC:        fxtest.NewLifecycle(t),
 		Config:    baldaeventbus.Config{Embedded: true},
 		Execution: baldaexecution.Config{},

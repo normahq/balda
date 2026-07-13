@@ -1,7 +1,7 @@
 # Wait Wake-Up via Scheduled Jobs
 
 Owner: Balda maintainers  
-Status: proposed
+Status: active
 
 ## Problem
 
@@ -11,7 +11,7 @@ Keeping a session turn or model run open across time would mix ingress, session 
 
 ## Decision
 
-Balda will implement the initial `wait` prototype by reusing existing scheduled job storage and scheduling flow.
+Balda implements `wait` by reusing existing scheduled job storage and scheduling flow.
 
 A scheduled job may be either:
 
@@ -99,11 +99,11 @@ Version one should not include:
 - a dedicated wait store
 - transport-specific timer ownership
 
-## Open questions
+## Current answers
 
-- How should one-shot versus recurring mode be represented in scheduled job state?
-- Should wake-up dispatch continue through the existing session actor path, or use a dedicated actor while still reusing scheduled job storage?
-- What minimum wake-up context should be carried in payload versus reloaded from scheduled job state?
+- One-shot versus recurring behavior is represented by the scheduled job's existing recurrence fields; a wait creates a job without a recurrence schedule.
+- Wake-up dispatch continues through the existing scheduled-job/session actor path, so retries and session boundaries remain consistent.
+- The persisted job payload carries the session and wait context needed to create the new work item; durable job metadata remains the source of timing truth.
 
 ## Update triggers
 
