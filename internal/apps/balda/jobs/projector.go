@@ -144,11 +144,11 @@ func (p *EventProjector) Project(ctx context.Context, subject string, env actorl
 		messageID = strings.TrimSpace(env.CausationID)
 	}
 	return p.store.AppendJobEvent(ctx, baldastate.JobEventRecord{
-		ID:          strings.TrimSpace(env.ID),
-		JobID:       jobID,
-		EventType:   eventType,
-		Actor:       actor,
-		MessageID:   messageID,
-		PayloadJSON: strings.TrimSpace(env.Payload.String()),
+		ID:        strings.TrimSpace(env.ID),
+		JobID:     jobID,
+		EventType: eventType,
+		Actor:     actor,
+		MessageID: messageID,
+		Payload:   strings.TrimSpace(env.Payload.String()),
 	})
 }

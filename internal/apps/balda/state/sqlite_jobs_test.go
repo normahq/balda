@@ -43,11 +43,11 @@ func TestSQLiteJobStore_JobLifecycle(t *testing.T) {
 		t.Fatalf("UpdateJobStatus(waiting) error = %v", err)
 	}
 	if err := store.AppendJobEvent(ctx, JobEventRecord{
-		ID:          "event-1",
-		JobID:       "task-1",
-		EventType:   "agent.started",
-		Actor:       "task.actor",
-		PayloadJSON: `{"role":"executor"}`,
+		ID:        "event-1",
+		JobID:     "task-1",
+		EventType: "agent.started",
+		Actor:     "task.actor",
+		Payload:   `{"role":"executor"}`,
 	}); err != nil {
 		t.Fatalf("AppendJobEvent() error = %v", err)
 	}
@@ -67,7 +67,7 @@ func TestSQLiteJobStore_JobLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetJob() error = %v", err)
 	}
-	if !ok || got.Status != JobStatusCompleted || got.ResultJSON == "" || got.StartedAt.IsZero() || got.CompletedAt.IsZero() {
+	if !ok || got.Status != JobStatusCompleted || got.Result == "" || got.StartedAt.IsZero() || got.CompletedAt.IsZero() {
 		t.Fatalf("job = %+v, found=%v, want completed with result/timestamps", got, ok)
 	}
 
@@ -138,10 +138,10 @@ func TestSQLiteJobStore_JobMutationAndEventOutboxAreAtomic(t *testing.T) {
 		Objective: "publish durable event",
 		Status:    JobStatusCreated,
 	}, JobEventOutboxRecord{
-		ID:           "event-outbox-1",
-		JobID:        "job-outbox-1",
-		Subject:      "BALDA_EVENTS.job.created",
-		EnvelopeJSON: `{"id":"event-outbox-1"}`,
+		ID:       "event-outbox-1",
+		JobID:    "job-outbox-1",
+		Subject:  "BALDA_EVENTS.job.created",
+		Envelope: `{"id":"event-outbox-1"}`,
 	})
 	if err != nil {
 		t.Fatalf("CreateJobWithEvent() error = %v", err)
@@ -158,9 +158,9 @@ func TestSQLiteJobStore_JobMutationAndEventOutboxAreAtomic(t *testing.T) {
 	}
 
 	invalidEvent := JobEventOutboxRecord{
-		ID:           "event-outbox-invalid",
-		JobID:        "job-outbox-1",
-		EnvelopeJSON: `{"id":"event-outbox-invalid"}`,
+		ID:       "event-outbox-invalid",
+		JobID:    "job-outbox-1",
+		Envelope: `{"id":"event-outbox-invalid"}`,
 	}
 	if err := store.UpdateJobStatusWithEvent(ctx, "job-outbox-1", JobStatusRunning, "", invalidEvent); err == nil {
 		t.Fatal("UpdateJobStatusWithEvent(invalid event) error = nil, want validation error")
@@ -240,7 +240,7 @@ func TestSQLiteJobStore_DeliveryOutboxLifecycle(t *testing.T) {
 		Channel:     "telegram",
 		AddressKey:  "9001:1",
 		Kind:        "delivery",
-		PayloadJSON: `{"text":"hello"}`,
+		Payload:     `{"text":"hello"}`,
 		PayloadHash: "hash-1",
 	})
 	if err != nil {
@@ -258,7 +258,7 @@ func TestSQLiteJobStore_DeliveryOutboxLifecycle(t *testing.T) {
 		Channel:     "telegram",
 		AddressKey:  "9001:1",
 		Kind:        "delivery",
-		PayloadJSON: `{"text":"hello"}`,
+		Payload:     `{"text":"hello"}`,
 		PayloadHash: "hash-1",
 	})
 	if err != nil {
@@ -279,7 +279,7 @@ func TestSQLiteJobStore_DeliveryOutboxLifecycle(t *testing.T) {
 		Channel:     "telegram",
 		AddressKey:  "9001:1",
 		Kind:        "delivery",
-		PayloadJSON: `{"text":"hello"}`,
+		Payload:     `{"text":"hello"}`,
 		PayloadHash: "hash-1",
 	})
 	if err != nil {
@@ -353,7 +353,7 @@ func TestSQLiteJobStore_AgentStepLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReserveAgentStep(after complete) error = %v", err)
 	}
-	if created || completed.Status != AgentStepStatusSucceeded || completed.ResultJSON == "" || completed.CompletedAt.IsZero() {
+	if created || completed.Status != AgentStepStatusSucceeded || completed.Result == "" || completed.CompletedAt.IsZero() {
 		t.Fatalf("ReserveAgentStep(after complete) = %+v created=%v, want stored succeeded result", completed, created)
 	}
 }

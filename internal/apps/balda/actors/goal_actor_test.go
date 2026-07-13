@@ -99,8 +99,8 @@ func TestGoalKeeperActorCompletesPassingRun(t *testing.T) {
 	if task.Status != baldastate.JobStatusCompleted {
 		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusCompleted)
 	}
-	if !strings.Contains(task.ResultJSON, `"goal_reached":true`) {
-		t.Fatalf("job result = %s, want goal_reached true", task.ResultJSON)
+	if !strings.Contains(task.Result, `"goal_reached":true`) {
+		t.Fatalf("job result = %s, want goal_reached true", task.Result)
 	}
 	if runtimeBuilder.exportedMessage == "" {
 		t.Fatal("exportedMessage = empty, want generated commit message")
@@ -173,8 +173,8 @@ func TestGoalKeeperActorCompletesPassingRunWithoutWorkspaceExport(t *testing.T) 
 		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusCompleted)
 	}
 	for _, want := range []string{`"status":"not_exported"`, `"reason":"workspace_disabled"`} {
-		if !strings.Contains(task.ResultJSON, want) {
-			t.Fatalf("job result = %s, want %s", task.ResultJSON, want)
+		if !strings.Contains(task.Result, want) {
+			t.Fatalf("job result = %s, want %s", task.Result, want)
 		}
 	}
 	if runtimeBuilder.exportedMessage != "" {
@@ -243,11 +243,11 @@ func TestGoalKeeperActorUsesLatestValidatorVerdictForCompletion(t *testing.T) {
 			Validation  string `json:"validation_output"`
 		} `json:"reviewable_outcome"`
 	}
-	if err := json.Unmarshal([]byte(task.ResultJSON), &result); err != nil {
-		t.Fatalf("decode job result: %v\n%s", err, task.ResultJSON)
+	if err := json.Unmarshal([]byte(task.Result), &result); err != nil {
+		t.Fatalf("decode job result: %v\n%s", err, task.Result)
 	}
 	if !result.GoalReached {
-		t.Fatalf("goal_reached = false, want true\n%s", task.ResultJSON)
+		t.Fatalf("goal_reached = false, want true\n%s", task.Result)
 	}
 	if !strings.Contains(result.ReviewerOutput, "first failure") || !strings.Contains(result.ReviewerOutput, "final pass") {
 		t.Fatalf("reviewer_output = %q, want full validator transcript", result.ReviewerOutput)
@@ -321,11 +321,11 @@ func TestGoalKeeperActorFinalFailureUsesLatestValidatorOutput(t *testing.T) {
 			Validation string `json:"validation_output"`
 		} `json:"reviewable_outcome"`
 	}
-	if err := json.Unmarshal([]byte(task.ResultJSON), &result); err != nil {
-		t.Fatalf("decode job result: %v\n%s", err, task.ResultJSON)
+	if err := json.Unmarshal([]byte(task.Result), &result); err != nil {
+		t.Fatalf("decode job result: %v\n%s", err, task.Result)
 	}
 	if result.GoalReached {
-		t.Fatalf("goal_reached = true, want false\n%s", task.ResultJSON)
+		t.Fatalf("goal_reached = true, want false\n%s", task.Result)
 	}
 	if !strings.Contains(result.ReviewerOutput, "first failure") || !strings.Contains(result.ReviewerOutput, "final failure") {
 		t.Fatalf("reviewer_output = %q, want full validator transcript", result.ReviewerOutput)
@@ -690,8 +690,8 @@ func TestGoalKeeperActorPreservesWorkspaceOnExportFailure(t *testing.T) {
 	if task.Status != baldastate.JobStatusFailed {
 		t.Fatalf("task status = %q, want %q", task.Status, baldastate.JobStatusFailed)
 	}
-	if !strings.Contains(task.ResultJSON, `"status":"export_failed"`) {
-		t.Fatalf("job result = %s, want export_failed status", task.ResultJSON)
+	if !strings.Contains(task.Result, `"status":"export_failed"`) {
+		t.Fatalf("job result = %s, want export_failed status", task.Result)
 	}
 	if runtimeBuilder.cleanupCalls != 0 {
 		t.Fatalf("cleanupCalls = %d, want 0 when export fails", runtimeBuilder.cleanupCalls)

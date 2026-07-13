@@ -94,7 +94,7 @@ func RenderStatusMessage(profile deliverycmd.Profile, text string) string {
 
 func RenderReviewableOutcome(profile deliverycmd.Profile, task baldastate.JobRecord) string {
 	var result map[string]any
-	if err := json.Unmarshal([]byte(strings.TrimSpace(task.ResultJSON)), &result); err != nil {
+	if err := json.Unmarshal([]byte(strings.TrimSpace(task.Result)), &result); err != nil {
 		result = nil
 	}
 	parsedOutcome := struct {

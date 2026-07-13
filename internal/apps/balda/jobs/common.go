@@ -125,17 +125,17 @@ func jobEventRecord(jobID string, eventType string, actor string, messageID stri
 		eventID = "job:" + strings.TrimSpace(jobID) + ":event:" + eventTypePart + ":" + hex.EncodeToString(sum[:])[:16]
 	}
 	return baldastate.JobEventRecord{
-		ID:          eventID,
-		JobID:       strings.TrimSpace(jobID),
-		EventType:   strings.TrimSpace(eventType),
-		Actor:       strings.TrimSpace(actor),
-		MessageID:   strings.TrimSpace(messageID),
-		PayloadJSON: data,
+		ID:        eventID,
+		JobID:     strings.TrimSpace(jobID),
+		EventType: strings.TrimSpace(eventType),
+		Actor:     strings.TrimSpace(actor),
+		MessageID: strings.TrimSpace(messageID),
+		Payload:   data,
 	}, nil
 }
 
 func jobEventEnvelope(event baldastate.JobEventRecord) (string, actorlayer.Envelope) {
-	payload := strings.TrimSpace(event.PayloadJSON)
+	payload := strings.TrimSpace(event.Payload)
 	if payload == "" {
 		payload = "{}"
 	}
@@ -175,10 +175,10 @@ func jobEventOutboxRecord(event baldastate.JobEventRecord) (baldastate.JobEventO
 		return baldastate.JobEventOutboxRecord{}, fmt.Errorf("encode job event envelope: %w", err)
 	}
 	return baldastate.JobEventOutboxRecord{
-		ID:           strings.TrimSpace(event.ID),
-		JobID:        strings.TrimSpace(event.JobID),
-		Subject:      subject,
-		EnvelopeJSON: data,
+		ID:       strings.TrimSpace(event.ID),
+		JobID:    strings.TrimSpace(event.JobID),
+		Subject:  subject,
+		Envelope: data,
 	}, nil
 }
 
@@ -196,7 +196,7 @@ func publishOutboxRecord(
 		return errors.Join(err, store.MarkJobEventPublishFailed(ctx, record.ID, err.Error()))
 	}
 	var env actorlayer.Envelope
-	decoded, err := actorlayer.DecodeEnvelope(record.EnvelopeJSON)
+	decoded, err := actorlayer.DecodeEnvelope(record.Envelope)
 	if err != nil {
 		decodeErr := fmt.Errorf("decode job event outbox %q: %w", record.ID, err)
 		return errors.Join(decodeErr, store.MarkJobEventPublishFailed(ctx, record.ID, decodeErr.Error()))

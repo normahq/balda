@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	actortransport "github.com/baldaworks/go-actorlayer/transport"
+	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"go.uber.org/fx"
 )
 
@@ -33,20 +33,20 @@ func (s *JobLifecycleService) Create(ctx context.Context, record baldastate.JobR
 	if s == nil {
 		return false, nil
 	}
-	payloadJSON, err := marshalPayload(payload)
+	payloadValue, err := marshalPayload(payload)
 	if err != nil {
 		return false, err
 	}
-	if strings.TrimSpace(payloadJSON) == "" {
-		payloadJSON = "{}"
+	if strings.TrimSpace(payloadValue) == "" {
+		payloadValue = "{}"
 	}
 	jobID := strings.TrimSpace(record.ID)
 	event := baldastate.JobEventRecord{
-		ID:          "job:" + jobID + ":event:created",
-		JobID:       jobID,
-		EventType:   JobEventCreated,
-		Actor:       strings.TrimSpace(actor),
-		PayloadJSON: payloadJSON,
+		ID:        "job:" + jobID + ":event:created",
+		JobID:     jobID,
+		EventType: JobEventCreated,
+		Actor:     strings.TrimSpace(actor),
+		Payload:   payloadValue,
 	}
 	outbox, err := jobEventOutboxRecord(event)
 	if err != nil {

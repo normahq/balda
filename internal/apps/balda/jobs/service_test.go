@@ -7,9 +7,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/baldaworks/go-actorlayer"
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
-	"github.com/baldaworks/go-actorlayer"
 )
 
 type recordingJobCommandBus struct {
@@ -266,7 +266,7 @@ func TestJobLifecycleServiceSetResultIgnoresEventPublishFailureAfterStateMutatio
 	if task.Status != baldastate.JobStatusCompleted {
 		t.Fatalf("job status = %q, want %q", task.Status, baldastate.JobStatusCompleted)
 	}
-	if task.ResultJSON == "" {
+	if task.Result == "" {
 		t.Fatal("job result json is empty, want persisted result despite event publish failure")
 	}
 	if len(bus.envs) != 1 || bus.envs[0].Meta["event_type"] != JobEventCompleted {
@@ -318,11 +318,11 @@ func TestJobLifecycleServiceSetResultIgnoresStaleTerminalTransition(t *testing.T
 	}
 	t.Cleanup(func() { _ = provider.Close() })
 	if _, err := provider.Jobs().CreateJob(ctx, baldastate.JobRecord{
-		ID:         "task-deadlettered-result",
-		SessionID:  "s-1",
-		Objective:  "deadlettered task",
-		Status:     baldastate.JobStatusDeadLettered,
-		ResultJSON: `{"status":"deadlettered"}`,
+		ID:        "task-deadlettered-result",
+		SessionID: "s-1",
+		Objective: "deadlettered task",
+		Status:    baldastate.JobStatusDeadLettered,
+		Result:    `{"status":"deadlettered"}`,
 	}); err != nil {
 		t.Fatalf("CreateJob() error = %v", err)
 	}
@@ -342,8 +342,8 @@ func TestJobLifecycleServiceSetResultIgnoresStaleTerminalTransition(t *testing.T
 	if task.Status != baldastate.JobStatusDeadLettered {
 		t.Fatalf("job status = %q, want %q", task.Status, baldastate.JobStatusDeadLettered)
 	}
-	if task.ResultJSON != `{"status":"deadlettered"}` {
-		t.Fatalf("job result = %q, want original deadlettered result preserved", task.ResultJSON)
+	if task.Result != `{"status":"deadlettered"}` {
+		t.Fatalf("job result = %q, want original deadlettered result preserved", task.Result)
 	}
 	if len(bus.envs) != 0 {
 		t.Fatalf("published events = %+v, want no visibility event for stale terminal finalization", bus.envs)

@@ -82,7 +82,7 @@ func (s *Service) Handle(ctx context.Context, env actorlayer.Envelope, payload d
 			Channel:     firstNonEmpty(payload.Locator.ChannelType, "telegram"),
 			AddressKey:  firstNonEmpty(payload.Locator.AddressKey, payload.Locator.SessionID),
 			Kind:        env.Kind,
-			PayloadJSON: strings.TrimSpace(env.Payload.String()),
+			Payload:     strings.TrimSpace(env.Payload.String()),
 			PayloadHash: payloadHash,
 			Status:      baldastate.DeliveryStatusPending,
 		})

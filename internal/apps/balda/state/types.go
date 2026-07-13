@@ -178,7 +178,7 @@ type JobRecord struct {
 	AssignedActor string
 	Priority      int
 	CreatedBy     string
-	ResultJSON    string
+	Result        string
 	Error         string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -189,25 +189,25 @@ type JobRecord struct {
 
 // JobEventRecord persists an append-only job event.
 type JobEventRecord struct {
-	ID          string
-	JobID       string
-	EventType   string
-	Actor       string
-	MessageID   string
-	PayloadJSON string
-	CreatedAt   time.Time
+	ID        string
+	JobID     string
+	EventType string
+	Actor     string
+	MessageID string
+	Payload   string
+	CreatedAt time.Time
 }
 
 // JobEventOutboxRecord persists one job event awaiting publication.
 type JobEventOutboxRecord struct {
-	ID           string
-	JobID        string
-	Subject      string
-	EnvelopeJSON string
-	Attempts     int
-	LastError    string
-	CreatedAt    time.Time
-	PublishedAt  time.Time
+	ID          string
+	JobID       string
+	Subject     string
+	Envelope    string
+	Attempts    int
+	LastError   string
+	CreatedAt   time.Time
+	PublishedAt time.Time
 }
 
 // DeliveryRecord persists idempotency state for external delivery side effects.
@@ -219,7 +219,7 @@ type DeliveryRecord struct {
 	Channel           string
 	AddressKey        string
 	Kind              string
-	PayloadJSON       string
+	Payload           string
 	PayloadHash       string
 	Status            string
 	ProviderMessageID string
@@ -239,7 +239,7 @@ type AgentStepRecord struct {
 	Iteration   int
 	PayloadHash string
 	Status      string
-	ResultJSON  string
+	Result      string
 	Error       string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
@@ -254,8 +254,8 @@ type JobLifecycleStore interface {
 	ListActiveJobsBySession(ctx context.Context, sessionID string) ([]JobRecord, error)
 	UpdateJobStatus(ctx context.Context, jobID string, status string, reason string) error
 	UpdateJobStatusWithEvent(ctx context.Context, jobID string, status string, reason string, event JobEventOutboxRecord) error
-	SetJobResult(ctx context.Context, jobID string, resultJSON string, status string, reason string) error
-	SetJobResultWithEvent(ctx context.Context, jobID string, resultJSON string, status string, reason string, event JobEventOutboxRecord) error
+	SetJobResult(ctx context.Context, jobID string, result string, status string, reason string) error
+	SetJobResultWithEvent(ctx context.Context, jobID string, result string, status string, reason string, event JobEventOutboxRecord) error
 }
 
 // JobEventStore persists projected job history.

@@ -289,7 +289,7 @@ func deliveryRecordForTest(env actorlayer.Envelope, payload DeliveryPayload, sta
 		Channel:     "telegram",
 		AddressKey:  payload.Locator.AddressKey,
 		Kind:        env.Kind,
-		PayloadJSON: env.Payload.String(),
+		Payload:     env.Payload.String(),
 		PayloadHash: hex.EncodeToString(sum[:]),
 		Status:      status,
 	}

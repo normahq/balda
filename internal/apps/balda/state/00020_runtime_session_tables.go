@@ -19,6 +19,7 @@ func registerBaldaGoMigrations() {
 		goose.AddNamedMigrationContext("00022_execution_job_storage_naming.go", up00022ExecutionJobStorageNaming, down00022ExecutionJobStorageNaming)
 		goose.AddNamedMigrationContext("00023_scheduled_job_storage_naming.go", up00023ScheduledJobStorageNaming, down00023ScheduledJobStorageNaming)
 		goose.AddNamedMigrationContext("00024_job_event_outbox.go", up00024JobEventOutbox, down00024JobEventOutbox)
+		goose.AddNamedMigrationContext("00025_execution_storage_contract_names.go", up00025ExecutionStorageContractNames, down00025ExecutionStorageContractNames)
 	})
 }
 

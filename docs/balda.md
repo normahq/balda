@@ -921,7 +921,7 @@ session/job/goal/delivery/memory"]
 #### Command schema table
 
 All commands use the common envelope schema:
-`id`, `namespace`, `kind`, `from`, `to`, `payload_json` are required.
+`id`, `namespace`, `kind`, `from`, `to`, `payload` are required.
 `session_id`, `job_id`, `correlation_id`, `causation_id`, `dedupe_key`,
 `priority`, `meta`, and `report_to` are optional context fields.
 

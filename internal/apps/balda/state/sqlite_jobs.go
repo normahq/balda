@@ -29,7 +29,7 @@ func insertExecutionJob(ctx context.Context, exec contextExecer, normalized JobR
 	res, err := exec.ExecContext(ctx, `
 		INSERT OR IGNORE INTO execution_jobs (
 			id, session_id, parent_job_id, title, objective, status, owner_actor, assigned_actor,
-			priority, created_by, result_json, error,
+			priority, created_by, result, error,
 			created_at, updated_at, started_at, completed_at, canceled_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -43,7 +43,7 @@ func insertExecutionJob(ctx context.Context, exec contextExecer, normalized JobR
 		nullIfEmpty(normalized.AssignedActor),
 		normalized.Priority,
 		nullIfEmpty(normalized.CreatedBy),
-		nullIfEmpty(normalized.ResultJSON),
+		nullIfEmpty(normalized.Result),
 		nullIfEmpty(normalized.Error),
 		normalized.CreatedAt.Format(time.RFC3339),
 		normalized.UpdatedAt.Format(time.RFC3339),
@@ -244,7 +244,7 @@ func updateJobStatusTx(ctx context.Context, tx *sql.Tx, jobID string, status str
 	return nil
 }
 
-func (s *sqliteJobStore) SetJobResult(ctx context.Context, jobID string, resultJSON string, status string, reason string) error {
+func (s *sqliteJobStore) SetJobResult(ctx context.Context, jobID string, result string, status string, reason string) error {
 	trimmedJobID := strings.TrimSpace(jobID)
 	if trimmedJobID == "" {
 		return fmt.Errorf("job id is required")
@@ -265,7 +265,7 @@ func (s *sqliteJobStore) SetJobResult(ctx context.Context, jobID string, resultJ
 	if _, err := s.db.ExecContext(ctx, `
 		UPDATE execution_jobs
 		SET status = ?,
-		    result_json = ?,
+		    result = ?,
 		    error = ?,
 		    updated_at = ?,
 		    started_at = COALESCE(started_at, ?),
@@ -273,7 +273,7 @@ func (s *sqliteJobStore) SetJobResult(ctx context.Context, jobID string, resultJ
 		    canceled_at = COALESCE(canceled_at, ?)
 		WHERE id = ?`,
 		normalizedStatus,
-		nullIfEmpty(resultJSON),
+		nullIfEmpty(result),
 		nullIfEmpty(reason),
 		now.Format(time.RFC3339),
 		optionalTimeValue(startedAt),
@@ -319,7 +319,7 @@ func setJobResultTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	jobID string,
-	resultJSON string,
+	result string,
 	status string,
 	reason string,
 ) error {
@@ -342,13 +342,13 @@ func setJobResultTx(
 	startedAt, completedAt, canceledAt := statusTimestamps(normalizedStatus, now)
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE execution_jobs
-		SET status = ?, result_json = ?, error = ?, updated_at = ?,
+		SET status = ?, result = ?, error = ?, updated_at = ?,
 		    started_at = COALESCE(started_at, ?),
 		    completed_at = COALESCE(completed_at, ?),
 		    canceled_at = COALESCE(canceled_at, ?)
 		WHERE id = ?`,
 		normalizedStatus,
-		nullIfEmpty(resultJSON),
+		nullIfEmpty(result),
 		nullIfEmpty(reason),
 		now.Format(time.RFC3339),
 		optionalTimeValue(startedAt),
@@ -368,14 +368,14 @@ func (s *sqliteJobStore) AppendJobEvent(ctx context.Context, record JobEventReco
 		return err
 	}
 	if _, err := s.db.ExecContext(ctx, `
-			INSERT OR IGNORE INTO execution_job_events (id, job_id, event_type, actor, message_id, payload_json, created_at)
+			INSERT OR IGNORE INTO execution_job_events (id, job_id, event_type, actor, message_id, payload, created_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		normalized.ID,
 		normalized.JobID,
 		normalized.EventType,
 		nullIfEmpty(normalized.Actor),
 		nullIfEmpty(normalized.MessageID),
-		nullIfEmpty(normalized.PayloadJSON),
+		nullIfEmpty(normalized.Payload),
 		normalized.CreatedAt.Format(time.RFC3339),
 	); err != nil {
 		return fmt.Errorf("insert runtime job event %q: %w", normalized.ID, err)
@@ -423,12 +423,13 @@ func (s *sqliteJobStore) EnqueueJobEvent(ctx context.Context, event JobEventOutb
 func enqueueJobEvent(ctx context.Context, exec contextExecer, event JobEventOutboxRecord) error {
 	if _, err := exec.ExecContext(ctx, `
 		INSERT OR IGNORE INTO execution_job_event_outbox (
-			id, job_id, subject, envelope_json, attempts, last_error, created_at, published_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, job_id, subject, envelope_json, envelope, attempts, last_error, created_at, published_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		event.ID,
 		event.JobID,
 		event.Subject,
-		event.EnvelopeJSON,
+		event.Envelope,
+		event.Envelope,
 		event.Attempts,
 		nullIfEmpty(event.LastError),
 		event.CreatedAt.Format(time.RFC3339),
@@ -444,7 +445,7 @@ func (s *sqliteJobStore) ListPendingJobEvents(ctx context.Context, limit int) ([
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, job_id, subject, envelope_json, attempts, COALESCE(last_error, ''),
+		SELECT id, job_id, subject, COALESCE(envelope, envelope_json, ''), attempts, COALESCE(last_error, ''),
 		       created_at, COALESCE(published_at, '')
 		FROM execution_job_event_outbox
 		WHERE published_at IS NULL
@@ -504,10 +505,10 @@ func (s *sqliteJobStore) ReserveDelivery(ctx context.Context, record DeliveryRec
 	}
 	res, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO execution_delivery_outbox (
-			id, delivery_key, job_id, session_id, channel, address_key, kind, payload_json,
+			id, delivery_key, job_id, session_id, channel, address_key, kind, payload_json, payload,
 			payload_hash, status, provider_message_id, sent_at, error, created_at, updated_at
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		normalized.ID,
 		normalized.DeliveryKey,
 		nullIfEmpty(normalized.JobID),
@@ -515,7 +516,8 @@ func (s *sqliteJobStore) ReserveDelivery(ctx context.Context, record DeliveryRec
 		normalized.Channel,
 		normalized.AddressKey,
 		normalized.Kind,
-		normalized.PayloadJSON,
+		normalized.Payload,
+		normalized.Payload,
 		normalized.PayloadHash,
 		normalized.Status,
 		nullIfEmpty(normalized.ProviderMessageID),
@@ -618,7 +620,7 @@ func (s *sqliteJobStore) ReserveAgentStep(ctx context.Context, record AgentStepR
 	res, err := s.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO execution_agent_steps (
 			id, step_key, job_id, agent_name, role, iteration, payload_hash, status,
-			result_json, error, created_at, updated_at, completed_at
+			result, error, created_at, updated_at, completed_at
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		normalized.ID,
@@ -629,7 +631,7 @@ func (s *sqliteJobStore) ReserveAgentStep(ctx context.Context, record AgentStepR
 		normalized.Iteration,
 		normalized.PayloadHash,
 		normalized.Status,
-		nullIfEmpty(normalized.ResultJSON),
+		nullIfEmpty(normalized.Result),
 		nullIfEmpty(normalized.Error),
 		normalized.CreatedAt.Format(time.RFC3339),
 		normalized.UpdatedAt.Format(time.RFC3339),
@@ -652,15 +654,15 @@ func (s *sqliteJobStore) ReserveAgentStep(ctx context.Context, record AgentStepR
 	return got, count > 0, nil
 }
 
-func (s *sqliteJobStore) CompleteAgentStep(ctx context.Context, stepKey string, resultJSON string) error {
-	return s.finishAgentStep(ctx, stepKey, AgentStepStatusSucceeded, resultJSON, "")
+func (s *sqliteJobStore) CompleteAgentStep(ctx context.Context, stepKey string, result string) error {
+	return s.finishAgentStep(ctx, stepKey, AgentStepStatusSucceeded, result, "")
 }
 
-func (s *sqliteJobStore) FailAgentStep(ctx context.Context, stepKey string, resultJSON string, reason string) error {
-	return s.finishAgentStep(ctx, stepKey, AgentStepStatusFailed, resultJSON, reason)
+func (s *sqliteJobStore) FailAgentStep(ctx context.Context, stepKey string, result string, reason string) error {
+	return s.finishAgentStep(ctx, stepKey, AgentStepStatusFailed, result, reason)
 }
 
-func (s *sqliteJobStore) finishAgentStep(ctx context.Context, stepKey string, status string, resultJSON string, reason string) error {
+func (s *sqliteJobStore) finishAgentStep(ctx context.Context, stepKey string, status string, result string, reason string) error {
 	trimmedKey := strings.TrimSpace(stepKey)
 	if trimmedKey == "" {
 		return fmt.Errorf("agent step key is required")
@@ -673,13 +675,13 @@ func (s *sqliteJobStore) finishAgentStep(ctx context.Context, stepKey string, st
 	if _, err := s.db.ExecContext(ctx, `
 		UPDATE execution_agent_steps
 		SET status = ?,
-		    result_json = ?,
+		    result = ?,
 		    error = ?,
 		    updated_at = ?,
 		    completed_at = COALESCE(completed_at, ?)
 		WHERE step_key = ?`,
 		normalizedStatus,
-		nullIfEmpty(resultJSON),
+		nullIfEmpty(result),
 		nullIfEmpty(reason),
 		now.Format(time.RFC3339),
 		now.Format(time.RFC3339),
@@ -709,23 +711,23 @@ func (s *sqliteJobStore) getAgentStepByKey(ctx context.Context, stepKey string) 
 const executionJobSelectSQL = `
 	SELECT id, COALESCE(session_id, ''), COALESCE(parent_job_id, ''), COALESCE(title, ''), objective,
 	       status, COALESCE(owner_actor, ''), COALESCE(assigned_actor, ''), priority,
-	       COALESCE(created_by, ''), COALESCE(result_json, ''), COALESCE(error, ''),
+	       COALESCE(created_by, ''), COALESCE(result, result_json, ''), COALESCE(error, ''),
 	       created_at, updated_at, COALESCE(started_at, ''), COALESCE(completed_at, ''), COALESCE(canceled_at, '')
 	FROM execution_jobs`
 
 const executionJobEventSelectSQL = `
-	SELECT id, job_id, event_type, COALESCE(actor, ''), COALESCE(message_id, ''), COALESCE(payload_json, ''), created_at
+	SELECT id, job_id, event_type, COALESCE(actor, ''), COALESCE(message_id, ''), COALESCE(payload, payload_json, ''), created_at
 	FROM execution_job_events`
 
 const executionDeliverySelectSQL = `
 	SELECT id, delivery_key, COALESCE(job_id, ''), COALESCE(session_id, ''), channel, address_key, kind,
-	       payload_json, payload_hash, status, COALESCE(provider_message_id, ''), COALESCE(sent_at, ''),
+	       COALESCE(payload, payload_json, ''), payload_hash, status, COALESCE(provider_message_id, ''), COALESCE(sent_at, ''),
 	       COALESCE(error, ''), created_at, updated_at
 	FROM execution_delivery_outbox`
 
 const executionAgentStepSelectSQL = `
 	SELECT id, step_key, job_id, agent_name, role, iteration, payload_hash, status,
-	       COALESCE(result_json, ''), COALESCE(error, ''), created_at, updated_at, COALESCE(completed_at, '')
+	       COALESCE(result, result_json, ''), COALESCE(error, ''), created_at, updated_at, COALESCE(completed_at, '')
 	FROM execution_agent_steps`
 
 func scanExecutionJob(scan func(dest ...any) error) (JobRecord, bool, error) {
@@ -748,7 +750,7 @@ func scanExecutionJob(scan func(dest ...any) error) (JobRecord, bool, error) {
 		&record.AssignedActor,
 		&record.Priority,
 		&record.CreatedBy,
-		&record.ResultJSON,
+		&record.Result,
 		&record.Error,
 		&createdAtRaw,
 		&updatedAtRaw,
@@ -799,7 +801,7 @@ func scanExecutionJobEvent(scan func(dest ...any) error) (JobEventRecord, error)
 		&record.EventType,
 		&record.Actor,
 		&record.MessageID,
-		&record.PayloadJSON,
+		&record.Payload,
 		&createdAtRaw,
 	); err != nil {
 		return JobEventRecord{}, fmt.Errorf("scan runtime job event: %w", err)
@@ -827,7 +829,7 @@ func scanExecutionDelivery(scan func(dest ...any) error) (DeliveryRecord, bool, 
 		&record.Channel,
 		&record.AddressKey,
 		&record.Kind,
-		&record.PayloadJSON,
+		&record.Payload,
 		&record.PayloadHash,
 		&record.Status,
 		&record.ProviderMessageID,
@@ -876,7 +878,7 @@ func scanExecutionAgentStep(scan func(dest ...any) error) (AgentStepRecord, bool
 		&record.Iteration,
 		&record.PayloadHash,
 		&record.Status,
-		&record.ResultJSON,
+		&record.Result,
 		&record.Error,
 		&createdAtRaw,
 		&updatedAtRaw,
@@ -931,7 +933,7 @@ func normalizeExecutionJob(record JobRecord, now time.Time) (JobRecord, error) {
 	record.OwnerActor = strings.TrimSpace(record.OwnerActor)
 	record.AssignedActor = strings.TrimSpace(record.AssignedActor)
 	record.CreatedBy = strings.TrimSpace(record.CreatedBy)
-	record.ResultJSON = strings.TrimSpace(record.ResultJSON)
+	record.Result = strings.TrimSpace(record.Result)
 	record.Error = strings.TrimSpace(record.Error)
 	return record, nil
 }
@@ -957,8 +959,8 @@ func normalizeExecutionDelivery(record DeliveryRecord, now time.Time) (DeliveryR
 	if record.Kind == "" {
 		return DeliveryRecord{}, fmt.Errorf("runtime delivery kind is required")
 	}
-	record.PayloadJSON = strings.TrimSpace(record.PayloadJSON)
-	if record.PayloadJSON == "" {
+	record.Payload = strings.TrimSpace(record.Payload)
+	if record.Payload == "" {
 		return DeliveryRecord{}, fmt.Errorf("runtime delivery payload is required")
 	}
 	record.PayloadHash = strings.TrimSpace(record.PayloadHash)
@@ -1016,7 +1018,7 @@ func normalizeExecutionAgentStep(record AgentStepRecord, now time.Time) (AgentSt
 		return AgentStepRecord{}, err
 	}
 	record.Status = status
-	record.ResultJSON = strings.TrimSpace(record.ResultJSON)
+	record.Result = strings.TrimSpace(record.Result)
 	record.Error = strings.TrimSpace(record.Error)
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = now
@@ -1042,7 +1044,7 @@ func normalizeExecutionJobEvent(record JobEventRecord, now time.Time) (JobEventR
 	}
 	record.Actor = strings.TrimSpace(record.Actor)
 	record.MessageID = strings.TrimSpace(record.MessageID)
-	record.PayloadJSON = strings.TrimSpace(record.PayloadJSON)
+	record.Payload = strings.TrimSpace(record.Payload)
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = now
 	}
@@ -1167,8 +1169,8 @@ func normalizeJobEventOutbox(record JobEventOutboxRecord, now time.Time) (JobEve
 	if record.Subject == "" {
 		return JobEventOutboxRecord{}, fmt.Errorf("job event outbox subject is required")
 	}
-	record.EnvelopeJSON = strings.TrimSpace(record.EnvelopeJSON)
-	if record.EnvelopeJSON == "" {
+	record.Envelope = strings.TrimSpace(record.Envelope)
+	if record.Envelope == "" {
 		return JobEventOutboxRecord{}, fmt.Errorf("job event outbox envelope is required")
 	}
 	if record.Attempts < 0 {
@@ -1190,7 +1192,7 @@ func scanJobEventOutbox(scan func(...any) error) (JobEventOutboxRecord, error) {
 		&record.ID,
 		&record.JobID,
 		&record.Subject,
-		&record.EnvelopeJSON,
+		&record.Envelope,
 		&record.Attempts,
 		&record.LastError,
 		&createdAtRaw,

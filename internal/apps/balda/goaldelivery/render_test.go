@@ -302,8 +302,8 @@ func taskRecordWithOutcome(t *testing.T, goalReached bool, exportStatus string, 
 		status = baldastate.JobStatusFailed
 	}
 	return baldastate.JobRecord{
-		Status:     status,
-		Objective:  "objective",
-		ResultJSON: string(data),
+		Status:    status,
+		Objective: "objective",
+		Result:    string(data),
 	}
 }
