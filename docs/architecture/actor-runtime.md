@@ -13,7 +13,7 @@ Status: active
 - Product actors own Balda behavior: session turns, webhook/scheduled work routing, `/goal` execution, outbound delivery, and cancellation.
 - `/goal` uses Balda's goal workflow wrapper built on Norma's reusable goal loop runtime.
 - Job progress/results and projected event payload summaries use the shared `internal/apps/balda/redaction` policy before persistence and delivery.
-- The execution core does not depend on Balda, Telegram, MCP, transport, or provider SDK APIs.
+- The external actorlayer core does not depend on Balda, Telegram, MCP, transport, or provider SDK APIs; Balda's `execution` package is the product runtime facade and depends on canonical `actorcmd` contracts.
 
 ## Related tests
 

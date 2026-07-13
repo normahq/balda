@@ -10,7 +10,7 @@ Status: active
 - Terminal command failures are retained for inspection and replay decisions.
 - Command and event processing use explicit settlement.
 - Command subjects stay under `balda.v1.cmd.*`; events under `balda.v1.evt.*`.
-- Subject/header/namespace definitions live in `internal/apps/balda/actorcmd`; `execution` only consumes them for host policy.
+- Subject/header/namespace definitions live canonically in `internal/apps/balda/actorcmd`; `execution` re-exports them as the runtime-facing compatibility facade while consuming them for host policy.
 - Product/runtime packages consume actorlayer `Source`/`Delivery` and
   actorlayer transport dispatcher abstractions, not transport APIs directly.
 

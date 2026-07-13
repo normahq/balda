@@ -23,7 +23,7 @@ Use this map to find the authoritative runtime contracts.
 - Durable command/event transport is exposed to Balda runtime code through actorlayer abstractions.
 - SQLite is product/read-model state, not a command queue.
 - Ingress handlers dispatch actor envelopes through actorlayer transport dispatcher contracts; actors execute commands.
-- `actorcmd` is the leaf package for Balda actor targets, namespaces, subjects, headers, and job scope metadata.
+- `actorcmd` is the canonical leaf package for Balda actor targets, namespaces, subjects, headers, and job scope metadata; `execution` re-exports that taxonomy as the runtime-facing compatibility facade.
 - `deliverycmd` is the leaf package for transport-neutral delivery contracts: locator, formatting profile, progress policy, delivery payloads, and adapter-facing delivery operations.
 - `session` owns session lifecycle and restore semantics, but does not own transport delivery contracts.
 - `channel/*` packages are concrete transport adapters only. They must not define shared cross-transport contracts and must not import Balda application/session internals for convenience.
