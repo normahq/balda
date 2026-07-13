@@ -313,6 +313,9 @@ func TestNewRootCommand_RegistersCommandsAndFlags(t *testing.T) {
 	if _, _, err := cmd.Find([]string{"preflight"}); err != nil {
 		t.Fatalf("preflight command missing: %v", err)
 	}
+	if _, _, err := cmd.Find([]string{"doctor"}); err != nil {
+		t.Fatalf("doctor command missing: %v", err)
+	}
 
 	for _, name := range []string{"config-dir", "profile", "debug", "trace"} {
 		if cmd.PersistentFlags().Lookup(name) == nil {
@@ -354,6 +357,7 @@ func TestRuntimeCommandsSilenceErrors(t *testing.T) {
 		{name: "start", cmd: startCommand()},
 		{name: "validate", cmd: validateCommand()},
 		{name: "preflight", cmd: preflightCommand()},
+		{name: "doctor", cmd: doctorCommand()},
 	}
 	for _, tc := range commands {
 		t.Run(tc.name, func(t *testing.T) {
@@ -422,6 +426,18 @@ func TestNormalizeExecuteError(t *testing.T) {
 		}
 		if !errors.Is(err, input) {
 			t.Fatalf("normalizeExecuteError(preflight, boom) = %v, want wrapped %v", err, input)
+		}
+	})
+
+	t.Run("doctor command unexpected error", func(t *testing.T) {
+		input := errors.New("boom")
+		err := normalizeExecuteError(&cobra.Command{Use: "doctor"}, input)
+		var got *unprintedCLIError
+		if !errors.As(err, &got) {
+			t.Fatalf("normalizeExecuteError(doctor, boom) = %T, want *unprintedCLIError", err)
+		}
+		if !errors.Is(err, input) {
+			t.Fatalf("normalizeExecuteError(doctor, boom) = %v, want wrapped %v", err, input)
 		}
 	})
 
@@ -566,5 +582,72 @@ balda:
 	}
 	if got := out.String(); !strings.Contains(got, "balda preflight: ok") {
 		t.Fatalf("preflight output = %q, want success message", got)
+	}
+}
+
+func TestDoctorCommandRunsValidationAndRuntimeCheck(t *testing.T) {
+	workingDir := t.TempDir()
+	if err := writeFile(filepath.Join(workingDir, ".config", "balda", "config.yaml"), `runtime:
+  providers:
+    balda_agent:
+      type: opencode_acp
+      opencode_acp:
+        model: opencode/big-pickle
+balda:
+  provider: balda_agent
+  telegram:
+    token: test-token
+`); err != nil {
+		t.Fatalf("write balda config: %v", err)
+	}
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(workingDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(originalWD) })
+
+	originalValidate := validateBaldaApplicationFn
+	originalPreflight := preflightBaldaRuntimeFn
+	t.Cleanup(func() {
+		validateBaldaApplicationFn = originalValidate
+		preflightBaldaRuntimeFn = originalPreflight
+	})
+
+	validated := false
+	preflighted := false
+	validateBaldaApplicationFn = func(prepared preparedBaldaCommand) error {
+		validated = prepared.baldaCfg.Balda.Provider == testBaldaProvider
+		return nil
+	}
+	preflightBaldaRuntimeFn = func(_ context.Context, prepared preparedBaldaCommand) error {
+		preflighted = prepared.baldaCfg.Balda.Provider == testBaldaProvider
+		return nil
+	}
+
+	cmd, err := newRootCommand()
+	if err != nil {
+		t.Fatalf("newRootCommand: %v", err)
+	}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"doctor"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute(doctor): %v", err)
+	}
+	if !validated {
+		t.Fatal("doctor command did not invoke validation hook")
+	}
+	if !preflighted {
+		t.Fatal("doctor command did not invoke runtime preflight hook")
+	}
+	got := out.String()
+	for _, want := range []string{"doctor: validate ok", "doctor: preflight ok", "balda doctor: ok"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("doctor output = %q, want marker %q", got, want)
+		}
 	}
 }

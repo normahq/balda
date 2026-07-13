@@ -136,6 +136,33 @@ func preflightCommand() *cobra.Command {
 	return cmd
 }
 
+func doctorCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:           "doctor",
+		Short:         "Run full Balda operator checks",
+		Long:          "Load Balda configuration, validate app wiring, preflight the configured provider runtime, and report overall readiness.",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			prepared, err := prepareBaldaCommand(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if err := validateBaldaApplicationFn(prepared); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "doctor: validate ok")
+			if err := preflightBaldaRuntimeFn(cmd.Context(), prepared); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "doctor: preflight ok")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "balda doctor: ok")
+			return nil
+		},
+	}
+	return cmd
+}
+
 func prepareBaldaCommand(ctx context.Context) (preparedBaldaCommand, error) {
 	workingDir, err := os.Getwd()
 	if err != nil {

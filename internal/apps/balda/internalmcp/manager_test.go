@@ -138,7 +138,7 @@ func TestBundledBaldaServerInstructionsReflectWorkspaceMode(t *testing.T) {
 
 - balda.state stores persistent Balda session and app state in state.db.
 - balda config editing is not exposed through MCP; edit the balda config file directly.
-- balda.control.shutdown gracefully stops the whole Balda process; use it only when the user explicitly asks for restart or shutdown.`
+- balda.control.shutdown gracefully stops the whole Balda process; use it only when the user explicitly asks for restart or shutdown. After installing a new override binary, prefer balda.control.shutdown for restart. Use kill -TERM 1 only as a fallback when the in-process shutdown path is unavailable or broken.`
 		if memoryEnabled {
 			instructions += "\n- balda.memory stores durable facts in Balda state; only call balda.memory.remember when the user explicitly asks you to remember or save a fact."
 		}

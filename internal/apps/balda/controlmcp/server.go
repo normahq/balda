@@ -88,7 +88,7 @@ func registerTools(server *mcp.Server, shutdowner fx.Shutdowner, dispatcher acto
 	srv := &service{shutdowner: shutdowner, dispatcher: dispatcher, terminate: terminate}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "balda.control.shutdown",
-		Description: "Gracefully stop the running Balda process. This affects the whole instance. Requires confirm='shutdown' and should only be used when the user explicitly asks for restart or shutdown.",
+		Description: "Gracefully stop the running Balda process. This affects the whole instance. Requires confirm='shutdown' and should only be used when the user explicitly asks for restart or shutdown. This is the preferred restart path after installing a new override binary; use kill -TERM 1 only as a fallback when graceful shutdown is unavailable or broken.",
 	}, srv.shutdown)
 }
 
