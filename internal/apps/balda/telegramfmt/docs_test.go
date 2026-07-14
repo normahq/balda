@@ -76,11 +76,9 @@ func TestUserDocsLinkTelegramFormattingGuide(t *testing.T) {
 func TestUserDocsDocumentRuntimeStateHelper(t *testing.T) {
 	t.Parallel()
 
-	for _, path := range []string{"README.md", "docs/balda.md"} {
-		doc := readRepoDoc(t, path)
-		if !strings.Contains(doc, "task runtime-state") {
-			t.Fatalf("%s does not document task runtime-state", path)
-		}
+	doc := readRepoDoc(t, "docs/balda.md")
+	if !strings.Contains(doc, "task runtime-state") {
+		t.Fatal("docs/balda.md does not document task runtime-state")
 	}
 }
 
@@ -93,21 +91,47 @@ func TestReadmeDocumentsBaldaConfigShapeAndMCPServers(t *testing.T) {
 		"runtime:",
 		"providers:",
 		"mcp_servers:",
-		"generic_acp | gemini_acp | codex_acp | opencode_acp | copilot_acp | claude_code_acp | pool",
-		"webhook:",
-		"plan_updates:",
-		"logger:",
-		"working_dir:",
-		"state_dir:",
-		"global_instruction:",
-		"### MCP Servers Example",
-		"type: stdio",
-		"type: http",
-		"built-in balda + provider mcp_servers + balda.mcp_servers",
-		"Do not define `runtime.mcp_servers.balda`",
+		"balda.provider",
+		"balda.telegram.token",
+		"balda.zulip.*",
+		"balda.slack.*",
+		"balda.webhooks.*",
+		"balda.scheduler.jobs",
+		"balda.workspace.*",
+		"balda.mcp_servers",
+		"docs/balda.md",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Fatalf("README.md missing %q", want)
+		}
+	}
+}
+
+func TestDocsBaldaDocumentsAdvancedConfigAndMCPServers(t *testing.T) {
+	t.Parallel()
+
+	doc := readRepoDoc(t, "docs/balda.md")
+	for _, want := range []string{
+		"type: <provider_type>",
+		"type: codex_acp",
+		"codex",
+		"opencode",
+		"copilot",
+		"gemini",
+		"claude",
+		"`balda.telegram.webhook.enabled`",
+		"`balda.telegram.plan_updates`",
+		"`balda.working_dir`",
+		"`balda.state_dir`",
+		"`balda.global_instruction`",
+		"### MCP Server Configuration",
+		"type: stdio",
+		"type: http",
+		"`runtime.mcp_servers`",
+		"`runtime.providers.<id>.mcp_servers`",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("docs/balda.md missing %q", want)
 		}
 	}
 }
