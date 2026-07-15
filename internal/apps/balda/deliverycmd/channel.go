@@ -15,21 +15,24 @@ const (
 type OperationKind string
 
 const (
-	OperationPlain      OperationKind = "plain"
-	OperationMarkdown   OperationKind = "markdown"
-	OperationAgentReply OperationKind = "agent_reply"
-	OperationDraft      OperationKind = "draft"
-	OperationTyping     OperationKind = "typing"
-	OperationProgress   OperationKind = "progress"
+	OperationPlain                 OperationKind = "plain"
+	OperationMarkdown              OperationKind = "markdown"
+	OperationAgentReply            OperationKind = "agent_reply"
+	OperationDraft                 OperationKind = "draft"
+	OperationTyping                OperationKind = "typing"
+	OperationProgress              OperationKind = "progress"
+	OperationClearQuestionControls OperationKind = "clear_question_controls"
 )
 
 // Operation describes one transport-neutral delivery side effect.
 type Operation struct {
-	Kind     OperationKind
-	Profile  Profile
-	Text     string
-	DraftID  int
-	Progress Progress
+	Kind      OperationKind
+	Profile   Profile
+	Text      string
+	DraftID   int
+	Progress  Progress
+	Question  *Question
+	MessageID string
 }
 
 // Result contains transport metadata returned by a delivery.

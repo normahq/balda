@@ -27,6 +27,7 @@ var _ tgbotkit.Registry = (*fakeBaldaRegistry)(nil)
 
 type fakeBaldaRegistry struct {
 	onMessageCalls   int
+	callbackCalls    int
 	messageTypeCalls []messagetype.MessageType
 }
 
@@ -44,6 +45,11 @@ func (f *fakeBaldaRegistry) OnMessageType(t messagetype.MessageType, _ rtHandler
 	return func() {}
 }
 
+func (f *fakeBaldaRegistry) OnCallbackDataPrefix(string, rtHandlers.CallbackQueryHandler) eventemitter.UnsubscribeFunc {
+	f.callbackCalls++
+	return func() {}
+}
+
 func (f *fakeBaldaRegistry) OnCommand(rtHandlers.CommandHandler) eventemitter.UnsubscribeFunc {
 	return func() {}
 }
@@ -56,6 +62,9 @@ func TestBaldaHandlerRegister_RegistersForumTopicMessageTypes(t *testing.T) {
 
 	if registry.onMessageCalls != 1 {
 		t.Fatalf("OnMessage calls = %d, want 1", registry.onMessageCalls)
+	}
+	if registry.callbackCalls != 1 {
+		t.Fatalf("OnCallbackDataPrefix calls = %d, want 1", registry.callbackCalls)
 	}
 
 	want := []messagetype.MessageType{

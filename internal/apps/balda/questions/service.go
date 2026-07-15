@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/questioncmd"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/rs/zerolog"
@@ -27,11 +28,33 @@ type ScheduledJobStore interface {
 	Upsert(ctx context.Context, record baldastate.ScheduledJobRecord) error
 }
 
+// ControlClearRequest asks the delivery boundary to remove interactive
+// controls from a question that is no longer pending.
+type ControlClearRequest struct {
+	QuestionID        string
+	Locator           deliverycmd.Locator
+	ProviderMessageID string
+}
+
+// ControlPublisher projects question lifecycle changes to delivery channels.
+type ControlPublisher interface {
+	ClearQuestionControls(ctx context.Context, request ControlClearRequest) error
+}
+
 type Service struct {
 	store     Store
 	scheduled ScheduledJobStore
+	controls  ControlPublisher
 	logger    zerolog.Logger
 	now       func() time.Time
+}
+
+// SetControlPublisher attaches the optional delivery-side projection used to
+// remove channel-native controls after settlement.
+func (s *Service) SetControlPublisher(controls ControlPublisher) {
+	if s != nil {
+		s.controls = controls
+	}
 }
 
 func New(store Store, scheduled ScheduledJobStore, logger zerolog.Logger) *Service {
@@ -113,7 +136,17 @@ func (s *Service) BindDelivery(ctx context.Context, questionID string, ref quest
 	if strings.TrimSpace(questionID) == "" {
 		return fmt.Errorf("question id is required")
 	}
-	return s.store.BindQuestionDeliveryRef(ctx, questionID, ref)
+	if err := s.store.BindQuestionDeliveryRef(ctx, questionID, ref); err != nil {
+		return err
+	}
+	record, ok, err := s.store.GetQuestionByID(ctx, strings.TrimSpace(questionID))
+	if err != nil || !ok {
+		return err
+	}
+	if record.Status != questioncmd.StatusPending {
+		s.clearControls(ctx, record)
+	}
+	return nil
 }
 
 func (s *Service) ResolveReply(ctx context.Context, in questioncmd.InboundReply) (baldastate.QuestionRecord, bool, error) {
@@ -136,20 +169,16 @@ func (s *Service) ResolveReplyDetailed(ctx context.Context, in questioncmd.Inbou
 	if err != nil || !ok {
 		return ReplyResolution{Record: record, Matched: ok}, err
 	}
-	var request questioncmd.Request
-	if strings.TrimSpace(record.RequestJSON) == "" {
-		request.AllowFreeText = true
-	} else if err := json.Unmarshal([]byte(record.RequestJSON), &request); err != nil {
+	request, err := decodeRequest(record)
+	if err != nil {
 		return ReplyResolution{Record: record, Matched: true}, fmt.Errorf("decode question request: %w", err)
 	}
-	if strings.EqualFold(strings.TrimSpace(request.Responder), questioncmd.ResponderRequester) {
-		var interaction questioncmd.InteractionContext
-		if err := json.Unmarshal([]byte(record.InteractionJSON), &interaction); err != nil {
-			return ReplyResolution{Record: record, Matched: true}, fmt.Errorf("decode question interaction: %w", err)
-		}
-		if strings.TrimSpace(interaction.RequestedBy.UserID) == "" || strings.TrimSpace(in.User.UserID) != strings.TrimSpace(interaction.RequestedBy.UserID) {
-			return ReplyResolution{Record: record, Matched: true, Invalid: true}, nil
-		}
+	allowed, err := responderAllowed(record, request, in.User)
+	if err != nil {
+		return ReplyResolution{Record: record, Matched: true}, err
+	}
+	if !allowed {
+		return ReplyResolution{Record: record, Matched: true, Invalid: true}, nil
 	}
 	selected, valid := selectedOption(request, in.Text)
 	if !valid {
@@ -163,7 +192,124 @@ func (s *Service) ResolveReplyDetailed(ctx context.Context, in questioncmd.Inbou
 		ProviderMsgID:  strings.TrimSpace(in.MessageID),
 	}
 	updated, settled, err := s.store.MarkQuestionAnswered(ctx, record.QuestionID, answer)
+	if err == nil && settled {
+		s.clearControls(ctx, updated)
+	}
 	return ReplyResolution{Record: updated, Matched: true, Settled: settled}, err
+}
+
+// SelectionResolution reports whether a structured selection matched and
+// durably settled a question.
+type SelectionResolution struct {
+	Record   baldastate.QuestionRecord
+	Matched  bool
+	Settled  bool
+	Invalid  bool
+	Inactive bool
+}
+
+// ResolveSelectionDetailed validates and settles a channel-independent option
+// selection. It never trusts the channel callback as the source of option IDs;
+// the persisted question remains authoritative.
+func (s *Service) ResolveSelectionDetailed(ctx context.Context, in questioncmd.InboundSelection) (SelectionResolution, error) {
+	if s.store == nil {
+		return SelectionResolution{}, fmt.Errorf("question store is required")
+	}
+	record, ok, err := s.store.GetQuestionByID(ctx, strings.TrimSpace(in.QuestionID))
+	if err != nil || !ok {
+		return SelectionResolution{Record: record, Matched: ok}, err
+	}
+	if !selectionContextMatches(record, in) {
+		return SelectionResolution{Record: record, Matched: true, Invalid: true}, nil
+	}
+	if record.Status != questioncmd.StatusPending {
+		s.clearControls(ctx, record)
+		return SelectionResolution{Record: record, Matched: true, Inactive: true}, nil
+	}
+	request, err := decodeRequest(record)
+	if err != nil {
+		return SelectionResolution{Record: record, Matched: true}, fmt.Errorf("decode question request: %w", err)
+	}
+	allowed, err := responderAllowed(record, request, in.User)
+	if err != nil {
+		return SelectionResolution{Record: record, Matched: true}, err
+	}
+	if !allowed {
+		return SelectionResolution{Record: record, Matched: true, Invalid: true}, nil
+	}
+	option, valid := selectedStructuredOption(request, in.OptionID, in.OptionIndex)
+	if !valid {
+		return SelectionResolution{Record: record, Matched: true, Invalid: true}, nil
+	}
+	answer := questioncmd.Answer{
+		Text:           strings.TrimSpace(option.Label),
+		SelectedOption: strings.TrimSpace(option.ID),
+		AnsweredBy:     in.User,
+		AnsweredAt:     zeroOrNow(in.ReceivedAt, s.now().UTC()),
+		ProviderMsgID:  strings.TrimSpace(in.ProviderMessageID),
+	}
+	updated, settled, err := s.store.MarkQuestionAnswered(ctx, record.QuestionID, answer)
+	if err == nil {
+		if settled {
+			s.clearControls(ctx, updated)
+		} else {
+			s.clearControls(ctx, record)
+		}
+	}
+	return SelectionResolution{Record: updated, Matched: true, Settled: settled, Inactive: err == nil && !settled}, err
+}
+
+func decodeRequest(record baldastate.QuestionRecord) (questioncmd.Request, error) {
+	var request questioncmd.Request
+	if strings.TrimSpace(record.RequestJSON) == "" {
+		request.AllowFreeText = true
+		return request, nil
+	}
+	if err := json.Unmarshal([]byte(record.RequestJSON), &request); err != nil {
+		return questioncmd.Request{}, err
+	}
+	return request, nil
+}
+
+func responderAllowed(record baldastate.QuestionRecord, request questioncmd.Request, user questioncmd.UserRef) (bool, error) {
+	if !strings.EqualFold(strings.TrimSpace(request.Responder), questioncmd.ResponderRequester) {
+		return true, nil
+	}
+	var interaction questioncmd.InteractionContext
+	if err := json.Unmarshal([]byte(record.InteractionJSON), &interaction); err != nil {
+		return false, fmt.Errorf("decode question interaction: %w", err)
+	}
+	requesterID := strings.TrimSpace(interaction.RequestedBy.UserID)
+	return requesterID != "" && strings.TrimSpace(user.UserID) == requesterID, nil
+}
+
+func selectionContextMatches(record baldastate.QuestionRecord, in questioncmd.InboundSelection) bool {
+	if strings.TrimSpace(in.SessionID) != "" && strings.TrimSpace(in.SessionID) != strings.TrimSpace(record.SessionID) {
+		return false
+	}
+	if strings.TrimSpace(in.Provider) != "" && strings.TrimSpace(record.Provider) != "" && !strings.EqualFold(strings.TrimSpace(in.Provider), strings.TrimSpace(record.Provider)) {
+		return false
+	}
+	if strings.TrimSpace(in.ConversationKey) != "" && strings.TrimSpace(in.ConversationKey) != firstNonEmpty(record.ConversationKey, record.AddressKey) {
+		return false
+	}
+	return strings.TrimSpace(in.ProviderMessageID) == "" || strings.TrimSpace(record.ProviderMessageID) == "" || strings.TrimSpace(in.ProviderMessageID) == strings.TrimSpace(record.ProviderMessageID)
+}
+
+func selectedStructuredOption(request questioncmd.Request, optionID string, optionIndex int) (questioncmd.Option, bool) {
+	optionID = strings.TrimSpace(optionID)
+	if optionID != "" {
+		for _, option := range request.Options {
+			if optionID == strings.TrimSpace(option.ID) {
+				return option, true
+			}
+		}
+		return questioncmd.Option{}, false
+	}
+	if optionIndex <= 0 || optionIndex > len(request.Options) {
+		return questioncmd.Option{}, false
+	}
+	return request.Options[optionIndex-1], true
 }
 
 func selectedOption(request questioncmd.Request, raw string) (string, bool) {
@@ -190,7 +336,29 @@ func (s *Service) Timeout(ctx context.Context, questionID string, timedOutAt tim
 	if s.store == nil {
 		return baldastate.QuestionRecord{}, false, fmt.Errorf("question store is required")
 	}
-	return s.store.MarkQuestionTimedOut(ctx, strings.TrimSpace(questionID), zeroOrNow(timedOutAt, s.now().UTC()))
+	record, settled, err := s.store.MarkQuestionTimedOut(ctx, strings.TrimSpace(questionID), zeroOrNow(timedOutAt, s.now().UTC()))
+	if err == nil && (settled || record.Status != questioncmd.StatusPending) {
+		s.clearControls(ctx, record)
+	}
+	return record, settled, err
+}
+
+func (s *Service) clearControls(ctx context.Context, record baldastate.QuestionRecord) {
+	if s == nil || s.controls == nil || strings.TrimSpace(record.ProviderMessageID) == "" {
+		return
+	}
+	var interaction questioncmd.InteractionContext
+	if err := json.Unmarshal([]byte(record.InteractionJSON), &interaction); err != nil {
+		s.logger.Warn().Err(err).Str("question_id", record.QuestionID).Msg("decode question interaction for control cleanup")
+		return
+	}
+	if err := s.controls.ClearQuestionControls(ctx, ControlClearRequest{
+		QuestionID:        strings.TrimSpace(record.QuestionID),
+		Locator:           interaction.Locator,
+		ProviderMessageID: strings.TrimSpace(record.ProviderMessageID),
+	}); err != nil {
+		s.logger.Warn().Err(err).Str("question_id", record.QuestionID).Msg("clear settled question controls")
+	}
 }
 
 func firstNonEmpty(values ...string) string {

@@ -123,8 +123,12 @@ func (s *Service) ask(ctx context.Context, request permissioncmd.Request) (permi
 	}()
 
 	options := make([]questioncmd.Option, 0, len(request.Options))
+	deliveryOptions := make([]deliverycmd.QuestionOption, 0, len(request.Options))
 	for _, option := range request.Options {
-		options = append(options, questioncmd.Option{ID: strings.TrimSpace(option.ID), Label: strings.TrimSpace(option.Name)})
+		id := strings.TrimSpace(option.ID)
+		label := strings.TrimSpace(option.Name)
+		options = append(options, questioncmd.Option{ID: id, Label: label})
+		deliveryOptions = append(deliveryOptions, deliverycmd.QuestionOption{ID: id, Label: label})
 	}
 	presentation := permissionfmt.Render(request)
 	record, err := s.questions.Ask(ctx, interaction, questioncmd.ResumeTarget{
@@ -140,15 +144,16 @@ func (s *Service) ask(ctx context.Context, request permissioncmd.Request) (permi
 	if err != nil {
 		return fallback, fmt.Errorf("create permission question: %w", err)
 	}
-	envelope, err := deliverycmd.AgentReplyEnvelopeWithProfileAndSettlementAndRefs(
+	envelope, err := deliverycmd.QuestionEnvelope(
 		"",
 		actorlayer.ActorAddress{Target: actorcmd.ActorTypePermission, Key: reviewID},
 		interaction.Locator,
 		presentation.Profile,
 		deliverycmd.SettlementOutbox,
 		record.Prompt,
+		record.QuestionID,
 		"permission:"+reviewID,
-		map[string]string{"question_id": record.QuestionID},
+		deliveryOptions,
 	)
 	if err != nil {
 		_, _, _ = s.questions.Timeout(context.WithoutCancel(ctx), record.QuestionID, s.now().UTC())

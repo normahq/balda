@@ -75,6 +75,7 @@ Shared contracts also define:
 - question prompt and options;
 - timeout metadata;
 - normalized inbound reply payload;
+- normalized structured selection payload;
 - settled answer payload;
 - continuation payloads such as `QuestionAnswered` and
   `QuestionTimedOut`.
@@ -99,8 +100,10 @@ The `questions` application package owns:
 - pending question lifecycle;
 - durable settlement rules;
 - reply correlation policy;
+- structured option validation against the persisted request;
 - timeout orchestration;
-- ports for persistence, delivery publication, and scheduled wake-up.
+- ports for persistence, delivery publication, channel-control cleanup, and
+  scheduled wake-up.
 
 ### Domain actors
 
@@ -115,7 +118,7 @@ Product actors own:
 
 Handlers may:
 
-- parse provider reply semantics;
+- parse transport reply or control semantics;
 - authenticate the user and resolve session context;
 - normalize inbound replies into a shared contract;
 - delegate to the question application service or publish a product command.
@@ -131,8 +134,15 @@ Handlers must not:
 Delivery remains the external side-effect boundary.
 
 Question prompts are sent through the existing delivery actor path. Concrete
-transport packages may extract provider-specific reply references, but they must
-not own pending-question matching or question lifecycle rules.
+transport packages may project generic options into channel-native controls and
+extract transport-specific reply references. They must not own option validity,
+pending-question matching, responder policy, or question lifecycle rules.
+
+Control cleanup is also a delivery side effect. After a question settles or
+times out, the question application publishes a generic clear-controls request.
+Composition routes it through delivery, and only the concrete transport adapter
+knows how to remove its controls. Cleanup is best effort and idempotent; it must
+not roll back an already durable answer.
 
 ### State
 
@@ -158,6 +168,16 @@ Goalkeeper.
 
 If the inbound message does not match a pending question, ingress continues
 through the ordinary conversational path.
+
+### Structured selection path
+
+`transport callback -> normalize question id, option coordinate, user and conversation -> questions service reloads persisted request -> validate responder/context/option -> settle answer atomically -> clear channel controls through delivery -> publish continuation command`
+
+Callback payloads are routing hints, not authority. The questions service maps
+the selection to the persisted option set and performs the same responder and
+conversation checks used by text replies. Repeated or expired selections do not
+create another continuation; ingress only acknowledges that the request is no
+longer active.
 
 ### Timeout path
 
@@ -185,6 +205,9 @@ is an idempotent no-op after settlement.
 - Permission replies may be restricted to the user who initiated the active
   turn. Unauthorized and invalid replies are consumed but do not settle the
   question.
+- Text replies and channel-native selections share one atomic settlement rule.
+- Channel controls are removed after answer or timeout without making cleanup
+  part of durable settlement.
 - Delivery, ingress, and question lifecycle stay in separate owners.
 
 ## Consequences
@@ -199,20 +222,22 @@ is an idempotent no-op after settlement.
 
 ## Current scope
 
-Version one should stay narrow:
+The current scope stays narrow:
 
-- channel-appropriate permission presentation and plain text prompts for other
-  question kinds;
+- channel-appropriate permission presentation and generic question prompts;
 - free-text answers and transport-neutral numbered options;
+- Telegram inline controls for any question carrying options, with one option
+  per row and a numbered text fallback if controlled delivery fails;
 - durable correlation by provider reply reference;
 - one answer per pending question;
 - optional timeout via one-shot scheduled job;
-- continuation to explicit actor resume target.
+- continuation to explicit actor resume target;
 - agent permission policy modes `allow_all`, `ask`, and `deny_all`; `ask` is
   supported for Telegram and Slack Agent and fails closed elsewhere.
 
-Provider-native buttons, richer validation, and multiple simultaneous question
-policies may be added later.
+Additional channel-control projections, richer validation, and multiple
+simultaneous question policies may be added later without changing the generic
+selection contract.
 
 ## Update triggers
 

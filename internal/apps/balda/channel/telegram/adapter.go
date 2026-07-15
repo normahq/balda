@@ -32,6 +32,9 @@ type TelegramMessenger interface {
 	SendMarkdownWithMode(ctx context.Context, chatID int64, text string, topicID int, mode string) error
 	SendAgentReply(ctx context.Context, chatID int64, text string, topicID int) error
 	SendAgentReplyLastMessageIDAndMode(ctx context.Context, chatID int64, text string, topicID int, mode string) (int, error)
+	SendAgentReplyWithInlineKeyboardLastMessageIDAndMode(ctx context.Context, chatID int64, text string, topicID int, mode string, keyboard client.InlineKeyboardMarkup, fallbackText string) (int, error)
+	ClearInlineKeyboard(ctx context.Context, chatID int64, messageID int) error
+	AnswerCallbackQuery(ctx context.Context, callbackQueryID, text string, showAlert bool) error
 	SendDraftPlain(ctx context.Context, chatID int64, draftID int, text string, topicID int) error
 	SendDraftMarkdownWithMode(ctx context.Context, chatID int64, draftID int, text string, topicID int, mode string) error
 	SendChatAction(ctx context.Context, chatID int64, topicID int, action string) error
@@ -56,22 +59,22 @@ type Adapter struct {
 
 // MessageContext is the balda-facing Telegram message shape.
 type MessageContext struct {
-	Locator         deliverycmd.Locator
-	ChatID          int64
-	TopicID         int
-	MessageID       int
+	Locator          deliverycmd.Locator
+	ChatID           int64
+	TopicID          int
+	MessageID        int
 	ReplyToMessageID int
-	UserID          int64
-	Entities        []client.MessageEntity
-	IsReply         bool
-	ReplyToUserID   int64
-	ReplyToIsBot    bool
-	ReplyContent    string
-	Text            string
-	HasCommand      bool
-	DeliveryOptions deliveryfmt.Options
-	ProgressPolicy  deliveryfmt.ProgressPolicy
-	IsDM            bool
+	UserID           int64
+	Entities         []client.MessageEntity
+	IsReply          bool
+	ReplyToUserID    int64
+	ReplyToIsBot     bool
+	ReplyContent     string
+	Text             string
+	HasCommand       bool
+	DeliveryOptions  deliveryfmt.Options
+	ProgressPolicy   deliveryfmt.ProgressPolicy
+	IsDM             bool
 }
 
 // CommandContext is the balda-facing Telegram command shape.
@@ -138,13 +141,15 @@ func (a *Adapter) Deliver(ctx context.Context, locator deliverycmd.Locator, oper
 	case deliverycmd.OperationMarkdown:
 		err = a.SendMarkdownWithProfile(ctx, locator, operation.Profile, operation.Text)
 	case deliverycmd.OperationAgentReply:
-		result.ProviderMessageID, err = a.SendAgentReplyWithProviderMessageIDAndProfile(ctx, locator, operation.Profile, operation.Text)
+		result.ProviderMessageID, err = a.SendAgentReplyWithQuestion(ctx, locator, operation.Profile, operation.Text, operation.Question)
 	case deliverycmd.OperationDraft:
 		err = a.SendDraftPlain(ctx, locator, operation.DraftID, operation.Text)
 	case deliverycmd.OperationTyping:
 		err = a.SendTyping(ctx, locator)
 	case deliverycmd.OperationProgress:
 		err = a.SendProgress(ctx, locator, operation.Progress)
+	case deliverycmd.OperationClearQuestionControls:
+		err = a.ClearQuestionControls(ctx, locator, operation.MessageID)
 	default:
 		err = fmt.Errorf("unsupported telegram delivery operation %q", operation.Kind)
 	}
@@ -229,19 +234,19 @@ func (a *Adapter) MessageContextFromEvent(event *events.MessageEvent) (MessageCo
 	}
 
 	return MessageContext{
-		Locator:       NewLocator(event.Message.Chat.Id, topicID),
-		ChatID:        event.Message.Chat.Id,
-		TopicID:       topicID,
-		MessageID:     event.Message.MessageId,
+		Locator:          NewLocator(event.Message.Chat.Id, topicID),
+		ChatID:           event.Message.Chat.Id,
+		TopicID:          topicID,
+		MessageID:        event.Message.MessageId,
 		ReplyToMessageID: replyToMessageID,
-		UserID:        event.Message.From.Id,
-		Entities:      entities,
-		IsReply:       isReply,
-		ReplyToUserID: replyToUserID,
-		ReplyToIsBot:  replyToIsBot,
-		ReplyContent:  replyContent,
-		Text:          text,
-		HasCommand:    hasCommand,
+		UserID:           event.Message.From.Id,
+		Entities:         entities,
+		IsReply:          isReply,
+		ReplyToUserID:    replyToUserID,
+		ReplyToIsBot:     replyToIsBot,
+		ReplyContent:     replyContent,
+		Text:             text,
+		HasCommand:       hasCommand,
 		DeliveryOptions: deliveryfmt.Options{
 			Profile: deliveryfmt.Profile{
 				Format:       deliveryfmt.FormatAuto,
@@ -617,12 +622,37 @@ func (a *Adapter) SendAgentReplyWithProviderMessageID(ctx context.Context, locat
 
 // SendAgentReplyWithProviderMessageIDAndProfile sends final agent output using a request-scoped formatting profile.
 func (a *Adapter) SendAgentReplyWithProviderMessageIDAndProfile(ctx context.Context, locator deliverycmd.Locator, profile deliverycmd.Profile, text string) (string, error) {
+	return a.SendAgentReplyWithQuestion(ctx, locator, profile, text, nil)
+}
+
+// SendAgentReplyWithQuestion projects generic question options into Telegram
+// inline controls while preserving a text-only fallback.
+func (a *Adapter) SendAgentReplyWithQuestion(ctx context.Context, locator deliverycmd.Locator, profile deliverycmd.Profile, text string, question *deliverycmd.Question) (string, error) {
 	chatID, topicID, err := telegramTuple(locator)
 	if err != nil {
 		return "", err
 	}
 	mode := deliveryfmt.EffectiveTelegramMode(telegramDeliveryProfile(profile), a.telegramFormattingMode())
-	lastMessageID, err := a.messenger.SendAgentReplyLastMessageIDAndMode(ctx, chatID, text, topicID, mode)
+	var lastMessageID int
+	if question == nil {
+		lastMessageID, err = a.messenger.SendAgentReplyLastMessageIDAndMode(ctx, chatID, text, topicID, mode)
+	} else {
+		keyboard, keyboardErr := questionInlineKeyboard(*question)
+		if keyboardErr != nil {
+			a.logger.Warn().Err(keyboardErr).Str("question_id", question.ID).Msg("build telegram question controls failed, using text choices")
+			lastMessageID, err = a.messenger.SendAgentReplyLastMessageIDAndMode(ctx, chatID, questionTextFallback(text, *question), topicID, mode)
+		} else {
+			lastMessageID, err = a.messenger.SendAgentReplyWithInlineKeyboardLastMessageIDAndMode(
+				ctx,
+				chatID,
+				text,
+				topicID,
+				mode,
+				keyboard,
+				questionTextFallback(text, *question),
+			)
+		}
+	}
 	if err != nil {
 		return "", err
 	}
@@ -630,6 +660,20 @@ func (a *Adapter) SendAgentReplyWithProviderMessageIDAndProfile(ctx context.Cont
 		return "", nil
 	}
 	return strconv.Itoa(lastMessageID), nil
+}
+
+// ClearQuestionControls removes the inline keyboard from a previously sent
+// Telegram question.
+func (a *Adapter) ClearQuestionControls(ctx context.Context, locator deliverycmd.Locator, messageID string) error {
+	chatID, _, err := telegramTuple(locator)
+	if err != nil {
+		return err
+	}
+	id, err := strconv.Atoi(strings.TrimSpace(messageID))
+	if err != nil || id <= 0 {
+		return fmt.Errorf("invalid telegram message id %q", messageID)
+	}
+	return a.messenger.ClearInlineKeyboard(ctx, chatID, id)
 }
 
 // SendDraftPlain updates a draft message for the locator.

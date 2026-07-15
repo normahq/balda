@@ -59,12 +59,25 @@ func (r *Router) SendAgentReplyWithProviderMessageID(ctx context.Context, locato
 }
 
 func (r *Router) SendAgentReplyWithProviderMessageIDAndProfile(ctx context.Context, locator deliverycmd.Locator, profile deliverycmd.Profile, text string) (string, error) {
+	return r.SendAgentReplyWithQuestion(ctx, locator, profile, text, nil)
+}
+
+func (r *Router) SendAgentReplyWithQuestion(ctx context.Context, locator deliverycmd.Locator, profile deliverycmd.Profile, text string, question *deliverycmd.Question) (string, error) {
 	adapter, err := r.adapterFor(locator)
 	if err != nil {
 		return "", err
 	}
-	result, err := adapter.Deliver(ctx, locator, deliverycmd.Operation{Kind: deliverycmd.OperationAgentReply, Profile: profile, Text: text})
+	result, err := adapter.Deliver(ctx, locator, deliverycmd.Operation{Kind: deliverycmd.OperationAgentReply, Profile: profile, Text: text, Question: question})
 	return result.ProviderMessageID, err
+}
+
+func (r *Router) ClearQuestionControls(ctx context.Context, locator deliverycmd.Locator, messageID string) error {
+	adapter, err := r.adapterFor(locator)
+	if err != nil {
+		return err
+	}
+	_, err = adapter.Deliver(ctx, locator, deliverycmd.Operation{Kind: deliverycmd.OperationClearQuestionControls, MessageID: messageID})
+	return err
 }
 
 func (r *Router) SendDraftPlain(ctx context.Context, locator deliverycmd.Locator, draftID int, text string) error {

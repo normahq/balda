@@ -87,6 +87,21 @@ type InboundReply struct {
 	ReceivedAt       time.Time `json:"received_at,omitempty"`
 }
 
+// InboundSelection describes a structured choice made through channel-native
+// controls. Channels may identify the choice by stable option ID or by its
+// one-based position in the original question.
+type InboundSelection struct {
+	Provider          string    `json:"provider,omitempty"`
+	SessionID         string    `json:"session_id,omitempty"`
+	ConversationKey   string    `json:"conversation_key,omitempty"`
+	QuestionID        string    `json:"question_id"`
+	ProviderMessageID string    `json:"provider_message_id,omitempty"`
+	User              UserRef   `json:"user,omitempty"`
+	OptionID          string    `json:"option_id,omitempty"`
+	OptionIndex       int       `json:"option_index,omitempty"`
+	ReceivedAt        time.Time `json:"received_at,omitempty"`
+}
+
 type Answer struct {
 	Text           string    `json:"text,omitempty"`
 	SelectedOption string    `json:"selected_option,omitempty"`

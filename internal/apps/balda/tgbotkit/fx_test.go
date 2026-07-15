@@ -3,6 +3,7 @@ package tgbotkit
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -127,6 +128,49 @@ func TestNewUpdateSource_WebhookModeReturnsWebhookSource(t *testing.T) {
 
 	if _, ok := src.(*webhookUpdateSource); !ok {
 		t.Fatalf("update source type = %T, want *webhookUpdateSource", src)
+	}
+}
+
+func TestWebhookRequestsCallbackQueryUpdates(t *testing.T) {
+	requests := make(chan struct {
+		AllowedUpdates []string `json:"allowed_updates"`
+	}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "setWebhook") {
+			var body struct {
+				AllowedUpdates []string `json:"allowed_updates"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+				requests <- body
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer server.Close()
+	tgClient, err := client.NewClientWithResponses(server.URL)
+	if err != nil {
+		t.Fatalf("NewClientWithResponses() error = %v", err)
+	}
+	source, err := NewUpdateSource(Config{Webhook: WebhookConfig{
+		Enabled: true, ListenAddr: "127.0.0.1:0", Path: "/telegram/webhook", URL: "https://example.com/webhook", AuthToken: "secret",
+	}}, tgClient, nil, zerolog.Nop())
+	if err != nil {
+		t.Fatalf("NewUpdateSource() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := source.Start(ctx); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	t.Cleanup(func() { _ = source.Stop(context.Background()) })
+	select {
+	case request := <-requests:
+		if len(request.AllowedUpdates) != 2 || request.AllowedUpdates[0] != "message" || request.AllowedUpdates[1] != "callback_query" {
+			t.Fatalf("allowed updates = %v", request.AllowedUpdates)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("setWebhook request was not observed")
 	}
 }
 

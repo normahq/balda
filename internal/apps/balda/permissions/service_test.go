@@ -126,6 +126,13 @@ func TestAskWaitsForGenericPermissionDecision(t *testing.T) {
 		errors <- err
 	}()
 	envelope := <-dispatcher.envelopes
+	var delivery deliverycmd.Payload
+	if err := actorlayer.UnmarshalPayload(envelope.Payload, &delivery); err != nil {
+		t.Fatalf("decode delivery payload: %v", err)
+	}
+	if delivery.Question == nil || len(delivery.Question.Options) != 2 || delivery.Question.Options[0].ID != "allow" {
+		t.Fatalf("delivery question = %+v", delivery.Question)
+	}
 	service.Resolve(envelope.From.Key, "allow")
 	if err := <-errors; err != nil {
 		t.Fatalf("Review() error = %v", err)

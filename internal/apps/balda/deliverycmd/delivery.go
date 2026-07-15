@@ -17,9 +17,11 @@ type Payload struct {
 	Mode       Mode              `json:"mode"`
 	Settlement SettlementPolicy  `json:"settlement,omitempty"`
 	Refs       map[string]string `json:"refs,omitempty"`
+	Question   *Question         `json:"question,omitempty"`
 	Text       string            `json:"text,omitempty"`
 	DraftID    int               `json:"draft_id,omitempty"`
 	Action     string            `json:"action,omitempty"`
+	MessageID  string            `json:"message_id,omitempty"`
 	Progress   *Progress         `json:"progress,omitempty"`
 }
 
@@ -59,6 +61,18 @@ type PlanEntry struct {
 	Status  string `json:"status,omitempty"`
 }
 
+// Question describes transport-neutral choices attached to a delivered prompt.
+type Question struct {
+	ID      string           `json:"id"`
+	Options []QuestionOption `json:"options"`
+}
+
+// QuestionOption is one selectable value in a delivered question.
+type QuestionOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
 type Progress struct {
 	Kind     ProgressKind   `json:"kind"`
 	Text     string         `json:"text,omitempty"`
@@ -69,12 +83,13 @@ type Progress struct {
 }
 
 const (
-	ModeAgentReply Mode = "agent_reply"
-	ModePlain      Mode = "plain"
-	ModeMarkdown   Mode = "markdown"
-	ModeDraftPlain Mode = "draft_plain"
-	ModeChatAction Mode = "chat_action"
-	ModeProgress   Mode = "progress"
+	ModeAgentReply            Mode = "agent_reply"
+	ModePlain                 Mode = "plain"
+	ModeMarkdown              Mode = "markdown"
+	ModeDraftPlain            Mode = "draft_plain"
+	ModeChatAction            Mode = "chat_action"
+	ModeProgress              Mode = "progress"
+	ModeClearQuestionControls Mode = "clear_question_controls"
 )
 
 const (
@@ -115,6 +130,42 @@ func AgentReplyEnvelopeWithProfileAndSettlementAndRefs(jobID string, from actorl
 		Refs:       refs,
 		Text:       strings.TrimSpace(text),
 	}, dedupeSuffix)
+}
+
+// QuestionEnvelope builds an agent-reply delivery carrying generic selectable options.
+func QuestionEnvelope(jobID string, from actorlayer.ActorAddress, locator Locator, profile Profile, settlement SettlementPolicy, text, questionID, dedupeSuffix string, options []QuestionOption) (actorlayer.Envelope, error) {
+	questionID = strings.TrimSpace(questionID)
+	return envelope(jobID, from, Payload{
+		JobID:      strings.TrimSpace(jobID),
+		Locator:    locator,
+		Profile:    normalizeProfile(profile),
+		Mode:       ModeAgentReply,
+		Settlement: normalizeSettlementPolicy(settlement),
+		Refs:       map[string]string{"question_id": questionID},
+		Question: &Question{
+			ID:      questionID,
+			Options: append([]QuestionOption(nil), options...),
+		},
+		Text: strings.TrimSpace(text),
+	}, dedupeSuffix)
+}
+
+// ClearQuestionControlsEnvelope removes channel-native controls from a settled question.
+func ClearQuestionControlsEnvelope(from actorlayer.ActorAddress, locator Locator, questionID, messageID string) (actorlayer.Envelope, error) {
+	questionID = strings.TrimSpace(questionID)
+	env, err := envelope("", from, Payload{
+		Locator:   locator,
+		Mode:      ModeClearQuestionControls,
+		Refs:      map[string]string{"question_id": questionID},
+		MessageID: strings.TrimSpace(messageID),
+	}, "question-controls-clear")
+	if err != nil {
+		return actorlayer.Envelope{}, err
+	}
+	dedupeKey := "question:" + questionID + ":controls:clear"
+	env.ID = dedupeKey
+	env.DedupeKey = dedupeKey
+	return env, nil
 }
 
 func PlainEnvelope(jobID string, from actorlayer.ActorAddress, locator Locator, text string, dedupeSuffix string) (actorlayer.Envelope, error) {
@@ -263,6 +314,14 @@ func Validate(payload Payload) error {
 		if strings.TrimSpace(payload.Text) == "" {
 			return fmt.Errorf("delivery text is required")
 		}
+		if payload.Question != nil {
+			if payload.Mode != ModeAgentReply {
+				return fmt.Errorf("question controls require agent reply mode")
+			}
+			if err := validateQuestion(*payload.Question); err != nil {
+				return err
+			}
+		}
 	case ModeChatAction:
 		if strings.TrimSpace(payload.Action) == "" {
 			return fmt.Errorf("delivery action is required")
@@ -282,6 +341,13 @@ func Validate(payload Payload) error {
 		default:
 			return fmt.Errorf("unsupported progress kind %q", payload.Progress.Kind)
 		}
+	case ModeClearQuestionControls:
+		if strings.TrimSpace(payload.Refs["question_id"]) == "" {
+			return fmt.Errorf("question id is required")
+		}
+		if strings.TrimSpace(payload.MessageID) == "" {
+			return fmt.Errorf("provider message id is required")
+		}
 	default:
 		return fmt.Errorf("unsupported delivery mode %q", payload.Mode)
 	}
@@ -292,6 +358,30 @@ func Validate(payload Payload) error {
 	case SettlementAuto, SettlementBypass, SettlementOutbox:
 	default:
 		return fmt.Errorf("unsupported delivery settlement %q", payload.Settlement)
+	}
+	return nil
+}
+
+func validateQuestion(question Question) error {
+	if strings.TrimSpace(question.ID) == "" {
+		return fmt.Errorf("question id is required")
+	}
+	if len(question.Options) == 0 {
+		return fmt.Errorf("question options are required")
+	}
+	seen := make(map[string]struct{}, len(question.Options))
+	for _, option := range question.Options {
+		id := strings.TrimSpace(option.ID)
+		if id == "" {
+			return fmt.Errorf("question option id is required")
+		}
+		if strings.TrimSpace(option.Label) == "" {
+			return fmt.Errorf("question option label is required")
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("duplicate question option id %q", id)
+		}
+		seen[id] = struct{}{}
 	}
 	return nil
 }

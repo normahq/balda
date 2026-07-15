@@ -24,7 +24,7 @@ func (d channelRouterDispatcher) Dispatch(ctx context.Context, payload deliveryc
 	}
 	switch payload.Mode {
 	case deliverycmd.ModeAgentReply:
-		return d.router.SendAgentReplyWithProviderMessageIDAndProfile(ctx, payload.Locator, payload.Profile, payload.Text)
+		return d.router.SendAgentReplyWithQuestion(ctx, payload.Locator, payload.Profile, payload.Text, payload.Question)
 	case deliverycmd.ModePlain:
 		return "", d.router.SendPlain(ctx, payload.Locator, payload.Text)
 	case deliverycmd.ModeMarkdown:
@@ -38,6 +38,8 @@ func (d channelRouterDispatcher) Dispatch(ctx context.Context, payload deliveryc
 			return "", fmt.Errorf("progress payload is required")
 		}
 		return "", d.router.SendProgress(ctx, payload.Locator, *payload.Progress)
+	case deliverycmd.ModeClearQuestionControls:
+		return "", d.router.ClearQuestionControls(ctx, payload.Locator, payload.MessageID)
 	default:
 		return "", fmt.Errorf("unsupported delivery mode %q", payload.Mode)
 	}

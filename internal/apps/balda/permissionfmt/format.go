@@ -23,22 +23,35 @@ type Presentation struct {
 
 func Render(request permissioncmd.Request) Presentation {
 	switch strings.ToLower(strings.TrimSpace(request.Interaction.Locator.ChannelType)) {
-	case string(deliverycmd.ChannelTypeTelegram), string(deliverycmd.ChannelTypeSlackAgent):
+	case string(deliverycmd.ChannelTypeTelegram):
+		return Presentation{Prompt: renderTelegramMarkdown(request), Profile: deliverycmd.Profile{Format: deliverycmd.FormatMarkdown}}
+	case string(deliverycmd.ChannelTypeSlackAgent):
 		return Presentation{Prompt: renderMarkdown(request), Profile: deliverycmd.Profile{Format: deliverycmd.FormatMarkdown}}
 	default:
 		return Presentation{Prompt: renderPlain(request), Profile: deliverycmd.Profile{Format: deliverycmd.FormatPlain}}
 	}
 }
 
+func renderTelegramMarkdown(request permissioncmd.Request) string {
+	var out strings.Builder
+	writeMarkdownRequest(&out, request)
+	out.WriteString("\n\n_Choose an action below._")
+	return out.String()
+}
+
 func renderMarkdown(request permissioncmd.Request) string {
 	var out strings.Builder
-	out.WriteString("🔐 **Permission required**")
-	writeMarkdownAction(&out, request.ToolCall)
-	writeMarkdownContent(&out, request.ToolCall.Content)
-	writeMarkdownLocations(&out, request.ToolCall.Locations)
+	writeMarkdownRequest(&out, request)
 	writeOptions(&out, request.Options, "\n\n**Choose:**")
 	out.WriteString("\n\n_Reply with the number or option name._")
 	return out.String()
+}
+
+func writeMarkdownRequest(out *strings.Builder, request permissioncmd.Request) {
+	out.WriteString("🔐 **Permission required**")
+	writeMarkdownAction(out, request.ToolCall)
+	writeMarkdownContent(out, request.ToolCall.Content)
+	writeMarkdownLocations(out, request.ToolCall.Locations)
 }
 
 func writeMarkdownAction(out *strings.Builder, toolCall permissioncmd.ToolCall) {

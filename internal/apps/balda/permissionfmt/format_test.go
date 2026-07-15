@@ -26,15 +26,26 @@ func TestRenderTelegramUsesStructuredContentAndOmitsOpaqueInput(t *testing.T) {
 	if presentation.Profile.Format != deliverycmd.FormatMarkdown {
 		t.Fatalf("profile = %+v", presentation.Profile)
 	}
-	for _, want := range []string{"**Permission required**", "Run the test.", "```sh\nid\n```", "`/workspace`", "1. Allow once", "2. Cancel"} {
+	for _, want := range []string{"**Permission required**", "Run the test.", "```sh\nid\n```", "`/workspace`", "Choose an action below"} {
 		if !strings.Contains(presentation.Prompt, want) {
 			t.Fatalf("prompt missing %q: %q", want, presentation.Prompt)
 		}
 	}
-	for _, hidden := range []string{"threadId", "internal-id", "secret-value", "opt-1", "opt-2", "RawInput"} {
+	for _, hidden := range []string{"threadId", "internal-id", "secret-value", "opt-1", "opt-2", "RawInput", "1. Allow once", "2. Cancel"} {
 		if strings.Contains(presentation.Prompt, hidden) {
 			t.Fatalf("prompt exposed %q: %q", hidden, presentation.Prompt)
 		}
+	}
+}
+
+func TestRenderSlackAgentKeepsTextOptions(t *testing.T) {
+	presentation := Render(permissioncmd.Request{
+		Interaction: questioncmd.InteractionContext{Locator: deliverycmd.Locator{ChannelType: string(deliverycmd.ChannelTypeSlackAgent)}},
+		ToolCall:    permissioncmd.ToolCall{Title: "Command approval"},
+		Options:     []permissioncmd.Option{{ID: "allow", Name: "Allow"}, {ID: "cancel", Name: "Cancel"}},
+	})
+	if !strings.Contains(presentation.Prompt, "1. Allow") || !strings.Contains(presentation.Prompt, "2. Cancel") {
+		t.Fatalf("prompt = %q, want text options", presentation.Prompt)
 	}
 }
 

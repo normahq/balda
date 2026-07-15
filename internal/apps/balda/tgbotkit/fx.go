@@ -47,6 +47,8 @@ const (
 	webhookIdleTimeout        = 60 * time.Second
 )
 
+var telegramAllowedUpdates = []string{"message", "callback_query"}
+
 // NewClient creates a new Telegram API client.
 func NewClient(cfg Config) (client.ClientWithResponsesInterface, error) {
 	serverURL, err := client.NewServerUrlTelegramBotAPIEndpointSubstituteBotTokenWithYourBotToken(
@@ -105,6 +107,7 @@ func NewUpdateSource(
 				webhook.WithToken(strings.TrimSpace(cfg.Webhook.AuthToken)),
 				webhook.WithUrl(strings.TrimSpace(cfg.Webhook.URL)),
 				webhook.WithClient(client),
+				webhook.WithAllowedUpdates(telegramAllowedUpdates),
 			),
 		)
 		if err != nil {
@@ -139,6 +142,7 @@ func NewUpdateSource(
 		client,
 		updatepoller.WithOffsetStore(offsetStore),
 		updatepoller.WithLogger(logger.NewZerolog(l)),
+		updatepoller.WithAllowedUpdates(telegramAllowedUpdates),
 	)
 	return updatepoller.NewPoller(opts)
 }
@@ -231,6 +235,7 @@ type Registry interface {
 	OnCommand(handler handlers.CommandHandler) eventemitter.UnsubscribeFunc
 	OnMessage(handler handlers.MessageHandler) eventemitter.UnsubscribeFunc
 	OnMessageType(t messagetype.MessageType, handler handlers.MessageHandler) eventemitter.UnsubscribeFunc
+	OnCallbackDataPrefix(prefix string, handler handlers.CallbackQueryHandler) eventemitter.UnsubscribeFunc
 }
 
 // Handler is a local interface for bot handlers.

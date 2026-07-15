@@ -47,12 +47,25 @@ func (f *fakeStore) GetPendingQuestionByReplyRef(_ context.Context, provider, co
 	return baldastate.QuestionRecord{}, false, nil
 }
 func (f *fakeStore) MarkQuestionAnswered(_ context.Context, questionID string, answer questioncmd.Answer) (baldastate.QuestionRecord, bool, error) {
-	if f.replyMatch.QuestionID != questionID {
+	target := &f.replyMatch
+	if target.QuestionID != questionID {
+		target = &f.record
+	}
+	if target.QuestionID != questionID || target.Status != questioncmd.StatusPending {
 		return baldastate.QuestionRecord{}, false, nil
 	}
-	f.replyMatch.Status = questioncmd.StatusAnswered
-	f.replyMatch.AnswerJSON = mustJSON(answer)
-	return f.replyMatch, true, nil
+	target.Status = questioncmd.StatusAnswered
+	target.AnswerJSON = mustJSON(answer)
+	return *target, true, nil
+}
+
+type fakeControlPublisher struct {
+	requests []ControlClearRequest
+}
+
+func (f *fakeControlPublisher) ClearQuestionControls(_ context.Context, request ControlClearRequest) error {
+	f.requests = append(f.requests, request)
+	return nil
 }
 func (f *fakeStore) MarkQuestionTimedOut(_ context.Context, questionID string, timedOutAt time.Time) (baldastate.QuestionRecord, bool, error) {
 	if f.record.QuestionID != questionID {
@@ -179,5 +192,145 @@ func TestServiceResolveReplyMapsOptionNumber(t *testing.T) {
 	}
 	if answer.SelectedOption != "reject" {
 		t.Fatalf("selected option = %q, want reject", answer.SelectedOption)
+	}
+}
+
+func TestServiceResolveSelectionSettlesPersistedOptionAndClearsControls(t *testing.T) {
+	store := &fakeStore{record: selectableQuestionRecord()}
+	controls := &fakeControlPublisher{}
+	service := New(store, nil, zerolog.Nop())
+	service.SetControlPublisher(controls)
+
+	result, err := service.ResolveSelectionDetailed(context.Background(), questioncmd.InboundSelection{
+		Provider:          "telegram",
+		SessionID:         "tg-1-0",
+		ConversationKey:   "1:0",
+		QuestionID:        "question-1",
+		ProviderMessageID: "42",
+		User:              questioncmd.UserRef{UserID: "tg-101"},
+		OptionIndex:       2,
+	})
+	if err != nil {
+		t.Fatalf("ResolveSelectionDetailed() error = %v", err)
+	}
+	if !result.Matched || !result.Settled || result.Invalid || result.Inactive {
+		t.Fatalf("resolution = %+v, want matched settled", result)
+	}
+	var answer questioncmd.Answer
+	if err := json.Unmarshal([]byte(result.Record.AnswerJSON), &answer); err != nil {
+		t.Fatalf("decode answer: %v", err)
+	}
+	if answer.SelectedOption != "cancel" || answer.Text != "Cancel" {
+		t.Fatalf("answer = %+v, want cancel selection", answer)
+	}
+	if len(controls.requests) != 1 || controls.requests[0].QuestionID != "question-1" || controls.requests[0].ProviderMessageID != "42" {
+		t.Fatalf("control cleanup = %+v", controls.requests)
+	}
+}
+
+func TestServiceResolveSelectionRejectsWrongRequesterAndContext(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		selection questioncmd.InboundSelection
+	}{
+		{
+			name: "requester",
+			selection: questioncmd.InboundSelection{
+				Provider: "telegram", SessionID: "tg-1-0", ConversationKey: "1:0", QuestionID: "question-1", ProviderMessageID: "42",
+				User: questioncmd.UserRef{UserID: "tg-202"}, OptionIndex: 1,
+			},
+		},
+		{
+			name: "conversation",
+			selection: questioncmd.InboundSelection{
+				Provider: "telegram", SessionID: "tg-2-0", ConversationKey: "2:0", QuestionID: "question-1", ProviderMessageID: "42",
+				User: questioncmd.UserRef{UserID: "tg-101"}, OptionIndex: 1,
+			},
+		},
+		{
+			name: "option index",
+			selection: questioncmd.InboundSelection{
+				Provider: "telegram", SessionID: "tg-1-0", ConversationKey: "1:0", QuestionID: "question-1", ProviderMessageID: "42",
+				User: questioncmd.UserRef{UserID: "tg-101"}, OptionIndex: 99,
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &fakeStore{record: selectableQuestionRecord()}
+			result, err := New(store, nil, zerolog.Nop()).ResolveSelectionDetailed(context.Background(), test.selection)
+			if err != nil {
+				t.Fatalf("ResolveSelectionDetailed() error = %v", err)
+			}
+			if !result.Matched || !result.Invalid || result.Settled {
+				t.Fatalf("resolution = %+v, want invalid unsettled", result)
+			}
+		})
+	}
+}
+
+func TestServiceResolveSelectionReportsInactiveAndRetriesCleanup(t *testing.T) {
+	record := selectableQuestionRecord()
+	record.Status = questioncmd.StatusAnswered
+	store := &fakeStore{record: record}
+	controls := &fakeControlPublisher{}
+	service := New(store, nil, zerolog.Nop())
+	service.SetControlPublisher(controls)
+
+	result, err := service.ResolveSelectionDetailed(context.Background(), questioncmd.InboundSelection{
+		QuestionID: "question-1", SessionID: "tg-1-0", ConversationKey: "1:0", ProviderMessageID: "42", OptionIndex: 1,
+	})
+	if err != nil {
+		t.Fatalf("ResolveSelectionDetailed() error = %v", err)
+	}
+	if !result.Matched || !result.Inactive || result.Settled {
+		t.Fatalf("resolution = %+v, want inactive", result)
+	}
+	if len(controls.requests) != 1 {
+		t.Fatalf("cleanup requests = %d, want 1", len(controls.requests))
+	}
+}
+
+func TestServiceBindDeliveryCleansControlsIfSelectionWonDeliveryRace(t *testing.T) {
+	record := selectableQuestionRecord()
+	record.Status = questioncmd.StatusAnswered
+	record.Provider = ""
+	record.ProviderMessageID = ""
+	store := &fakeStore{record: record}
+	controls := &fakeControlPublisher{}
+	service := New(store, nil, zerolog.Nop())
+	service.SetControlPublisher(controls)
+
+	err := service.BindDelivery(context.Background(), "question-1", questioncmd.DeliveryRef{
+		Provider: "telegram", ConversationKey: "1:0", ProviderMessageID: "42",
+	})
+	if err != nil {
+		t.Fatalf("BindDelivery() error = %v", err)
+	}
+	if len(controls.requests) != 1 || controls.requests[0].ProviderMessageID != "42" {
+		t.Fatalf("cleanup requests = %+v", controls.requests)
+	}
+}
+
+func selectableQuestionRecord() baldastate.QuestionRecord {
+	interaction := questioncmd.InteractionContext{
+		SessionID:   "tg-1-0",
+		ChannelKind: "telegram",
+		Locator: deliverycmd.Locator{
+			SessionID: "tg-1-0", ChannelType: "telegram", AddressKey: "1:0", AddressJSON: `{"chat_id":1,"topic_id":0}`,
+		},
+		RequestedBy: questioncmd.UserRef{UserID: "tg-101"},
+	}
+	return baldastate.QuestionRecord{
+		QuestionID:        "question-1",
+		SessionID:         "tg-1-0",
+		Status:            questioncmd.StatusPending,
+		Provider:          "telegram",
+		ConversationKey:   "1:0",
+		ProviderMessageID: "42",
+		InteractionJSON:   mustJSON(interaction),
+		RequestJSON: mustJSON(questioncmd.Request{
+			Responder: questioncmd.ResponderRequester,
+			Options:   []questioncmd.Option{{ID: "allow", Label: "Allow"}, {ID: "cancel", Label: "Cancel"}},
+		}),
 	}
 }

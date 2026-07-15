@@ -3,6 +3,7 @@ package deliveryfx
 import (
 	"time"
 
+	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldaslack "github.com/normahq/balda/internal/apps/balda/channel/slack"
 	baldaslackagent "github.com/normahq/balda/internal/apps/balda/channel/slackagent"
@@ -10,6 +11,7 @@ import (
 	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/messenger"
+	"github.com/normahq/balda/internal/apps/balda/questions"
 	"github.com/rs/zerolog"
 	"github.com/tgbotkit/client"
 	"go.uber.org/fx"
@@ -52,5 +54,11 @@ var Module = fx.Module("balda_deliveryfx",
 				string(deliverycmd.ChannelTypeSlackAgent): sla,
 			})
 		},
+		fx.Annotate(
+			func(dispatcher actortransport.Dispatcher) questions.ControlPublisher {
+				return questionControlPublisher{dispatcher: dispatcher}
+			},
+			fx.As(new(questions.ControlPublisher)),
+		),
 	),
 )

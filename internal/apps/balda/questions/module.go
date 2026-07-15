@@ -10,11 +10,20 @@ import (
 
 var Module = fx.Module("balda_questions",
 	fx.Provide(
-		func(store baldastate.QuestionStore, scheduled baldastate.ScheduledJobStore, logger zerolog.Logger) (*Service, error) {
-			if store == nil {
+		func(params struct {
+			fx.In
+
+			Store     baldastate.QuestionStore
+			Scheduled baldastate.ScheduledJobStore
+			Controls  ControlPublisher `optional:"true"`
+			Logger    zerolog.Logger
+		}) (*Service, error) {
+			if params.Store == nil {
 				return nil, fmt.Errorf("question store is required")
 			}
-			return New(store, scheduled, logger.With().Str("component", "balda.questions").Logger()), nil
+			service := New(params.Store, params.Scheduled, params.Logger.With().Str("component", "balda.questions").Logger())
+			service.SetControlPublisher(params.Controls)
+			return service, nil
 		},
 		NewDeliveryBindingProjector,
 	),

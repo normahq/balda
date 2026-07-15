@@ -100,6 +100,7 @@ func (h *BaldaHandler) Start(ctx context.Context) error {
 // Register registers the handler with the registry.
 func (h *BaldaHandler) Register(registry tgbotkit.Registry) {
 	registry.OnMessage(h.onMessage)
+	registry.OnCallbackDataPrefix(baldatelegram.QuestionCallbackPrefix, h.onQuestionCallback)
 	registry.OnMessageType(messagetype.ForumTopicCreated, h.onForumTopicLifecycle)
 	registry.OnMessageType(messagetype.ForumTopicEdited, h.onForumTopicLifecycle)
 	registry.OnMessageType(messagetype.ForumTopicClosed, h.onForumTopicLifecycle)

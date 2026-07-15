@@ -26,15 +26,6 @@ type Lifecycle interface {
 	AppendEvent(ctx context.Context, jobID string, eventType string, actor string, messageID string, payload any) error
 }
 
-type Sender interface {
-	SendAgentReplyWithProviderMessageIDAndProfile(ctx context.Context, locator deliverycmd.Locator, profile deliverycmd.Profile, text string) (string, error)
-	SendPlain(ctx context.Context, locator deliverycmd.Locator, text string) error
-	SendMarkdownWithProfile(ctx context.Context, locator deliverycmd.Locator, profile deliverycmd.Profile, text string) error
-	SendDraftPlain(ctx context.Context, locator deliverycmd.Locator, draftID int, text string) error
-	SendTyping(ctx context.Context, locator deliverycmd.Locator) error
-	SendProgress(ctx context.Context, locator deliverycmd.Locator, progress deliverycmd.Progress) error
-}
-
 type QuestionDeliveryBinder interface {
 	BindDelivery(ctx context.Context, questionID string, ref questioncmd.DeliveryRef) error
 }

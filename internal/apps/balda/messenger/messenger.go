@@ -1,7 +1,9 @@
 package messenger
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -239,6 +241,176 @@ func (m *Messenger) SendAgentReplyLastMessageIDAndMode(ctx context.Context, chat
 		return 0, err
 	}
 	return result.LastMessageID, nil
+}
+
+// SendAgentReplyWithInlineKeyboardLastMessageIDAndMode sends a single final
+// reply with Telegram-native controls. If Telegram rejects the controlled
+// message, it retries with a self-contained text fallback.
+func (m *Messenger) SendAgentReplyWithInlineKeyboardLastMessageIDAndMode(
+	ctx context.Context,
+	chatID int64,
+	text string,
+	topicID int,
+	mode string,
+	keyboard client.InlineKeyboardMarkup,
+	fallbackText string,
+) (int, error) {
+	messageID, err := m.sendAgentReplyWithInlineKeyboard(ctx, chatID, text, topicID, mode, keyboard)
+	if err == nil {
+		return messageID, nil
+	}
+	if !shouldFallbackRichSend(ctx, err) {
+		return 0, err
+	}
+	m.logger.Warn().Err(err).Int64("chat_id", chatID).Msg("send telegram question controls failed, retrying with text choices")
+	result, fallbackErr := m.SendAgentReplyWithResultAndMode(ctx, chatID, fallbackText, topicID, mode)
+	if fallbackErr != nil {
+		return 0, fmt.Errorf("send telegram question controls: %v; text fallback: %w", err, fallbackErr)
+	}
+	return result.LastMessageID, nil
+}
+
+func (m *Messenger) sendAgentReplyWithInlineKeyboard(ctx context.Context, chatID int64, text string, topicID int, mode string, keyboard client.InlineKeyboardMarkup) (int, error) {
+	switch telegramfmt.NormalizeMode(mode) {
+	case telegramfmt.ModeRichHTML:
+		return m.sendRichMessageWithInlineKeyboard(ctx, chatID, richHTML(telegramfmt.HTML(text)), topicID, keyboard)
+	case telegramfmt.ModeRichMarkdown:
+		return m.sendRichMessageWithInlineKeyboard(ctx, chatID, richMarkdown(text), topicID, keyboard)
+	case telegramfmt.ModeHTML:
+		return m.sendMessageWithInlineKeyboard(ctx, chatID, telegramfmt.HTML(text), topicID, telegramfmt.TelegramParseMode(telegramfmt.ModeHTML), keyboard)
+	case telegramfmt.ModeNone:
+		return m.sendMessageWithInlineKeyboard(ctx, chatID, text, topicID, "", keyboard)
+	default:
+		payload, err := telegramfmt.MarkdownV2(text)
+		if err != nil {
+			payload = telegramfmt.EscapeMarkdownV2(text)
+		}
+		return m.sendMessageWithInlineKeyboard(ctx, chatID, payload, topicID, "MarkdownV2", keyboard)
+	}
+}
+
+type sendRichMessageWithInlineKeyboardRequest struct {
+	ChatID          int64                       `json:"chat_id"`
+	RichMessage     client.InputRichMessage     `json:"rich_message"`
+	MessageThreadID *int                        `json:"message_thread_id,omitempty"`
+	ReplyMarkup     client.InlineKeyboardMarkup `json:"reply_markup"`
+}
+
+func (m *Messenger) sendRichMessageWithInlineKeyboard(ctx context.Context, chatID int64, rich client.InputRichMessage, topicID int, keyboard client.InlineKeyboardMarkup) (int, error) {
+	request := sendRichMessageWithInlineKeyboardRequest{ChatID: chatID, RichMessage: rich, ReplyMarkup: keyboard}
+	if topicID != 0 {
+		request.MessageThreadID = &topicID
+	}
+	body, err := json.Marshal(request)
+	if err != nil {
+		return 0, fmt.Errorf("encode rich telegram question: %w", err)
+	}
+	sendCtx, cancel := telegramSendContext(ctx)
+	defer cancel()
+	resp, err := m.client.SendRichMessageWithBodyWithResponse(sendCtx, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return 0, fmt.Errorf("send rich telegram question to chat %d: %w", chatID, err)
+	}
+	if resp == nil {
+		return 0, fmt.Errorf("send rich telegram question to chat %d: no response body", chatID)
+	}
+	if resp.JSON400 != nil {
+		return 0, fmt.Errorf("send rich telegram question to chat %d: %s", chatID, resp.JSON400.Description)
+	}
+	if resp.JSON200 == nil {
+		return 0, fmt.Errorf("send rich telegram question to chat %d: no response body", chatID)
+	}
+	return resp.JSON200.Result.MessageId, nil
+}
+
+type sendMessageWithInlineKeyboardRequest struct {
+	ChatID          int64                       `json:"chat_id"`
+	Text            string                      `json:"text"`
+	ParseMode       *string                     `json:"parse_mode,omitempty"`
+	MessageThreadID *int                        `json:"message_thread_id,omitempty"`
+	ReplyMarkup     client.InlineKeyboardMarkup `json:"reply_markup"`
+}
+
+func (m *Messenger) sendMessageWithInlineKeyboard(ctx context.Context, chatID int64, text string, topicID int, mode string, keyboard client.InlineKeyboardMarkup) (int, error) {
+	request := sendMessageWithInlineKeyboardRequest{ChatID: chatID, Text: text, ReplyMarkup: keyboard}
+	if mode != "" {
+		request.ParseMode = &mode
+	}
+	if topicID != 0 {
+		request.MessageThreadID = &topicID
+	}
+	body, err := json.Marshal(request)
+	if err != nil {
+		return 0, fmt.Errorf("encode telegram question: %w", err)
+	}
+	sendCtx, cancel := telegramSendContext(ctx)
+	defer cancel()
+	resp, err := m.client.SendMessageWithBodyWithResponse(sendCtx, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return 0, fmt.Errorf("send telegram question to chat %d: %w", chatID, err)
+	}
+	if resp == nil {
+		return 0, fmt.Errorf("send telegram question to chat %d: no response body", chatID)
+	}
+	if resp.JSON400 != nil {
+		return 0, fmt.Errorf("send telegram question to chat %d: %s", chatID, resp.JSON400.Description)
+	}
+	if resp.JSON200 == nil {
+		return 0, fmt.Errorf("send telegram question to chat %d: no response body", chatID)
+	}
+	return resp.JSON200.Result.MessageId, nil
+}
+
+// ClearInlineKeyboard removes all inline controls from a Telegram message.
+func (m *Messenger) ClearInlineKeyboard(ctx context.Context, chatID int64, messageID int) error {
+	request := client.EditMessageReplyMarkupJSONRequestBody{ChatId: &chatID, MessageId: &messageID}
+	sendCtx, cancel := telegramSendContext(ctx)
+	defer cancel()
+	resp, err := m.client.EditMessageReplyMarkupWithResponse(sendCtx, request)
+	if err != nil {
+		return fmt.Errorf("clear inline keyboard from message %d: %w", messageID, err)
+	}
+	if resp == nil {
+		return fmt.Errorf("clear inline keyboard from message %d: no response body", messageID)
+	}
+	if resp.JSON400 != nil {
+		description := strings.TrimSpace(resp.JSON400.Description)
+		if strings.Contains(strings.ToLower(description), "message is not modified") {
+			return nil
+		}
+		return fmt.Errorf("clear inline keyboard from message %d: %s", messageID, description)
+	}
+	if resp.JSON200 == nil {
+		return fmt.Errorf("clear inline keyboard from message %d: no response body", messageID)
+	}
+	return nil
+}
+
+// AnswerCallbackQuery stops Telegram's loading state and optionally displays a
+// notification or alert.
+func (m *Messenger) AnswerCallbackQuery(ctx context.Context, callbackQueryID, text string, showAlert bool) error {
+	request := client.AnswerCallbackQueryJSONRequestBody{CallbackQueryId: strings.TrimSpace(callbackQueryID)}
+	if strings.TrimSpace(text) != "" {
+		trimmed := strings.TrimSpace(text)
+		request.Text = &trimmed
+	}
+	request.ShowAlert = &showAlert
+	sendCtx, cancel := telegramSendContext(ctx)
+	defer cancel()
+	resp, err := m.client.AnswerCallbackQueryWithResponse(sendCtx, request)
+	if err != nil {
+		return fmt.Errorf("answer callback query: %w", err)
+	}
+	if resp == nil {
+		return fmt.Errorf("answer callback query: no response body")
+	}
+	if resp.JSON400 != nil {
+		return fmt.Errorf("answer callback query: %s", resp.JSON400.Description)
+	}
+	if resp.JSON200 == nil {
+		return fmt.Errorf("answer callback query: no response body")
+	}
+	return nil
 }
 
 func (m *Messenger) richMessagesEnabled() bool {
