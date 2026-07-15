@@ -7,7 +7,7 @@ import (
 
 	"github.com/baldaworks/go-actorlayer"
 	actortransport "github.com/baldaworks/go-actorlayer/transport"
-	baldaslackagent "github.com/normahq/balda/internal/apps/balda/channel/slackagent"
+	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	"github.com/normahq/balda/internal/apps/balda/progress"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
@@ -107,7 +107,7 @@ func (d *sessionProgressDispatcher) HandleNonTerminal(ctx context.Context, updat
 			result.SentProgress = true
 		}
 	}
-	if d.locator.ChannelType == baldaslackagent.ChannelType && strings.TrimSpace(update.VisibleResponseText) != "" {
+	if d.locator.ChannelType == string(deliverycmd.ChannelTypeSlackAgent) && strings.TrimSpace(update.VisibleResponseText) != "" {
 		d.deliverySeq++
 		dedupeSuffix := fmt.Sprintf("progress:stream:%03d", d.deliverySeq)
 		if err := sendProgressThinking(ctx, d.dispatcher, d.jobID, d.from, d.locator, d.policy, true, update.VisibleResponseText, d.deliverySeq, dedupeSuffix); err != nil {

@@ -12,17 +12,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/baldaworks/go-actorlayer"
 	"github.com/baldaworks/go-actorlayer/transport"
+	"github.com/normahq/balda/internal/apps/balda/actorcmd"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldaslack "github.com/normahq/balda/internal/apps/balda/channel/slack"
 	baldaslackagent "github.com/normahq/balda/internal/apps/balda/channel/slackagent"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
-	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/internal/apps/balda/questioncmd"
 	"github.com/normahq/balda/internal/apps/balda/questions"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
-	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/turncmd"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
@@ -263,7 +261,7 @@ func (h *SlackAgentHandler) processEvent(requestCtx context.Context, env slackAg
 		return
 	}
 	if _, err := h.actorDispatcher.Dispatch(ctx, envelope); err != nil {
-		if baldaexecution.IsCommandQueueFull(err) {
+		if actorcmd.IsCommandQueueFull(err) {
 			h.logger.Warn().Err(err).Str("session_id", locator.SessionID).Msg("slack agent session command queue full")
 			return
 		}
@@ -290,7 +288,7 @@ func (h *SlackAgentHandler) handleQuestionReply(ctx context.Context, locator bal
 		return false, nil
 	}
 	record, matched, err := h.questionService.ResolveReply(ctx, questioncmd.InboundReply{
-		Provider:         string(baldaslackagent.ChannelType),
+		Provider:         baldaslackagent.ChannelType,
 		SessionID:        locator.SessionID,
 		ConversationKey:  locator.AddressKey,
 		ReplyToMessageID: strings.TrimSpace(event.ReplyToMessageID),
@@ -302,32 +300,8 @@ func (h *SlackAgentHandler) handleQuestionReply(ctx context.Context, locator bal
 	if err != nil || !matched {
 		return matched, err
 	}
-	if err := h.dispatchQuestionContinuation(ctx, record); err != nil {
+	if err := dispatchQuestionContinuation(ctx, h.actorDispatcher, record); err != nil {
 		return true, err
 	}
 	return true, nil
-}
-
-func (h *SlackAgentHandler) dispatchQuestionContinuation(ctx context.Context, record baldastate.QuestionRecord) error {
-	var interaction questioncmd.InteractionContext
-	if err := json.Unmarshal([]byte(record.InteractionJSON), &interaction); err != nil {
-		return err
-	}
-	var resume questioncmd.ResumeTarget
-	if err := json.Unmarshal([]byte(record.ResumeJSON), &resume); err != nil {
-		return err
-	}
-	var answer questioncmd.Answer
-	if err := json.Unmarshal([]byte(record.AnswerJSON), &answer); err != nil {
-		return err
-	}
-	env, err := questioncmd.AnsweredEnvelope(resume, interaction, answer, record.QuestionID)
-	if err != nil {
-		return err
-	}
-	if h.actorDispatcher == nil {
-		return actorlayer.TransientError(fmt.Errorf("runtime is unavailable"))
-	}
-	_, err = h.actorDispatcher.Dispatch(ctx, env)
-	return err
 }

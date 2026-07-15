@@ -7,6 +7,9 @@ allow:
 excludeFiles:
   - "^.*_test\\.go$"
 
+exclude:
+  - .config
+
 components:
   # Generic, reusable building blocks that must stay free of Balda product policy.
   foundation:

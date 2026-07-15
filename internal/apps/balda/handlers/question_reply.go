@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/baldaworks/go-actorlayer"
+	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/questioncmd"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
@@ -32,13 +33,13 @@ func (h *BaldaHandler) handleQuestionReply(ctx context.Context, messageCtx balda
 	if err != nil || !matched {
 		return matched, err
 	}
-	if err := h.dispatchQuestionContinuation(ctx, record); err != nil {
+	if err := dispatchQuestionContinuation(ctx, h.actorDispatcher, record); err != nil {
 		return true, err
 	}
 	return true, nil
 }
 
-func (h *BaldaHandler) dispatchQuestionContinuation(ctx context.Context, record baldastate.QuestionRecord) error {
+func dispatchQuestionContinuation(ctx context.Context, dispatcher actortransport.Dispatcher, record baldastate.QuestionRecord) error {
 	var interaction questioncmd.InteractionContext
 	if err := json.Unmarshal([]byte(record.InteractionJSON), &interaction); err != nil {
 		return err
@@ -55,9 +56,9 @@ func (h *BaldaHandler) dispatchQuestionContinuation(ctx context.Context, record 
 	if err != nil {
 		return err
 	}
-	if h.actorDispatcher == nil {
+	if dispatcher == nil {
 		return actorlayer.TransientError(fmt.Errorf("runtime is unavailable"))
 	}
-	_, err = h.actorDispatcher.Dispatch(ctx, env)
+	_, err = dispatcher.Dispatch(ctx, env)
 	return err
 }

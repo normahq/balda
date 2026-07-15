@@ -43,9 +43,7 @@ var Module = fx.Module("balda_deliveryfx",
 			return adapter
 		},
 		baldaslack.NewAdapter,
-		func(client *baldaslack.Client, logger zerolog.Logger, cfg baldaslackagent.AdapterConfig) *baldaslackagent.Adapter {
-			return baldaslackagent.NewAdapter(client, logger, cfg)
-		},
+		baldaslackagent.NewAdapter,
 		func(tg *baldatelegram.Adapter, zu *baldazulip.Adapter, sl *baldaslack.Adapter, sla *baldaslackagent.Adapter) *baldachannel.Router {
 			return baldachannel.NewRouter(map[string]deliverycmd.Adapter{
 				string(deliverycmd.ChannelTypeTelegram):   tg,
