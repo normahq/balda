@@ -9,7 +9,7 @@ import (
 	"github.com/baldaworks/go-actorlayer"
 	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
-	"github.com/normahq/balda/internal/apps/balda/goalcmd"
+	"github.com/normahq/balda/internal/apps/balda/goalkeepercmd"
 	"github.com/normahq/balda/internal/apps/balda/goalresultcmd"
 	"github.com/normahq/balda/internal/apps/balda/questioncmd"
 	"github.com/normahq/balda/internal/apps/balda/questions"
@@ -107,7 +107,7 @@ func TestCoordinatorAskQuestionPersistsAndDispatchesDelivery(t *testing.T) {
 		t.Fatalf("settlement = %q, want %q", payload.Settlement, deliverycmd.SettlementOutbox)
 	}
 	if got := store.record.ResumeJSON; !strings.Contains(got, "\"goal_payload\"") {
-		t.Fatalf("resume json = %q, want goal payload snapshot metadata", got)
+		t.Fatalf("resume json = %q, want goalkeeper payload snapshot metadata", got)
 	}
 }
 
@@ -149,7 +149,7 @@ func TestAppendGoalClarification(t *testing.T) {
 }
 
 func TestGoalResumeEnvelope(t *testing.T) {
-	env, err := goalcmd.ResumeEnvelope(goalcmd.JobPayload{
+	env, err := goalkeepercmd.ResumeEnvelope(goalkeepercmd.JobPayload{
 		JobID:           "goal-tg-1-0-123",
 		Locator:         baldasession.SessionLocator{SessionID: "tg-1-0"},
 		Objective:       "ship release",

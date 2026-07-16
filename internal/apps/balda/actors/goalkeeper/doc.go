@@ -1,4 +1,4 @@
-// Package goalkeeper owns the goal feature actor.
+// Package goalkeeper owns the goalkeeper feature actor.
 //
 // It coordinates goal runs, session/job lifecycle, progress delivery side
 // effects, and final reviewable outcome assembly. It does not own generic actor

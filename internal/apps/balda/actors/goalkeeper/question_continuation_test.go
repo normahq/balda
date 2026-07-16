@@ -6,7 +6,7 @@ import (
 
 	"github.com/baldaworks/go-actorlayer"
 	actortransport "github.com/baldaworks/go-actorlayer/transport"
-	"github.com/normahq/balda/internal/apps/balda/goalcmd"
+	"github.com/normahq/balda/internal/apps/balda/goalkeepercmd"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/rs/zerolog"
 )
@@ -85,7 +85,7 @@ func TestGoalkeeperAcceptsQuestionContinuation(t *testing.T) {
 		MaxIterations:   1,
 		Logger:          zerolog.Nop(),
 	})
-	env, err := goalcmd.QuestionAnsweredEnvelope("goal-tg-1-0-123", "question-1", "да", "2026-07-14T07:00:00Z")
+	env, err := goalkeepercmd.QuestionAnsweredEnvelope("goal-tg-1-0-123", "question-1", "да", "2026-07-14T07:00:00Z")
 	if err != nil {
 		t.Fatalf("QuestionAnsweredEnvelope() error = %v", err)
 	}
@@ -102,12 +102,12 @@ func TestGoalkeeperAcceptsQuestionContinuation(t *testing.T) {
 	if len(dispatcher.commands) != 1 {
 		t.Fatalf("resumed commands = %d, want 1", len(dispatcher.commands))
 	}
-	var resumed goalcmd.EnvelopePayload
+	var resumed goalkeepercmd.EnvelopePayload
 	if err := actorlayer.UnmarshalPayload(dispatcher.commands[0].Payload, &resumed); err != nil {
-		t.Fatalf("decode resumed goal payload: %v", err)
+		t.Fatalf("decode resumed goalkeeper payload: %v", err)
 	}
 	if resumed.Goal == nil {
-		t.Fatal("resumed goal payload = nil, want goal payload")
+		t.Fatal("resumed goalkeeper payload = nil, want goalkeeper payload")
 	}
 	if resumed.Goal.Objective == "ship release" {
 		t.Fatalf("objective = %q, want clarification appended", resumed.Goal.Objective)

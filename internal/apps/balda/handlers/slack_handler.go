@@ -24,7 +24,7 @@ import (
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldaslack "github.com/normahq/balda/internal/apps/balda/channel/slack"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
-	"github.com/normahq/balda/internal/apps/balda/goalcmd"
+	"github.com/normahq/balda/internal/apps/balda/goalkeepercmd"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
 	"github.com/normahq/balda/internal/apps/balda/locatorref"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
@@ -713,7 +713,7 @@ func (h *SlackChatHandler) handleGoalCommand(ctx context.Context, locator baldas
 			return
 		}
 	}
-	env, err := goalcmd.JobEnvelopeWithOptions(locator, deliveryfmt.Options{Profile: deliveryfmt.Profile{Format: deliveryfmt.FormatMarkdown}, ProgressPolicy: deliveryfmt.ProgressPolicy{Typing: false, Thinking: false, PlanUpdates: true}}, objective, subject, h.goalMaxIterations)
+	env, err := goalkeepercmd.JobEnvelopeWithOptions(locator, deliveryfmt.Options{Profile: deliveryfmt.Profile{Format: deliveryfmt.FormatMarkdown}, ProgressPolicy: deliveryfmt.ProgressPolicy{Typing: false, Thinking: false, PlanUpdates: true}}, objective, subject, h.goalMaxIterations)
 	if err != nil {
 		_ = h.sendPlain(ctx, locator, "Could not start goal run.")
 		return

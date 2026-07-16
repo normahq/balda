@@ -9,7 +9,7 @@ import (
 	"github.com/baldaworks/go-actorlayer"
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/actorcmd"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
-	"github.com/normahq/balda/internal/apps/balda/goalcmd"
+	"github.com/normahq/balda/internal/apps/balda/goalkeepercmd"
 	"github.com/normahq/balda/internal/apps/balda/goalresultcmd"
 	"github.com/normahq/balda/internal/apps/balda/questioncmd"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
@@ -26,7 +26,7 @@ func (c *coordinator) askQuestion(ctx context.Context, payload goalJobPayload, p
 	if jobID == "" {
 		return baldastate.QuestionRecord{}, actorlayer.PolicyError(fmt.Errorf("job id is required"))
 	}
-	resumePayloadJSON, err := goalcmd.EncodeJobPayload(payload)
+	resumePayloadJSON, err := goalkeepercmd.EncodeJobPayload(payload)
 	if err != nil {
 		return baldastate.QuestionRecord{}, actorlayer.PermanentError(fmt.Errorf("encode question resume payload: %w", err))
 	}

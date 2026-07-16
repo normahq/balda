@@ -8,7 +8,7 @@ import (
 	"github.com/baldaworks/go-actorlayer"
 	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/actorcmd"
-	"github.com/normahq/balda/internal/apps/balda/goalcmd"
+	"github.com/normahq/balda/internal/apps/balda/goalkeepercmd"
 	"github.com/normahq/balda/internal/apps/balda/questioncmd"
 	"github.com/normahq/balda/internal/apps/balda/turncmd"
 	"go.uber.org/fx"
@@ -103,12 +103,12 @@ func (a *questionActor) resume(ctx context.Context, env actorlayer.Envelope, que
 			err  error
 		)
 		if strings.TrimSpace(env.Kind) == baldaexecution.KindQuestionTimedOut || strings.TrimSpace(env.Kind) == baldaexecution.KindQuestionFailed {
-			next, err = goalcmd.QuestionTimedOutEnvelope(resumeTo.Key, questionID, env.Meta["timed_out_at"])
+			next, err = goalkeepercmd.QuestionTimedOutEnvelope(resumeTo.Key, questionID, env.Meta["timed_out_at"])
 		} else {
-			next, err = goalcmd.QuestionAnsweredEnvelope(resumeTo.Key, questionID, text, env.Meta["answered_at"])
+			next, err = goalkeepercmd.QuestionAnsweredEnvelope(resumeTo.Key, questionID, text, env.Meta["answered_at"])
 		}
 		if err != nil {
-			return actorlayer.PermanentError(fmt.Errorf("build goal question continuation: %w", err))
+			return actorlayer.PermanentError(fmt.Errorf("build goalkeeper question continuation: %w", err))
 		}
 		if next.Meta == nil {
 			next.Meta = make(map[string]string)
@@ -120,7 +120,7 @@ func (a *questionActor) resume(ctx context.Context, env actorlayer.Envelope, que
 		}
 		_, err = a.dispatcher.Dispatch(ctx, next)
 		if err != nil {
-			return actorlayer.TransientError(fmt.Errorf("dispatch goal question continuation: %w", err))
+			return actorlayer.TransientError(fmt.Errorf("dispatch goalkeeper question continuation: %w", err))
 		}
 		return nil
 	}

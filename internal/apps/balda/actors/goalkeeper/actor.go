@@ -11,7 +11,7 @@ import (
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/actorcmd"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
-	"github.com/normahq/balda/internal/apps/balda/goalcmd"
+	"github.com/normahq/balda/internal/apps/balda/goalkeepercmd"
 	"github.com/normahq/balda/internal/apps/balda/questions"
 	"github.com/normahq/balda/internal/apps/balda/redaction"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
@@ -113,8 +113,8 @@ type Actor struct {
 	coordinator *coordinator
 }
 
-type goalJobPayload = goalcmd.JobPayload
-type goalQuestionPayload = goalcmd.QuestionPayload
+type goalJobPayload = goalkeepercmd.JobPayload
+type goalQuestionPayload = goalkeepercmd.QuestionPayload
 
 type goalArtifactResultV1 struct {
 	WorkspaceDir string   `json:"workspace_dir,omitempty"`
@@ -189,28 +189,28 @@ func (a *Actor) Address() string {
 
 func (a *Actor) Handle(ctx context.Context, env actorlayer.Envelope) error {
 	if strings.TrimSpace(env.Namespace) != baldaexecution.NamespaceGoalkeeperCommand {
-		return actorlayer.PolicyError(fmt.Errorf("unsupported goal namespace %q", env.Namespace))
+		return actorlayer.PolicyError(fmt.Errorf("unsupported goalkeeper namespace %q", env.Namespace))
 	}
-	var payload goalcmd.EnvelopePayload
+	var payload goalkeepercmd.EnvelopePayload
 	if err := actorlayer.UnmarshalPayload(env.Payload, &payload); err != nil {
-		return actorlayer.PermanentError(fmt.Errorf("decode goal payload: %w", err))
+		return actorlayer.PermanentError(fmt.Errorf("decode goalkeeper payload: %w", err))
 	}
 	if a == nil || a.coordinator == nil {
 		return actorlayer.TransientError(fmt.Errorf("goal coordinator is required"))
 	}
 	switch strings.TrimSpace(payload.Kind) {
-	case goalcmd.PayloadKindGoal:
+	case goalkeepercmd.PayloadKindGoal:
 		if payload.Goal == nil {
-			return actorlayer.PolicyError(fmt.Errorf("goal payload is required"))
+			return actorlayer.PolicyError(fmt.Errorf("goalkeeper payload is required"))
 		}
 		return a.coordinator.execute(ctx, env, *payload.Goal)
-	case goalcmd.PayloadKindQuestion:
+	case goalkeepercmd.PayloadKindQuestion:
 		if payload.Question == nil {
-			return actorlayer.PolicyError(fmt.Errorf("goal question payload is required"))
+			return actorlayer.PolicyError(fmt.Errorf("goalkeeper question payload is required"))
 		}
 		return a.coordinator.handleQuestionContinuation(ctx, env, *payload.Question)
 	default:
-		return actorlayer.PolicyError(fmt.Errorf("unsupported goal payload kind %q", payload.Kind))
+		return actorlayer.PolicyError(fmt.Errorf("unsupported goalkeeper payload kind %q", payload.Kind))
 	}
 }
 
@@ -220,7 +220,7 @@ func GoalJobEnvelope(
 	transportUserID string,
 	maxIterations int,
 ) (actorlayer.Envelope, error) {
-	return goalcmd.JobEnvelope(locator, objective, transportUserID, maxIterations)
+	return goalkeepercmd.JobEnvelope(locator, objective, transportUserID, maxIterations)
 }
 
 func GoalJobEnvelopeWithOptions(
@@ -230,7 +230,7 @@ func GoalJobEnvelopeWithOptions(
 	transportUserID string,
 	maxIterations int,
 ) (actorlayer.Envelope, error) {
-	return goalcmd.JobEnvelopeWithOptions(locator, deliveryOptions, objective, transportUserID, maxIterations)
+	return goalkeepercmd.JobEnvelopeWithOptions(locator, deliveryOptions, objective, transportUserID, maxIterations)
 }
 
 func envelopeJobID(env actorlayer.Envelope) string {

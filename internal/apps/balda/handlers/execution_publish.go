@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
-	"github.com/normahq/balda/internal/apps/balda/goalcmd"
+	"github.com/normahq/balda/internal/apps/balda/goalkeepercmd"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/turncmd"
-	actortransport "github.com/baldaworks/go-actorlayer/transport"
 )
 
 func (h *BaldaHandler) submitSessionTurn(ctx context.Context, payload turncmd.SessionTurnPayload) (*actortransport.DispatchReceipt, error) {
@@ -52,7 +52,7 @@ func (h *CommandHandler) submitGoalJobWithOptions(ctx context.Context, locator b
 		}
 	}
 	maxIterations := normalizeGoalMaxIterations(h.goalMaxIterations)
-	env, err := goalcmd.JobEnvelopeWithOptions(locator, deliveryfmt.NormalizeOptions(deliveryOptions), objective, transportUserID, maxIterations)
+	env, err := goalkeepercmd.JobEnvelopeWithOptions(locator, deliveryfmt.NormalizeOptions(deliveryOptions), objective, transportUserID, maxIterations)
 	if err != nil {
 		return false, err
 	}

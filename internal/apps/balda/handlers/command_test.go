@@ -674,7 +674,7 @@ func TestCommandHandlerOnCommand_GoalStartsRun(t *testing.T) {
 	}
 	cmd := bus.commands[0]
 	if cmd.To.Target != baldaexecution.ActorTypeGoalkeeper || cmd.Namespace != baldaexecution.NamespaceGoalkeeperCommand || cmd.Kind != baldaexecution.KindGoal {
-		t.Fatalf("published command = %+v, want goal command", cmd)
+		t.Fatalf("published command = %+v, want goalkeeper command", cmd)
 	}
 	if len(tgClient.messages) != 0 {
 		t.Fatalf("sent messages = %d, want 0", len(tgClient.messages))
@@ -710,10 +710,10 @@ func TestCommandHandlerSubmitGoalJob_PublishesDurableCommandOnly(t *testing.T) {
 		} `json:"goal"`
 	}
 	if err := actorlayer.UnmarshalPayload(bus.commands[0].Payload, &payload); err != nil {
-		t.Fatalf("decode goal command payload: %v", err)
+		t.Fatalf("decode goalkeeper command payload: %v", err)
 	}
 	if payload.Goal == nil || payload.Goal.MaxIterations != 7 {
-		t.Fatalf("goal payload = %+v, want max_iterations=7 from config", payload.Goal)
+		t.Fatalf("goalkeeper payload = %+v, want max_iterations=7 from config", payload.Goal)
 	}
 	if payload.Goal.DeliveryOptions.Profile.Format != profile.Format || payload.Goal.DeliveryOptions.Profile.TelegramMode != profile.TelegramMode {
 		t.Fatalf("delivery options profile = %+v, want %+v", payload.Goal.DeliveryOptions.Profile, profile)
@@ -771,7 +771,7 @@ func TestCommandHandlerOnCommand_GoalClearExtraStartsGoal(t *testing.T) {
 		t.Fatalf("control commands = %d, want 0", len(turns.commands))
 	}
 	if len(bus.commands) != 1 {
-		t.Fatalf("goal commands = %d, want 1", len(bus.commands))
+		t.Fatalf("goalkeeper commands = %d, want 1", len(bus.commands))
 	}
 	if len(tgClient.messages) != 0 {
 		t.Fatalf("sent messages = %d, want 0", len(tgClient.messages))

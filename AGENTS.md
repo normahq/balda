@@ -53,7 +53,7 @@ go tool golangci-lint run
   - `internal/apps/balda/state`: storage and read models only.
 
 - Do not move shared transport-neutral contracts into concrete transport or session packages.
-  - Shared locator/profile/progress/delivery boundary types belong in dedicated contract packages such as `deliverycmd`, `deliveryfmt`, `turncmd`, `controlcmd`, `goalcmd`.
+  - Shared locator/profile/progress/delivery boundary types belong in dedicated contract packages such as `deliverycmd`, `deliveryfmt`, `turncmd`, `controlcmd`, `goalkeepercmd`.
 
 - Do not add reusable business logic to `handlers`.
   - `handlers` may normalize inbound transport input and enforce access/session preconditions.

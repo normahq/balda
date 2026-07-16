@@ -7,7 +7,7 @@ import (
 
 	"github.com/baldaworks/go-actorlayer"
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/actorcmd"
-	"github.com/normahq/balda/internal/apps/balda/goalcmd"
+	"github.com/normahq/balda/internal/apps/balda/goalkeepercmd"
 	"github.com/normahq/balda/internal/apps/balda/questioncmd"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/turncmd"
@@ -124,11 +124,11 @@ func TestQuestionActorAnsweredDispatchesGoalContinuation(t *testing.T) {
 	if len(dispatcher.commands) != 1 {
 		t.Fatalf("dispatched commands = %d, want 1", len(dispatcher.commands))
 	}
-	var payload goalcmd.EnvelopePayload
+	var payload goalkeepercmd.EnvelopePayload
 	if err := actorlayer.UnmarshalPayload(dispatcher.commands[0].Payload, &payload); err != nil {
 		t.Fatalf("decode goal continuation payload: %v", err)
 	}
-	if payload.Kind != goalcmd.PayloadKindQuestion || payload.Question == nil {
+	if payload.Kind != goalkeepercmd.PayloadKindQuestion || payload.Question == nil {
 		t.Fatalf("goal continuation payload = %+v, want question payload", payload)
 	}
 	if payload.Question.QuestionID != testQuestionID {

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/baldaworks/go-actorlayer"
-	"github.com/normahq/balda/internal/apps/balda/goalcmd"
+	"github.com/normahq/balda/internal/apps/balda/goalkeepercmd"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 )
 
@@ -19,7 +19,7 @@ func (c *coordinator) handleQuestionContinuation(ctx context.Context, env actorl
 		jobID = strings.TrimSpace(env.To.Key)
 	}
 	if jobID == "" {
-		return actorlayer.PolicyError(fmt.Errorf("goal question continuation job id is required"))
+		return actorlayer.PolicyError(fmt.Errorf("goalkeeper question continuation job id is required"))
 	}
 	statusReason := "question continuation received"
 	if strings.TrimSpace(payload.Action) == "timed_out" {
@@ -50,15 +50,15 @@ func (c *coordinator) handleQuestionContinuation(ctx context.Context, env actorl
 		rawResumePayload = strings.TrimSpace(env.Meta["goal_payload"])
 	}
 	if rawResumePayload == "" {
-		return actorlayer.PolicyError(fmt.Errorf("goal resume payload is required"))
+		return actorlayer.PolicyError(fmt.Errorf("goalkeeper resume payload is required"))
 	}
-	resumePayload, err := goalcmd.DecodeJobPayload(rawResumePayload)
+	resumePayload, err := goalkeepercmd.DecodeJobPayload(rawResumePayload)
 	if err != nil {
 		return actorlayer.PermanentError(err)
 	}
 	resumePayload.JobID = jobID
 	resumePayload.Objective = appendGoalClarification(resumePayload.Objective, payload.AnswerText)
-	next, err := goalcmd.ResumeEnvelope(resumePayload)
+	next, err := goalkeepercmd.ResumeEnvelope(resumePayload)
 	if err != nil {
 		return actorlayer.PermanentError(err)
 	}
