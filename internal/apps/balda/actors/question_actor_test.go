@@ -13,6 +13,8 @@ import (
 	"github.com/normahq/balda/internal/apps/balda/turncmd"
 )
 
+const testQuestionID = "question-1"
+
 func TestQuestionActorAnsweredDispatchesSessionTurn(t *testing.T) {
 	dispatcher := &fakeTurnDispatcher{}
 	actor := &questionActor{dispatcher: dispatcher}
@@ -28,7 +30,7 @@ func TestQuestionActorAnsweredDispatchesSessionTurn(t *testing.T) {
 			Text:       "да",
 			AnsweredAt: time.Date(2026, 7, 14, 7, 0, 0, 0, time.UTC),
 		},
-		"question-1",
+		testQuestionID,
 	)
 	if err != nil {
 		t.Fatalf("AnsweredEnvelope() error = %v", err)
@@ -47,11 +49,46 @@ func TestQuestionActorAnsweredDispatchesSessionTurn(t *testing.T) {
 	if err := actorlayer.UnmarshalPayload(dispatcher.commands[0].Payload, &payload); err != nil {
 		t.Fatalf("decode session continuation payload: %v", err)
 	}
-	if payload.QuestionID != "question-1" {
+	if payload.QuestionID != testQuestionID {
 		t.Fatalf("question_id = %q, want question-1", payload.QuestionID)
 	}
 	if payload.Text != "да" {
 		t.Fatalf("text = %q, want да", payload.Text)
+	}
+	if got := dispatcher.commands[0].DedupeKey; got != env.DedupeKey+":session-resume" {
+		t.Fatalf("dedupe key = %q, want downstream-specific key", got)
+	}
+}
+
+func TestQuestionActorTimedOutDispatchesUsableSessionTurn(t *testing.T) {
+	dispatcher := &fakeTurnDispatcher{}
+	actor := &questionActor{dispatcher: dispatcher}
+	env, err := questioncmd.TimedOutEnvelope(
+		questioncmd.ResumeTarget{To: "session:tg-1-0"},
+		questioncmd.InteractionContext{
+			SessionID:   "tg-1-0",
+			ChannelKind: "telegram",
+			Locator:     baldasession.SessionLocator{SessionID: "tg-1-0", ChannelType: "telegram", AddressKey: "1:0", AddressJSON: `{"chat_id":1,"topic_id":0}`},
+		},
+		testQuestionID,
+		time.Date(2026, 7, 14, 7, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("TimedOutEnvelope() error = %v", err)
+	}
+
+	if err := actor.Handle(context.Background(), env); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if len(dispatcher.commands) != 1 {
+		t.Fatalf("dispatched commands = %d, want 1", len(dispatcher.commands))
+	}
+	var payload turncmd.SessionTurnPayload
+	if err := actorlayer.UnmarshalPayload(dispatcher.commands[0].Payload, &payload); err != nil {
+		t.Fatalf("decode session continuation payload: %v", err)
+	}
+	if payload.Text == "" || payload.QuestionID != testQuestionID {
+		t.Fatalf("timeout payload = %+v, want usable question continuation", payload)
 	}
 }
 
@@ -75,7 +112,7 @@ func TestQuestionActorAnsweredDispatchesGoalContinuation(t *testing.T) {
 			Text:       "да",
 			AnsweredAt: time.Date(2026, 7, 14, 7, 0, 0, 0, time.UTC),
 		},
-		"question-1",
+		testQuestionID,
 	)
 	if err != nil {
 		t.Fatalf("AnsweredEnvelope() error = %v", err)
@@ -94,7 +131,7 @@ func TestQuestionActorAnsweredDispatchesGoalContinuation(t *testing.T) {
 	if payload.Kind != goalcmd.PayloadKindQuestion || payload.Question == nil {
 		t.Fatalf("goal continuation payload = %+v, want question payload", payload)
 	}
-	if payload.Question.QuestionID != "question-1" {
+	if payload.Question.QuestionID != testQuestionID {
 		t.Fatalf("question_id = %q, want question-1", payload.Question.QuestionID)
 	}
 	if payload.Question.AnswerText != "да" {

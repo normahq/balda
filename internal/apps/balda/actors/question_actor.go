@@ -49,7 +49,7 @@ func (a *questionActor) handleFailed(ctx context.Context, env actorlayer.Envelop
 	if err := actorlayer.UnmarshalPayload(env.Payload, &payload); err != nil {
 		return actorlayer.PermanentError(fmt.Errorf("decode failed continuation: %w", err))
 	}
-	return a.resume(ctx, env, payload.QuestionID, payload.Resume, payload.Interaction, "")
+	return a.resume(ctx, env, payload.QuestionID, payload.Resume, payload.Interaction, sessionQuestionFailedText(payload.QuestionID))
 }
 
 func (a *questionActor) handleAnswered(ctx context.Context, env actorlayer.Envelope) error {
@@ -65,7 +65,7 @@ func (a *questionActor) handleTimedOut(ctx context.Context, env actorlayer.Envel
 	if err := actorlayer.UnmarshalPayload(env.Payload, &payload); err != nil {
 		return actorlayer.PermanentError(fmt.Errorf("decode timed out continuation: %w", err))
 	}
-	return a.resume(ctx, env, payload.QuestionID, payload.Resume, payload.Interaction, "")
+	return a.resume(ctx, env, payload.QuestionID, payload.Resume, payload.Interaction, sessionQuestionTimedOutText(payload.QuestionID))
 }
 
 func (a *questionActor) resume(ctx context.Context, env actorlayer.Envelope, questionID string, resume questioncmd.ResumeTarget, interaction questioncmd.InteractionContext, text string) error {
@@ -77,6 +77,7 @@ func (a *questionActor) resume(ctx context.Context, env actorlayer.Envelope, que
 		return actorlayer.PermanentError(err)
 	}
 	if resumeTo.Target == baldaexecution.ActorTypeSession {
+		dedupeKey := actorlayer.DedupeKeyOrID(env) + ":session-resume"
 		next, err := turncmd.SessionTurnEnvelope(turncmd.SessionTurnPayload{
 			Text:            strings.TrimSpace(text),
 			Locator:         interaction.Locator,
@@ -84,7 +85,7 @@ func (a *questionActor) resume(ctx context.Context, env actorlayer.Envelope, que
 			RequesterUserID: strings.TrimSpace(interaction.RequestedBy.UserID),
 			Deliver:         true,
 			Source:          "agent",
-			DedupeKey:       actorlayer.DedupeKeyOrID(env),
+			DedupeKey:       dedupeKey,
 			QuestionID:      strings.TrimSpace(questionID),
 		})
 		if err != nil {
@@ -134,6 +135,14 @@ func (a *questionActor) resume(ctx context.Context, env actorlayer.Envelope, que
 		return actorlayer.TransientError(fmt.Errorf("dispatch question continuation: %w", err))
 	}
 	return nil
+}
+
+func sessionQuestionTimedOutText(questionID string) string {
+	return fmt.Sprintf("Interactive question %s timed out without an answer. Continue based on that outcome.", strings.TrimSpace(questionID))
+}
+
+func sessionQuestionFailedText(questionID string) string {
+	return fmt.Sprintf("Interactive question %s failed before an answer was received. Continue based on that outcome.", strings.TrimSpace(questionID))
 }
 
 func firstNonEmpty(values ...string) string {
