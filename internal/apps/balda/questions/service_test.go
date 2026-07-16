@@ -36,6 +36,7 @@ func (f *fakeStore) BindQuestionDeliveryRef(_ context.Context, questionID string
 	f.record.Provider = ref.Provider
 	f.record.ConversationKey = ref.ConversationKey
 	f.record.ProviderMessageID = ref.ProviderMessageID
+	f.record.ControlHandle = ref.ControlHandle
 	return nil
 }
 func (f *fakeStore) GetQuestionByID(_ context.Context, questionID string) (baldastate.QuestionRecord, bool, error) {
@@ -340,12 +341,12 @@ func TestServiceBindDeliveryCleansControlsIfSelectionWonDeliveryRace(t *testing.
 	service.SetControlPublisher(controls)
 
 	err := service.BindDelivery(context.Background(), "question-1", questioncmd.DeliveryRef{
-		Provider: "telegram", ConversationKey: "1:0", ProviderMessageID: "42",
+		Provider: "telegram", ConversationKey: "1:0", ProviderMessageID: "42", ControlHandle: "telegram:message:delete",
 	})
 	if err != nil {
 		t.Fatalf("BindDelivery() error = %v", err)
 	}
-	if len(controls.requests) != 1 || controls.requests[0].ProviderMessageID != "42" {
+	if len(controls.requests) != 1 || controls.requests[0].ProviderMessageID != "42" || controls.requests[0].ControlHandle != "telegram:message:delete" {
 		t.Fatalf("cleanup requests = %+v", controls.requests)
 	}
 }

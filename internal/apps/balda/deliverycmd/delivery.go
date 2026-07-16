@@ -22,6 +22,7 @@ type Payload struct {
 	DraftID    int               `json:"draft_id,omitempty"`
 	Action     string            `json:"action,omitempty"`
 	MessageID  string            `json:"message_id,omitempty"`
+	Handle     string            `json:"handle,omitempty"`
 	Progress   *Progress         `json:"progress,omitempty"`
 }
 
@@ -164,13 +165,14 @@ func QuestionEnvelope(jobID string, from actorlayer.ActorAddress, locator Locato
 }
 
 // ClearQuestionControlsEnvelope removes channel-native controls from a settled question.
-func ClearQuestionControlsEnvelope(from actorlayer.ActorAddress, locator Locator, questionID, messageID string) (actorlayer.Envelope, error) {
+func ClearQuestionControlsEnvelope(from actorlayer.ActorAddress, locator Locator, questionID, messageID, handle string) (actorlayer.Envelope, error) {
 	questionID = strings.TrimSpace(questionID)
 	env, err := envelope("", from, Payload{
 		Locator:   locator,
 		Mode:      ModeClearQuestionControls,
 		Refs:      map[string]string{"question_id": questionID},
 		MessageID: strings.TrimSpace(messageID),
+		Handle:    strings.TrimSpace(handle),
 	}, "question-controls-clear")
 	if err != nil {
 		return actorlayer.Envelope{}, err

@@ -467,6 +467,45 @@ func TestBaldaHandlerOnMessage_ReplyAddsReplyContextToPublishedCommand(t *testin
 	}
 }
 
+func TestBaldaHandlerOnMessage_ForwardedBotMessageAddsForwardedContextToPublishedCommand(t *testing.T) {
+	handler, turns, _ := newBaldaMessageHandlerHarness(t, 0)
+
+	text := "проверь этот коммит"
+	event := &events.MessageEvent{
+		Type: messagetype.Text,
+		Message: &client.Message{
+			Chat: client.Chat{
+				Id:   9001,
+				Type: "supergroup",
+			},
+			Text: &text,
+			From: &client.User{Id: 101},
+			ForwardOrigin: &client.MessageOrigin{
+				"type": "user",
+				"user": map[string]interface{}{
+					"id":     float64(4242),
+					"is_bot": true,
+				},
+			},
+		},
+	}
+
+	if err := handler.onMessage(context.Background(), event); err != nil {
+		t.Fatalf("onMessage() error = %v", err)
+	}
+
+	if len(turns.commands) != 1 {
+		t.Fatalf("published commands = %d, want 1", len(turns.commands))
+	}
+	var payload actors.SessionTurnPayload
+	if err := actorlayer.UnmarshalPayload(turns.commands[0].Payload, &payload); err != nil {
+		t.Fatalf("decode session turn payload: %v", err)
+	}
+	if !strings.Contains(payload.Text, "Forwarded context:\n"+text) {
+		t.Fatalf("payload text = %q, want forwarded context block", payload.Text)
+	}
+}
+
 func TestBaldaHandlerOnMessage_TopicReplyToBotBypassesMentionGate(t *testing.T) {
 	handler, turns, locator := newBaldaMessageHandlerHarness(t, 77)
 

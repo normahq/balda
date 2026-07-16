@@ -15,16 +15,23 @@ import (
 	"github.com/rs/zerolog"
 )
 
-type reviewQuestionStore struct{}
+type reviewQuestionStore struct {
+	record baldastate.QuestionRecord
+}
 
-func (*reviewQuestionStore) CreatePendingQuestion(context.Context, baldastate.QuestionRecord) error {
+func (s *reviewQuestionStore) CreatePendingQuestion(_ context.Context, record baldastate.QuestionRecord) error {
+	s.record = record
 	return nil
 }
-func (*reviewQuestionStore) BindQuestionDeliveryRef(context.Context, string, questioncmd.DeliveryRef) error {
+func (s *reviewQuestionStore) BindQuestionDeliveryRef(_ context.Context, questionID string, ref questioncmd.DeliveryRef) error {
+	s.record.QuestionID = questionID
+	s.record.Provider = ref.Provider
+	s.record.ConversationKey = ref.ConversationKey
+	s.record.ProviderMessageID = ref.ProviderMessageID
 	return nil
 }
-func (*reviewQuestionStore) GetQuestionByID(context.Context, string) (baldastate.QuestionRecord, bool, error) {
-	return baldastate.QuestionRecord{}, false, nil
+func (s *reviewQuestionStore) GetQuestionByID(_ context.Context, questionID string) (baldastate.QuestionRecord, bool, error) {
+	return s.record, s.record.QuestionID == questionID, nil
 }
 func (*reviewQuestionStore) GetPendingQuestionByReplyRef(context.Context, string, string, string) (baldastate.QuestionRecord, bool, error) {
 	return baldastate.QuestionRecord{}, false, nil
@@ -136,7 +143,7 @@ func TestAskWaitsForGenericPermissionDecision(t *testing.T) {
 	if delivery.Question.Audience.Visibility != deliverycmd.QuestionVisibilityPrivate || delivery.Question.Audience.UserID != "tg-101" {
 		t.Fatalf("delivery audience = %+v", delivery.Question.Audience)
 	}
-	service.Resolve(envelope.From.Key, permissioncmd.Decision{OptionID: "allow", Source: "user"})
+	service.Resolve(delivery.Refs["question_id"], permissioncmd.Decision{OptionID: "allow", Source: "user"})
 	if err := <-errors; err != nil {
 		t.Fatalf("Review() error = %v", err)
 	}

@@ -106,6 +106,13 @@ func TestParseGoalWorkerResult(t *testing.T) {
 	if result.Question != "Нужен токен?" {
 		t.Fatalf("question = %q, want %q", result.Question, "Нужен токен?")
 	}
+	result, ok = goalresultcmd.ParseWorkerResult(`{"status":"need_user_input","question":"Нужен токен?","options":[{"id":"yes","label":"Да"},{"label":"Нет"}]}`)
+	if !ok {
+		t.Fatal("parseGoalWorkerResult() with options ok = false, want true")
+	}
+	if len(result.Options) != 2 || result.Options[0].ID != "yes" || result.Options[1].Label != "Нет" {
+		t.Fatalf("options = %+v", result.Options)
+	}
 }
 
 func TestNormalizeGoalWorkerEvent_RewritesDoneJSONToSummary(t *testing.T) {

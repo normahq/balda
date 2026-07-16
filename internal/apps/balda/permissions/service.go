@@ -3,15 +3,11 @@ package permissions
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/baldaworks/go-actorlayer"
 	actortransport "github.com/baldaworks/go-actorlayer/transport"
-	"github.com/google/uuid"
 	"github.com/normahq/balda/internal/apps/balda/actorcmd"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/permissioncmd"
@@ -57,10 +53,6 @@ type Service struct {
 	questions  *questions.Service
 	dispatcher actortransport.Dispatcher
 	logger     zerolog.Logger
-	now        func() time.Time
-
-	waitMu  sync.Mutex
-	waiters map[string]chan permissioncmd.Decision
 }
 
 func New(config Config, questionService *questions.Service, dispatcher actortransport.Dispatcher, logger zerolog.Logger) *Service {
@@ -76,8 +68,6 @@ func New(config Config, questionService *questions.Service, dispatcher actortran
 		questions:  questionService,
 		dispatcher: dispatcher,
 		logger:     serviceLogger,
-		now:        time.Now,
-		waiters:    make(map[string]chan permissioncmd.Decision),
 	}
 }
 
@@ -96,7 +86,7 @@ func (s *Service) Review(ctx context.Context, request permissioncmd.Request) (pe
 
 func (s *Service) ask(ctx context.Context, request permissioncmd.Request) (permissioncmd.Decision, error) {
 	fallback := selectDecision(request.Options, false, "fail_closed")
-	if s.questions == nil || s.dispatcher == nil {
+	if s.questions == nil {
 		return fallback, fmt.Errorf("interactive permission review is unavailable")
 	}
 	interaction := request.Interaction
@@ -111,111 +101,45 @@ func (s *Service) ask(ctx context.Context, request permissioncmd.Request) (permi
 		return fallback, fmt.Errorf("permission request has no options")
 	}
 
-	reviewID := "permission-" + uuid.NewString()
-	waiter := make(chan permissioncmd.Decision, 1)
-	s.waitMu.Lock()
-	s.waiters[reviewID] = waiter
-	s.waitMu.Unlock()
-	defer func() {
-		s.waitMu.Lock()
-		delete(s.waiters, reviewID)
-		s.waitMu.Unlock()
-	}()
-
-	options := make([]questioncmd.Option, 0, len(request.Options))
-	deliveryOptions := make([]deliverycmd.QuestionOption, 0, len(request.Options))
+	options := make([]questions.SessionOption, 0, len(request.Options))
 	for _, option := range request.Options {
 		id := strings.TrimSpace(option.ID)
 		label := strings.TrimSpace(option.Name)
-		options = append(options, questioncmd.Option{ID: id, Label: label})
-		deliveryOptions = append(deliveryOptions, deliverycmd.QuestionOption{ID: id, Label: label})
+		options = append(options, questions.SessionOption{ID: id, Label: label})
 	}
 	presentation := permissionfmt.Render(request)
-	record, err := s.questions.Ask(ctx, interaction, questioncmd.ResumeTarget{
-		To:        actorcmd.ActorTypePermission + ":" + reviewID,
-		Namespace: actorcmd.NamespacePermissionCommand,
-	}, questioncmd.Request{
-		Prompt:        presentation.Prompt,
-		Options:       options,
-		AllowFreeText: false,
-		Responder:     questioncmd.ResponderRequester,
-		Timeout:       s.config.Timeout,
+	result, err := s.questions.AskSession(ctx, s.dispatcher, questions.SessionRequest{
+		Interaction: interaction,
+		Resume:      sessionquestionResumeTarget(interaction),
+		Prompt:      presentation.Prompt,
+		Options:     options,
+		Timeout:     s.config.Timeout,
+		Audience:    permissionQuestionAudience(interaction),
+		Profile:     presentation.Profile,
 	})
 	if err != nil {
-		return fallback, fmt.Errorf("create permission question: %w", err)
+		return fallback, fmt.Errorf("run permission question: %w", err)
 	}
-	envelope, err := deliverycmd.QuestionEnvelope(
-		"",
-		actorlayer.ActorAddress{Target: actorcmd.ActorTypePermission, Key: reviewID},
-		interaction.Locator,
-		presentation.Profile,
-		deliverycmd.SettlementOutbox,
-		record.Prompt,
-		record.QuestionID,
-		"permission:"+reviewID,
-		deliveryOptions,
-		permissionQuestionAudience(interaction),
-	)
-	if err != nil {
-		_, _, _ = s.questions.Timeout(context.WithoutCancel(ctx), record.QuestionID, s.now().UTC())
-		return fallback, fmt.Errorf("build permission delivery: %w", err)
+	if result.Canceled || result.TimedOut {
+		fallback.Source = firstNonEmpty(result.Source, "timeout")
+		return fallback, nil
 	}
-	if _, err := s.dispatcher.Dispatch(ctx, envelope); err != nil {
-		_, _, _ = s.questions.Timeout(context.WithoutCancel(ctx), record.QuestionID, s.now().UTC())
-		return fallback, fmt.Errorf("dispatch permission delivery: %w", err)
+	if hasOption(request.Options, result.OptionID) {
+		return permissioncmd.Decision{OptionID: result.OptionID, Source: firstNonEmpty(result.Source, "user")}, nil
 	}
-
-	timer := time.NewTimer(s.config.Timeout)
-	defer timer.Stop()
-	select {
-	case decision := <-waiter:
-		if decision.Canceled {
-			fallback.Source = firstNonEmpty(decision.Source, "canceled")
-			return fallback, nil
-		}
-		if hasOption(request.Options, decision.OptionID) {
-			return decision, nil
-		}
-		return fallback, fmt.Errorf("permission response selected unknown option %q", decision.OptionID)
-	case <-timer.C:
-		return s.timeoutDecision(record.QuestionID, request.Options, fallback, "timeout")
-	case <-ctx.Done():
-		decision, timeoutErr := s.timeoutDecision(record.QuestionID, request.Options, fallback, "canceled")
-		if timeoutErr != nil {
-			return decision, fmt.Errorf("permission request canceled: %w", timeoutErr)
-		}
-		return decision, ctx.Err()
-	}
+	return fallback, fmt.Errorf("permission response selected unknown option %q", result.OptionID)
 }
 
-func (s *Service) timeoutDecision(questionID string, options []permissioncmd.Option, fallback permissioncmd.Decision, source string) (permissioncmd.Decision, error) {
-	record, settled, err := s.questions.Timeout(context.Background(), questionID, s.now().UTC())
-	if err != nil {
-		return fallback, err
-	}
-	if !settled && strings.TrimSpace(record.AnswerJSON) != "" {
-		var answer questioncmd.Answer
-		if json.Unmarshal([]byte(record.AnswerJSON), &answer) == nil && hasOption(options, answer.SelectedOption) {
-			return permissioncmd.Decision{OptionID: answer.SelectedOption, Source: "user"}, nil
-		}
-	}
-	fallback.Source = source
-	return fallback, nil
-}
-
-func (s *Service) Resolve(reviewID string, decision permissioncmd.Decision) {
-	s.waitMu.Lock()
-	waiter := s.waiters[strings.TrimSpace(reviewID)]
-	s.waitMu.Unlock()
-	if waiter == nil {
+func (s *Service) Resolve(questionID string, decision permissioncmd.Decision) {
+	if s.questions == nil {
 		return
 	}
-	decision.OptionID = strings.TrimSpace(decision.OptionID)
-	decision.Source = strings.TrimSpace(decision.Source)
-	select {
-	case waiter <- decision:
-	default:
-	}
+	s.questions.ResolveSession(questionID, questions.SessionResult{
+		QuestionID: strings.TrimSpace(questionID),
+		OptionID:   strings.TrimSpace(decision.OptionID),
+		Source:     strings.TrimSpace(decision.Source),
+		Canceled:   decision.Canceled,
+	})
 }
 
 func permissionQuestionAudience(interaction questioncmd.InteractionContext) deliverycmd.QuestionAudience {
@@ -225,6 +149,13 @@ func permissionQuestionAudience(interaction questioncmd.InteractionContext) deli
 	return deliverycmd.QuestionAudience{
 		Visibility: deliverycmd.QuestionVisibilityPrivate,
 		UserID:     strings.TrimSpace(interaction.RequestedBy.UserID),
+	}
+}
+
+func sessionquestionResumeTarget(interaction questioncmd.InteractionContext) questioncmd.ResumeTarget {
+	return questioncmd.ResumeTarget{
+		To:        actorcmd.ActorTypePermission + ":" + strings.TrimSpace(interaction.SessionID),
+		Namespace: actorcmd.NamespacePermissionCommand,
 	}
 }
 

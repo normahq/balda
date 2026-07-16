@@ -75,6 +75,7 @@ type DeliveryRef struct {
 	ConversationKey   string `json:"conversation_key,omitempty"`
 	ProviderMessageID string `json:"provider_message_id,omitempty"`
 	ReplyHandle       string `json:"reply_handle,omitempty"`
+	ControlHandle     string `json:"control_handle,omitempty"`
 }
 
 type InboundReply struct {

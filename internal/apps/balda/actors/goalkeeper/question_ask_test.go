@@ -10,6 +10,7 @@ import (
 	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/goalcmd"
+	"github.com/normahq/balda/internal/apps/balda/goalresultcmd"
 	"github.com/normahq/balda/internal/apps/balda/questioncmd"
 	"github.com/normahq/balda/internal/apps/balda/questions"
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
@@ -82,7 +83,7 @@ func TestCoordinatorAskQuestionPersistsAndDispatchesDelivery(t *testing.T) {
 		JobID:           "goal-tg-1-0-123",
 		Locator:         baldasession.SessionLocator{SessionID: "tg-1-0", ChannelType: "telegram", AddressKey: "1:0", AddressJSON: `{"chat_id":1,"topic_id":0}`},
 		TransportUserID: "tg-user-1",
-	}, "Нужен доступ?", 0)
+	}, "Нужен доступ?", nil, 0)
 	if err != nil {
 		t.Fatalf("askQuestion() error = %v", err)
 	}
@@ -107,6 +108,36 @@ func TestCoordinatorAskQuestionPersistsAndDispatchesDelivery(t *testing.T) {
 	}
 	if got := store.record.ResumeJSON; !strings.Contains(got, "\"goal_payload\"") {
 		t.Fatalf("resume json = %q, want goal payload snapshot metadata", got)
+	}
+}
+
+func TestCoordinatorAskQuestionWithOptionsDispatchesStructuredQuestion(t *testing.T) {
+	ctx := context.Background()
+	store := &fakeQuestionStore{}
+	dispatcher := &fakeQuestionDispatcher{}
+	coord := &coordinator{
+		dispatcher: dispatcher,
+		questions:  questions.New(store, nil, zerolog.Nop()),
+		logger:     zerolog.Nop(),
+	}
+
+	record, err := coord.askQuestion(ctx, goalJobPayload{
+		JobID:           "goal-tg-1-0-123",
+		Locator:         baldasession.SessionLocator{SessionID: "tg-1-0", ChannelType: "telegram", AddressKey: "1:0", AddressJSON: `{"chat_id":1,"topic_id":0}`},
+		TransportUserID: "tg-user-1",
+	}, "Продолжаем?", []goalresultcmd.WorkerResultOption{{ID: "yes", Label: "Да"}, {ID: "no", Label: "Нет"}}, 0)
+	if err != nil {
+		t.Fatalf("askQuestion() error = %v", err)
+	}
+	if record.QuestionID == "" || len(dispatcher.commands) != 1 {
+		t.Fatalf("record/dispatch = %+v / %d", record, len(dispatcher.commands))
+	}
+	var payload deliverycmd.Payload
+	if err := actorlayer.UnmarshalPayload(dispatcher.commands[0].Payload, &payload); err != nil {
+		t.Fatalf("decode delivery payload: %v", err)
+	}
+	if payload.Question == nil || len(payload.Question.Options) != 2 {
+		t.Fatalf("question = %+v", payload.Question)
 	}
 }
 

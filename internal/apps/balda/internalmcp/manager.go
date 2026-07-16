@@ -12,9 +12,13 @@ import (
 
 	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/normahq/balda/internal/apps/balda/actorcmd"
 	"github.com/normahq/balda/internal/apps/balda/controlcmd"
 	"github.com/normahq/balda/internal/apps/balda/controlmcp"
+	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/memory"
+	"github.com/normahq/balda/internal/apps/balda/questioncmd"
+	"github.com/normahq/balda/internal/apps/balda/questions"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/sessionmcp"
@@ -39,6 +43,7 @@ type InternalMCPManager struct {
 	scheduledJobs    baldastate.ScheduledJobStore
 	memoryStore      *memory.Store
 	dispatcher       actortransport.Dispatcher
+	questionService  *questions.Service
 	cleanups         []func() error
 }
 
@@ -61,6 +66,7 @@ type internalMCPParams struct {
 	ScheduledJobs    baldastate.ScheduledJobStore
 	MemoryStore      *memory.Store
 	Dispatcher       actortransport.Dispatcher
+	QuestionService  *questions.Service `optional:"true"`
 }
 
 // NewInternalMCPManager creates an internal MCP lifecycle manager.
@@ -75,6 +81,7 @@ func NewInternalMCPManager(params internalMCPParams) *InternalMCPManager {
 		scheduledJobs:    params.ScheduledJobs,
 		memoryStore:      params.MemoryStore,
 		dispatcher:       params.Dispatcher,
+		questionService:  params.QuestionService,
 	}
 
 	return manager
@@ -148,7 +155,7 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context) error {
 		&mcp.ServerOptions{Instructions: instructions},
 	)
 
-	sessionmcp.RegisterTools(server, m.stateStore, sessionWaitService{dispatcher: m.dispatcher, jobs: m.scheduledJobs})
+	sessionmcp.RegisterTools(server, m.stateStore, sessionWaitService{dispatcher: m.dispatcher, jobs: m.scheduledJobs}, sessionQuestionService{service: m.questionService, dispatcher: m.dispatcher})
 	memory.RegisterTools(server, m.memoryStore)
 	controlmcp.RegisterTools(server, m.shutdowner, m.dispatcher)
 
@@ -190,6 +197,11 @@ func (m *InternalMCPManager) ensureBundledServers(ctx context.Context) error {
 type sessionWaitService struct {
 	dispatcher actortransport.Dispatcher
 	jobs       baldastate.ScheduledJobStore
+}
+
+type sessionQuestionService struct {
+	service    *questions.Service
+	dispatcher actortransport.Dispatcher
 }
 
 func (s sessionWaitService) ScheduleSessionWait(ctx context.Context, in sessionmcp.SessionWaitInput) error {
@@ -241,6 +253,60 @@ func (s sessionWaitService) ListSessionWaits(ctx context.Context, locator sessio
 		})
 	}
 	return items, nil
+}
+
+func (s sessionQuestionService) AskSessionQuestion(ctx context.Context, in sessionmcp.SessionQuestionInput) (sessionmcp.SessionQuestionOutput, error) {
+	if s.service == nil {
+		return sessionmcp.SessionQuestionOutput{}, fmt.Errorf("session question service is required")
+	}
+	options := make([]questions.SessionOption, 0, len(in.Options))
+	for _, option := range in.Options {
+		options = append(options, questions.SessionOption{
+			ID:    strings.TrimSpace(option.ID),
+			Label: strings.TrimSpace(option.Label),
+		})
+	}
+	req := questions.SessionRequest{
+		Interaction: questioncmd.InteractionContext{
+			SessionID:   strings.TrimSpace(in.Locator.SessionID),
+			ChannelKind: strings.TrimSpace(in.Locator.ChannelType),
+			Locator: deliverycmd.Locator{
+				SessionID:   strings.TrimSpace(in.Locator.SessionID),
+				ChannelType: strings.TrimSpace(in.Locator.ChannelType),
+				AddressKey:  strings.TrimSpace(in.Locator.AddressKey),
+				AddressJSON: strings.TrimSpace(in.Locator.AddressJSON),
+			},
+			RequestedBy: questioncmd.UserRef{UserID: strings.TrimSpace(in.RequestedBy)},
+		},
+		Resume: questioncmd.ResumeTarget{
+			To: actorcmd.ActorTypeSession + ":" + strings.TrimSpace(in.Locator.SessionID),
+		},
+		Prompt:          strings.TrimSpace(in.Prompt),
+		Options:         options,
+		DefaultOptionID: strings.TrimSpace(in.DefaultOptionID),
+		AllowFreeText:   in.AllowFreeText,
+		Timeout:         time.Duration(in.TimeoutSeconds) * time.Second,
+		Metadata:        in.Metadata,
+	}
+	if in.Private && strings.TrimSpace(in.RequestedBy) != "" {
+		req.Audience = deliverycmd.QuestionAudience{
+			Visibility: deliverycmd.QuestionVisibilityPrivate,
+			UserID:     strings.TrimSpace(in.RequestedBy),
+		}
+	}
+	result, err := s.service.AskSession(ctx, s.dispatcher, req)
+	if err != nil {
+		return sessionmcp.SessionQuestionOutput{}, err
+	}
+	return sessionmcp.SessionQuestionOutput{
+		ToolOutcome: sessionmcp.ToolOutcome{OK: true},
+		QuestionID:  result.QuestionID,
+		OptionID:    result.OptionID,
+		Text:        result.Text,
+		Source:      result.Source,
+		TimedOut:    result.TimedOut,
+		Canceled:    result.Canceled,
+	}, nil
 }
 
 func (s sessionWaitService) CancelSessionWait(ctx context.Context, locator sessionmcp.SessionLocatorInput, jobID string) (bool, error) {

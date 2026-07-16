@@ -233,6 +233,43 @@ func TestMessageContextFromEvent_ReplyMetadataEmptyWithoutReply(t *testing.T) {
 	if got.ReplyContent != "" {
 		t.Fatalf("reply_content = %q, want empty", got.ReplyContent)
 	}
+	if got.IsForwarded {
+		t.Fatalf("is_forwarded = %v, want false", got.IsForwarded)
+	}
+}
+
+func TestMessageContextFromEvent_PopulatesForwardMetadataWhenPresent(t *testing.T) {
+	text := "forwarded bot announcement"
+	got, ok := (&Adapter{}).MessageContextFromEvent(&events.MessageEvent{
+		Message: &client.Message{
+			MessageId: 50,
+			Chat: client.Chat{
+				Id:   -1009001,
+				Type: "supergroup",
+			},
+			From: &client.User{Id: 101},
+			Text: &text,
+			ForwardOrigin: &client.MessageOrigin{
+				"type": "user",
+				"user": map[string]interface{}{
+					"id":     float64(4242),
+					"is_bot": true,
+				},
+			},
+		},
+	})
+	if !ok {
+		t.Fatal("MessageContextFromEvent() ok = false, want true")
+	}
+	if !got.IsForwarded {
+		t.Fatalf("is_forwarded = %v, want true", got.IsForwarded)
+	}
+	if !got.ForwardedFromBot {
+		t.Fatalf("forwarded_from_bot = %v, want true", got.ForwardedFromBot)
+	}
+	if got.ForwardedContent != text {
+		t.Fatalf("forwarded_content = %q, want %q", got.ForwardedContent, text)
+	}
 }
 
 func TestMessageContextFromEvent_PopulatesReplyContentFromReplyText(t *testing.T) {

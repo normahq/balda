@@ -15,17 +15,18 @@ const (
 )
 
 // RegisterTools adds session-state MCP tools to an existing server.
-func RegisterTools(server *mcp.Server, store Store, waitService SessionWaitService) {
+func RegisterTools(server *mcp.Server, store Store, waitService SessionWaitService, questionService SessionQuestionService) {
 	if server == nil || store == nil {
 		return
 	}
-	svc := &service{store: store, waitService: waitService}
+	svc := &service{store: store, waitService: waitService, questionService: questionService}
 	svc.registerTools(server)
 }
 
 type service struct {
-	store       Store
-	waitService SessionWaitService
+	store           Store
+	waitService     SessionWaitService
+	questionService SessionQuestionService
 }
 
 func (s *service) registerTools(server *mcp.Server) {
@@ -51,6 +52,10 @@ func (s *service) registerTools(server *mcp.Server) {
 		Name:        "balda.session.wait",
 		Description: "Manage one-shot wake-ups for a specific Balda session. Use action=schedule, list, or cancel. This is a session-level action, not an instance-level control action.",
 	}, s.sessionWait)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "balda.session.question",
+		Description: "Ask a generic interactive question in a specific Balda session and wait for the settled answer. Supports transport-native buttons, optional default_option_id timeout fallback, and private requester-scoped questions.",
+	}, s.sessionQuestion)
 }
 
 // nsKey builds a namespaced key for isolation.
@@ -313,6 +318,36 @@ func (s *service) sessionWait(ctx context.Context, _ *mcp.CallToolRequest, in Se
 		result, out := validationFailure("balda.session.wait", "action must be one of: schedule, list, cancel")
 		return result, sessionWaitOutput{ToolOutcome: out}, nil
 	}
+}
+
+func (s *service) sessionQuestion(ctx context.Context, _ *mcp.CallToolRequest, in SessionQuestionInput) (*mcp.CallToolResult, SessionQuestionOutput, error) {
+	if s.questionService == nil {
+		result, out := backendFailure("balda.session.question", fmt.Errorf("session question service is required"))
+		return result, SessionQuestionOutput{ToolOutcome: out}, nil
+	}
+	if strings.TrimSpace(in.Locator.SessionID) == "" || strings.TrimSpace(in.Locator.ChannelType) == "" || strings.TrimSpace(in.Locator.AddressKey) == "" {
+		result, out := validationFailure("balda.session.question", "locator.session_id, locator.channel_type, and locator.address_key are required")
+		return result, SessionQuestionOutput{ToolOutcome: out}, nil
+	}
+	if strings.TrimSpace(in.Prompt) == "" {
+		result, out := validationFailure("balda.session.question", "prompt is required")
+		return result, SessionQuestionOutput{ToolOutcome: out}, nil
+	}
+	if !in.AllowFreeText && len(in.Options) == 0 {
+		result, out := validationFailure("balda.session.question", "options are required unless allow_free_text is true")
+		return result, SessionQuestionOutput{ToolOutcome: out}, nil
+	}
+	if in.TimeoutSeconds <= 0 {
+		result, out := validationFailure("balda.session.question", "timeout_seconds must be positive")
+		return result, SessionQuestionOutput{ToolOutcome: out}, nil
+	}
+
+	out, err := s.questionService.AskSessionQuestion(ctx, in)
+	if err != nil {
+		result, toolOut := backendFailure("balda.session.question", err)
+		return result, SessionQuestionOutput{ToolOutcome: toolOut}, nil
+	}
+	return jsonToolResult(out), out, nil
 }
 
 // Helpers

@@ -10,11 +10,12 @@ import (
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/actorcmd"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
 	"github.com/normahq/balda/internal/apps/balda/goalcmd"
+	"github.com/normahq/balda/internal/apps/balda/goalresultcmd"
 	"github.com/normahq/balda/internal/apps/balda/questioncmd"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 )
 
-func (c *coordinator) askQuestion(ctx context.Context, payload goalJobPayload, prompt string, timeout time.Duration) (baldastate.QuestionRecord, error) {
+func (c *coordinator) askQuestion(ctx context.Context, payload goalJobPayload, prompt string, options []goalresultcmd.WorkerResultOption, timeout time.Duration) (baldastate.QuestionRecord, error) {
 	if c == nil || c.questions == nil {
 		return baldastate.QuestionRecord{}, actorlayer.TransientError(fmt.Errorf("question service is required"))
 	}
@@ -41,6 +42,20 @@ func (c *coordinator) askQuestion(ctx context.Context, payload goalJobPayload, p
 		},
 		ConversationID: strings.TrimSpace(payload.Locator.AddressKey),
 	}
+	questionOptions := make([]questioncmd.Option, 0, len(options))
+	deliveryOptions := make([]deliverycmd.QuestionOption, 0, len(options))
+	for _, option := range options {
+		label := strings.TrimSpace(option.Label)
+		if label == "" {
+			continue
+		}
+		id := strings.TrimSpace(option.ID)
+		if id == "" {
+			id = label
+		}
+		questionOptions = append(questionOptions, questioncmd.Option{ID: id, Label: label})
+		deliveryOptions = append(deliveryOptions, deliverycmd.QuestionOption{ID: id, Label: label})
+	}
 	record, err := c.questions.Ask(ctx, interaction, questioncmd.ResumeTarget{
 		To:        baldaexecution.ActorTypeGoalkeeper + ":" + jobID,
 		Namespace: baldaexecution.NamespaceGoalkeeperCommand,
@@ -49,22 +64,39 @@ func (c *coordinator) askQuestion(ctx context.Context, payload goalJobPayload, p
 		},
 	}, questioncmd.Request{
 		Prompt:        strings.TrimSpace(prompt),
-		AllowFreeText: true,
+		Options:       questionOptions,
+		AllowFreeText: len(questionOptions) == 0,
 		Timeout:       timeout,
 	})
 	if err != nil {
 		return baldastate.QuestionRecord{}, actorlayer.TransientError(err)
 	}
-	env, err := deliverycmd.AgentReplyEnvelopeWithProfileAndSettlementAndRefs(
-		jobID,
-		actorlayer.ActorAddress{Target: baldaexecution.ActorTypeGoalkeeper, Key: jobID},
-		normalizeGoalDeliveryLocator(payload.Locator),
-		goalDeliveryProfile(payload),
-		deliverycmd.SettlementOutbox,
-		record.Prompt,
-		"question:"+record.QuestionID,
-		map[string]string{"question_id": record.QuestionID},
-	)
+	var env actorlayer.Envelope
+	if len(deliveryOptions) > 0 {
+		env, err = deliverycmd.QuestionEnvelope(
+			jobID,
+			actorlayer.ActorAddress{Target: baldaexecution.ActorTypeGoalkeeper, Key: jobID},
+			normalizeGoalDeliveryLocator(payload.Locator),
+			goalDeliveryProfile(payload),
+			deliverycmd.SettlementOutbox,
+			record.Prompt,
+			record.QuestionID,
+			"question:"+record.QuestionID,
+			deliveryOptions,
+			deliverycmd.QuestionAudience{},
+		)
+	} else {
+		env, err = deliverycmd.AgentReplyEnvelopeWithProfileAndSettlementAndRefs(
+			jobID,
+			actorlayer.ActorAddress{Target: baldaexecution.ActorTypeGoalkeeper, Key: jobID},
+			normalizeGoalDeliveryLocator(payload.Locator),
+			goalDeliveryProfile(payload),
+			deliverycmd.SettlementOutbox,
+			record.Prompt,
+			"question:"+record.QuestionID,
+			map[string]string{"question_id": record.QuestionID},
+		)
+	}
 	if err != nil {
 		return baldastate.QuestionRecord{}, actorlayer.PermanentError(fmt.Errorf("build question delivery envelope: %w", err))
 	}

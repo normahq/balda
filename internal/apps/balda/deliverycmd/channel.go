@@ -33,6 +33,7 @@ type Operation struct {
 	Progress  Progress
 	Question  *Question
 	MessageID string
+	Handle    string
 }
 
 // Result contains transport metadata returned by a delivery.

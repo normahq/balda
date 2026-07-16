@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/normahq/balda/internal/apps/balda/goalresultcmd"
 	"github.com/normahq/balda/internal/apps/balda/progress"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/genai"
 )
 
 var errGoalWaitingForUser = errors.New("goal waiting for user")
+
+const goalQuestionOptionsMetadataKey = "question_options"
 
 // workflow.go owns the runtime event loop for worker/validator goal execution.
 func (c *coordinator) runWorkflow(
@@ -70,7 +73,7 @@ func (c *coordinator) runWorkflow(
 					if strings.TrimSpace(questionPrompt) == "" {
 						return result, fmt.Errorf("goal question event missing prompt")
 					}
-					if _, err := c.askQuestion(ctx, payload, questionPrompt, 0); err != nil {
+					if _, err := c.askQuestion(ctx, payload, questionPrompt, decodeGoalQuestionOptions(ev.CustomMetadata[goalQuestionOptionsMetadataKey]), 0); err != nil {
 						return result, err
 					}
 					return result, errGoalWaitingForUser
@@ -125,4 +128,25 @@ func (c *coordinator) runWorkflow(
 		return result, fmt.Errorf("goal workflow ended without completion")
 	}
 	return result, nil
+}
+
+func decodeGoalQuestionOptions(raw any) []goalresultcmd.WorkerResultOption {
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	options := make([]goalresultcmd.WorkerResultOption, 0, len(items))
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		label, _ := m["label"].(string)
+		id, _ := m["id"].(string)
+		if strings.TrimSpace(label) == "" {
+			continue
+		}
+		options = append(options, goalresultcmd.WorkerResultOption{ID: strings.TrimSpace(id), Label: strings.TrimSpace(label)})
+	}
+	return options
 }

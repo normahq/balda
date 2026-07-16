@@ -25,6 +25,7 @@ func (p questionControlPublisher) ClearQuestionControls(ctx context.Context, req
 		request.Locator,
 		request.QuestionID,
 		request.ProviderMessageID,
+		request.ControlHandle,
 	)
 	if err != nil {
 		return err

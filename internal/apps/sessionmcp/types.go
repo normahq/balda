@@ -153,3 +153,34 @@ type SessionWaitService interface {
 	ListSessionWaits(ctx context.Context, locator SessionLocatorInput) ([]SessionWaitListItem, error)
 	CancelSessionWait(ctx context.Context, locator SessionLocatorInput, jobID string) (bool, error)
 }
+
+type SessionQuestionOption struct {
+	ID    string `json:"id" jsonschema:"stable option identifier returned when the option is chosen"`
+	Label string `json:"label" jsonschema:"human-readable option label shown to the user"`
+}
+
+type SessionQuestionInput struct {
+	Locator         SessionLocatorInput     `json:"locator" jsonschema:"target session locator for the question delivery"`
+	Prompt          string                  `json:"prompt" jsonschema:"question text to deliver to the session"`
+	Options         []SessionQuestionOption `json:"options,omitempty" jsonschema:"structured options rendered as transport-native buttons when available"`
+	DefaultOptionID string                  `json:"default_option_id,omitempty" jsonschema:"optional option id to apply automatically after timeout"`
+	AllowFreeText   bool                    `json:"allow_free_text,omitempty" jsonschema:"whether the user may answer with arbitrary text instead of only choosing an option"`
+	TimeoutSeconds  int                     `json:"timeout_seconds,omitempty" jsonschema:"positive timeout in seconds before the question settles"`
+	RequestedBy     string                  `json:"requested_by,omitempty" jsonschema:"optional requester user id used to restrict who may answer private questions"`
+	Private         bool                    `json:"private,omitempty" jsonschema:"whether the question should be targeted privately to requested_by when supported"`
+	Metadata        map[string]string       `json:"metadata,omitempty" jsonschema:"optional metadata for downstream question clients"`
+}
+
+type SessionQuestionOutput struct {
+	ToolOutcome
+	QuestionID string `json:"question_id,omitempty" jsonschema:"created question id"`
+	OptionID   string `json:"option_id,omitempty" jsonschema:"selected option id when the question settled via structured choice"`
+	Text       string `json:"text,omitempty" jsonschema:"free-text or selected option label returned by the user"`
+	Source     string `json:"source,omitempty" jsonschema:"settlement source such as user, default, timeout, or delivery_failed"`
+	TimedOut   bool   `json:"timed_out,omitempty" jsonschema:"true when the question timed out without a user answer"`
+	Canceled   bool   `json:"canceled,omitempty" jsonschema:"true when the question was canceled or could not be completed interactively"`
+}
+
+type SessionQuestionService interface {
+	AskSessionQuestion(ctx context.Context, in SessionQuestionInput) (SessionQuestionOutput, error)
+}

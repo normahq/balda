@@ -38,6 +38,8 @@ type deliverySentEventPayload struct {
 	Provider          string            `json:"provider,omitempty"`
 	ConversationKey   string            `json:"conversation_key,omitempty"`
 	ProviderMessageID string            `json:"provider_message_id,omitempty"`
+	ReplyHandle       string            `json:"reply_handle,omitempty"`
+	ControlHandle     string            `json:"control_handle,omitempty"`
 	Refs              map[string]string `json:"refs,omitempty"`
 }
 
@@ -111,8 +113,19 @@ func (p *DeliveryBindingProjector) Project(ctx context.Context, subject string, 
 		Provider:          strings.TrimSpace(payload.Provider),
 		ConversationKey:   strings.TrimSpace(payload.ConversationKey),
 		ProviderMessageID: strings.TrimSpace(payload.ProviderMessageID),
+		ReplyHandle:       strings.TrimSpace(payload.ReplyHandle),
+		ControlHandle:     firstNonEmptyBinding(strings.TrimSpace(payload.ControlHandle), strings.TrimSpace(payload.Refs["question_control_handle"])),
 	}); err != nil {
 		return fmt.Errorf("bind question delivery ref for %q: %w", questionID, err)
 	}
 	return nil
+}
+
+func firstNonEmptyBinding(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

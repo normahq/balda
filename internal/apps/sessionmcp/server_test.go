@@ -15,6 +15,11 @@ type recordingWaitScheduler struct {
 	cancel map[string]bool
 }
 
+type recordingQuestionService struct {
+	inputs []SessionQuestionInput
+	output SessionQuestionOutput
+}
+
 func (r *recordingWaitScheduler) ScheduleSessionWait(_ context.Context, in SessionWaitInput) error {
 	r.inputs = append(r.inputs, in)
 	return nil
@@ -29,6 +34,14 @@ func (r *recordingWaitScheduler) CancelSessionWait(_ context.Context, _ SessionL
 		return false, nil
 	}
 	return r.cancel[jobID], nil
+}
+
+func (r *recordingQuestionService) AskSessionQuestion(_ context.Context, in SessionQuestionInput) (SessionQuestionOutput, error) {
+	r.inputs = append(r.inputs, in)
+	if !r.output.OK {
+		r.output.ToolOutcome = ToolOutcome{OK: true}
+	}
+	return r.output, nil
 }
 
 func TestSessionStateServerListsTools(t *testing.T) {
@@ -59,6 +72,7 @@ func TestSessionStateServerListsTools(t *testing.T) {
 		"balda.state.ns_set",
 		"balda.state.ns_set_json",
 		"balda.session.wait",
+		"balda.session.question",
 	}
 
 	if len(got) != len(want) {
@@ -93,6 +107,9 @@ func TestSessionStateToolDescriptionsAndSchemas(t *testing.T) {
 	if got := toolByName["balda.session.wait"].Description; !strings.Contains(got, "action=schedule, list, or cancel") {
 		t.Fatalf("balda.session.wait description = %q, want action wording", got)
 	}
+	if got := toolByName["balda.session.question"].Description; !strings.Contains(got, "default_option_id") {
+		t.Fatalf("balda.session.question description = %q, want default option wording", got)
+	}
 
 	outSchema, ok := toolByName["balda.state.get"].OutputSchema.(map[string]any)
 	if !ok {
@@ -110,6 +127,53 @@ func TestSessionStateToolDescriptionsAndSchemas(t *testing.T) {
 	waitProps := waitSchema["properties"].(map[string]any)
 	if _, ok := waitProps["locator"]; !ok {
 		t.Fatal("balda.session.wait input schema missing locator property")
+	}
+	questionSchema, ok := toolByName["balda.session.question"].InputSchema.(map[string]any)
+	if !ok {
+		t.Fatalf("balda.session.question input schema type = %T, want map[string]any", toolByName["balda.session.question"].InputSchema)
+	}
+	questionProps := questionSchema["properties"].(map[string]any)
+	if _, ok := questionProps["options"]; !ok {
+		t.Fatal("balda.session.question input schema missing options property")
+	}
+}
+
+func TestSessionQuestionCallsService(t *testing.T) {
+	questionService := &recordingQuestionService{
+		output: SessionQuestionOutput{
+			ToolOutcome: ToolOutcome{OK: true},
+			QuestionID:  "question-1",
+			OptionID:    "allow",
+			Source:      "user",
+		},
+	}
+	ctx, cleanup, session := newTestSessionWithQuestionService(t, NewMemoryStore(), nil, questionService)
+	defer cleanup()
+	_ = session.InitializeResult()
+
+	result := callTool(t, ctx, session, "balda.session.question", map[string]any{
+		"locator": map[string]any{
+			"session_id":   "tg-1-0",
+			"channel_type": "telegram",
+			"address_key":  "1:0",
+			"address_json": `{"chat_id":1,"topic_id":0}`,
+		},
+		"prompt":          "Continue?",
+		"timeout_seconds": 30,
+		"options": []map[string]any{
+			{"id": "allow", "label": "Allow"},
+			{"id": "reject", "label": "Reject"},
+		},
+		"default_option_id": "reject",
+		"requested_by":      "tg-101",
+		"private":           true,
+	})
+	assertOk(t, result)
+	if len(questionService.inputs) != 1 {
+		t.Fatalf("question service calls = %d, want 1", len(questionService.inputs))
+	}
+	if got := questionService.inputs[0].DefaultOptionID; got != "reject" {
+		t.Fatalf("default_option_id = %q, want reject", got)
 	}
 }
 
@@ -475,6 +539,10 @@ func TestSharedStateAcrossStores(t *testing.T) {
 // Test helpers
 
 func newTestSession(t *testing.T, store Store, waitScheduler SessionWaitService) (context.Context, func(), *mcp.ClientSession) {
+	return newTestSessionWithQuestionService(t, store, waitScheduler, nil)
+}
+
+func newTestSessionWithQuestionService(t *testing.T, store Store, waitScheduler SessionWaitService, questionService SessionQuestionService) (context.Context, func(), *mcp.ClientSession) {
 	t.Helper()
 	if store == nil {
 		t.Fatal("store is required")
@@ -483,7 +551,7 @@ func newTestSession(t *testing.T, store Store, waitScheduler SessionWaitService)
 		&mcp.Implementation{Name: "test-session-state", Version: "1.0.0"},
 		nil,
 	)
-	RegisterTools(server, store, waitScheduler)
+	RegisterTools(server, store, waitScheduler, questionService)
 
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 	ctx, cancel := context.WithCancel(context.Background())

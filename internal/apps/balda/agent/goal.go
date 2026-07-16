@@ -37,6 +37,7 @@ const (
 	goalMetadataErrorKey              = "error"
 	goalMetadataQuestionPromptKey     = "question_prompt"
 	goalMetadataQuestionReasonKey     = "question_reason"
+	goalMetadataQuestionOptionsKey    = "question_options"
 
 	goalStepStarted   = "step_started"
 	goalStepCompleted = "step_completed"
@@ -327,7 +328,7 @@ func runGoalKeeperLoop(ctx adkagent.InvocationContext, cfg goalKeeperConfig) ite
 				return
 			}
 			if workerResult.Worker != nil && strings.EqualFold(strings.TrimSpace(workerResult.Worker.Status), goalresultcmd.StatusNeedUserInput) {
-				if !yield(newGoalQuestionEvent(ctx, workerResult.Worker.Question, workerResult.Worker.Reason), nil) {
+				if !yield(newGoalQuestionEvent(ctx, workerResult.Worker.Question, workerResult.Worker.Reason, workerResult.Worker.Options), nil) {
 					return
 				}
 				return
@@ -501,16 +502,38 @@ func goalWorkerInstruction() string {
 	}, "\n")
 }
 
-func newGoalQuestionEvent(ctx context.Context, question string, reason string) *adksession.Event {
+func newGoalQuestionEvent(ctx context.Context, question string, reason string, options []goalresultcmd.WorkerResultOption) *adksession.Event {
 	ev := adksession.NewEvent(ctx, "")
 	ev.Author = goalkeeperRootAgentName
 	ev.CustomMetadata = map[string]any{
-		goalMetadataEventKey:          goalStepQuestion,
-		goalMetadataStepKey:           goalWorkerStep,
-		goalMetadataQuestionPromptKey: strings.TrimSpace(question),
-		goalMetadataQuestionReasonKey: strings.TrimSpace(reason),
+		goalMetadataEventKey:           goalStepQuestion,
+		goalMetadataStepKey:            goalWorkerStep,
+		goalMetadataQuestionPromptKey:  strings.TrimSpace(question),
+		goalMetadataQuestionReasonKey:  strings.TrimSpace(reason),
+		goalMetadataQuestionOptionsKey: normalizeGoalQuestionOptionsMetadata(options),
 	}
 	return ev
+}
+
+func normalizeGoalQuestionOptionsMetadata(options []goalresultcmd.WorkerResultOption) []map[string]any {
+	if len(options) == 0 {
+		return nil
+	}
+	normalized := make([]map[string]any, 0, len(options))
+	for _, option := range options {
+		label := strings.TrimSpace(option.Label)
+		if label == "" {
+			continue
+		}
+		normalized = append(normalized, map[string]any{
+			"id":    strings.TrimSpace(option.ID),
+			"label": label,
+		})
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }
 
 func normalizeGoalWorkerEvent(ev *adksession.Event) *adksession.Event {

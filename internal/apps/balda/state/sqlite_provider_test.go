@@ -15,7 +15,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const expectedSQLiteMigrationVersion = 27
+const expectedSQLiteMigrationVersion = 28
 
 func TestSQLiteProvider_KVRoundTrip(t *testing.T) {
 	provider := newTestProvider(t)

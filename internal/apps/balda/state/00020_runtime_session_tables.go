@@ -22,6 +22,7 @@ func registerBaldaGoMigrations() {
 		goose.AddNamedMigrationContext("00025_execution_storage_contract_names.go", up00025ExecutionStorageContractNames, down00025ExecutionStorageContractNames)
 		goose.AddNamedMigrationContext("00026_question_tables.go", up00026QuestionTables, down00026QuestionTables)
 		goose.AddNamedMigrationContext("00027_question_failures.go", up00027QuestionFailures, down00027QuestionFailures)
+		goose.AddNamedMigrationContext("00028_question_control_handles.go", up00028QuestionControlHandles, down00028QuestionControlHandles)
 	})
 }
 

@@ -50,9 +50,9 @@ func (s *sqliteQuestionStore) CreatePendingQuestion(ctx context.Context, record 
 		INSERT INTO balda_questions (
 			question_id, session_id, channel_kind, address_key, address_json,
 			prompt, status, interaction_json, resume_json, request_json, answer_json, failure_json,
-			provider, conversation_key, provider_message_id, reply_handle,
+			provider, conversation_key, provider_message_id, reply_handle, control_handle,
 			expires_at, answered_at, failed_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		record.QuestionID,
 		record.SessionID,
 		record.ChannelKind,
@@ -69,6 +69,7 @@ func (s *sqliteQuestionStore) CreatePendingQuestion(ctx context.Context, record 
 		strings.TrimSpace(record.ConversationKey),
 		strings.TrimSpace(record.ProviderMessageID),
 		strings.TrimSpace(record.ReplyHandle),
+		strings.TrimSpace(record.ControlHandle),
 		optionalTimeString(record.ExpiresAt),
 		optionalTimeString(record.AnsweredAt),
 		optionalTimeString(record.FailedAt),
@@ -85,12 +86,13 @@ func (s *sqliteQuestionStore) BindQuestionDeliveryRef(ctx context.Context, quest
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE balda_questions
-		SET provider = ?, conversation_key = ?, provider_message_id = ?, reply_handle = ?, updated_at = ?
+		SET provider = ?, conversation_key = ?, provider_message_id = ?, reply_handle = ?, control_handle = ?, updated_at = ?
 		WHERE question_id = ?`,
 		strings.TrimSpace(ref.Provider),
 		strings.TrimSpace(ref.ConversationKey),
 		strings.TrimSpace(ref.ProviderMessageID),
 		strings.TrimSpace(ref.ReplyHandle),
+		strings.TrimSpace(ref.ControlHandle),
 		now,
 		strings.TrimSpace(questionID),
 	)
@@ -226,7 +228,7 @@ func (s *sqliteQuestionStore) updateQuestionResolution(
 const questionSelectSQL = `
 	SELECT question_id, session_id, channel_kind, address_key, address_json,
 	       prompt, status, interaction_json, resume_json, request_json, answer_json, failure_json,
-	       provider, conversation_key, provider_message_id, reply_handle,
+	       provider, conversation_key, provider_message_id, reply_handle, control_handle,
 	       expires_at, answered_at, failed_at, created_at, updated_at
 	FROM balda_questions`
 
@@ -256,6 +258,7 @@ func scanQuestion(scan func(dest ...any) error) (QuestionRecord, bool, error) {
 		&record.ConversationKey,
 		&record.ProviderMessageID,
 		&record.ReplyHandle,
+		&record.ControlHandle,
 		&expiresAtRaw,
 		&answeredAtRaw,
 		&failedAtRaw,

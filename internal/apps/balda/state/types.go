@@ -188,6 +188,7 @@ type QuestionRecord struct {
 	ConversationKey   string
 	ProviderMessageID string
 	ReplyHandle       string
+	ControlHandle     string
 	ExpiresAt         time.Time
 	AnsweredAt        time.Time
 	FailedAt          time.Time

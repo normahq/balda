@@ -94,6 +94,26 @@ func TestNormalizePublicText_DirectReplyToBotIncludesReplyContext(t *testing.T) 
 	}
 }
 
+func TestNormalizePublicText_ForwardedBotMessageIncludesForwardedContext(t *testing.T) {
+	h := &BaldaHandler{}
+	setUnexportedField(t, h, "botUserID", int64(4242))
+
+	normalized, ok := h.normalizePublicText(baldatelegram.MessageContext{
+		Text:             "bot previous response",
+		IsForwarded:      true,
+		ForwardedFromBot: true,
+		ForwardedContent: "bot previous response",
+	})
+
+	if !ok {
+		t.Fatal("normalizePublicText() ok = false, want true")
+	}
+	want := "Forwarded context:\nbot previous response"
+	if normalized != want {
+		t.Fatalf("normalized text = %q, want %q", normalized, want)
+	}
+}
+
 func TestBotMentionEntityRanges_SupportsUTF16Offsets(t *testing.T) {
 	text := "hi 😀 @testbot now"
 	ranges := botMentionEntityRanges(text, []client.MessageEntity{

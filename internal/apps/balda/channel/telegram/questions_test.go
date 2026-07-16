@@ -20,9 +20,17 @@ type recordingQuestionMessenger struct {
 	ephemeralChatID         int64
 	ephemeralReceiverUserID int64
 	ephemeralTopicID        int
+	deletedMessageChatID    int64
+	deletedMessageID        int
 	deletedChatID           int64
 	deletedReceiverUserID   int64
 	deletedEphemeralID      int
+}
+
+func (m *recordingQuestionMessenger) DeleteMessage(_ context.Context, chatID int64, messageID int) error {
+	m.deletedMessageChatID = chatID
+	m.deletedMessageID = messageID
+	return nil
 }
 
 func (m *recordingQuestionMessenger) DeleteEphemeralMessage(_ context.Context, chatID, receiverUserID int64, ephemeralMessageID int) error {
@@ -74,11 +82,23 @@ func TestClearPrivateGroupQuestionDeletesEphemeralMessage(t *testing.T) {
 	messenger := &recordingQuestionMessenger{}
 	adapter := NewAdapter(AdapterParams{Messenger: messenger, Logger: zerolog.Nop()})
 
-	if err := adapter.ClearQuestionControls(context.Background(), NewLocator(-1001, 77), "ephemeral:101:73"); err != nil {
+	if err := adapter.ClearQuestionControls(context.Background(), NewLocator(-1001, 77), "ephemeral:101:73", ""); err != nil {
 		t.Fatalf("ClearQuestionControls() error = %v", err)
 	}
 	if messenger.deletedChatID != -1001 || messenger.deletedReceiverUserID != 101 || messenger.deletedEphemeralID != 73 {
 		t.Fatalf("deleted target = %d/%d/%d", messenger.deletedChatID, messenger.deletedReceiverUserID, messenger.deletedEphemeralID)
+	}
+}
+
+func TestClearPrivateDMQuestionDeletesMessage(t *testing.T) {
+	messenger := &recordingQuestionMessenger{}
+	adapter := NewAdapter(AdapterParams{Messenger: messenger, Logger: zerolog.Nop()})
+
+	if err := adapter.ClearQuestionControls(context.Background(), NewLocator(101, 0), "42", telegramQuestionControlHandleDeleteMessage); err != nil {
+		t.Fatalf("ClearQuestionControls() error = %v", err)
+	}
+	if messenger.deletedMessageChatID != 101 || messenger.deletedMessageID != 42 {
+		t.Fatalf("deleted message = %d/%d", messenger.deletedMessageChatID, messenger.deletedMessageID)
 	}
 }
 

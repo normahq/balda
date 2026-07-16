@@ -36,6 +36,7 @@ type TelegramMessenger interface {
 	SendAgentReplyWithInlineKeyboardLastMessageIDAndMode(ctx context.Context, chatID int64, text string, topicID int, mode string, keyboard client.InlineKeyboardMarkup, fallbackText string) (int, error)
 	SendEphemeralAgentReplyWithInlineKeyboardLastMessageIDAndMode(ctx context.Context, chatID, receiverUserID int64, text string, topicID int, mode string, keyboard client.InlineKeyboardMarkup) (int, error)
 	ClearInlineKeyboard(ctx context.Context, chatID int64, messageID int) error
+	DeleteMessage(ctx context.Context, chatID int64, messageID int) error
 	DeleteEphemeralMessage(ctx context.Context, chatID, receiverUserID int64, ephemeralMessageID int) error
 	AnswerCallbackQuery(ctx context.Context, callbackQueryID, text string, showAlert bool) error
 	SendDraftPlain(ctx context.Context, chatID int64, draftID int, text string, topicID int) error
@@ -70,9 +71,12 @@ type MessageContext struct {
 	UserID           int64
 	Entities         []client.MessageEntity
 	IsReply          bool
+	IsForwarded      bool
+	ForwardedFromBot bool
 	ReplyToUserID    int64
 	ReplyToIsBot     bool
 	ReplyContent     string
+	ForwardedContent string
 	Text             string
 	HasCommand       bool
 	DeliveryOptions  deliveryfmt.Options
@@ -152,7 +156,7 @@ func (a *Adapter) Deliver(ctx context.Context, locator deliverycmd.Locator, oper
 	case deliverycmd.OperationProgress:
 		err = a.SendProgress(ctx, locator, operation.Progress)
 	case deliverycmd.OperationClearQuestionControls:
-		err = a.ClearQuestionControls(ctx, locator, operation.MessageID)
+		err = a.ClearQuestionControls(ctx, locator, operation.MessageID, operation.Handle)
 	default:
 		err = fmt.Errorf("unsupported telegram delivery operation %q", operation.Kind)
 	}
@@ -216,6 +220,7 @@ func (a *Adapter) MessageContextFromEvent(event *events.MessageEvent) (MessageCo
 		entities = append(entities, (*event.Message.Entities)...)
 	}
 	isReply := event.Message.ReplyToMessage != nil || event.Message.Quote != nil || event.Message.ExternalReply != nil
+	isForwarded := event.Message.ForwardOrigin != nil
 	replyToUserID := int64(0)
 	replyToIsBot := false
 	replyToMessageID := 0
@@ -225,6 +230,8 @@ func (a *Adapter) MessageContextFromEvent(event *events.MessageEvent) (MessageCo
 		replyToMessageID = event.Message.ReplyToMessage.MessageId
 	}
 	replyContent := replyContentFromMessage(event.Message)
+	forwardedFromBot := forwardedOriginIsBot(event.Message.ForwardOrigin)
+	forwardedContent := forwardedContentFromMessage(event.Message)
 
 	hasCommand := false
 	if event.Message.Entities != nil {
@@ -245,9 +252,12 @@ func (a *Adapter) MessageContextFromEvent(event *events.MessageEvent) (MessageCo
 		UserID:           event.Message.From.Id,
 		Entities:         entities,
 		IsReply:          isReply,
+		IsForwarded:      isForwarded,
+		ForwardedFromBot: forwardedFromBot,
 		ReplyToUserID:    replyToUserID,
 		ReplyToIsBot:     replyToIsBot,
 		ReplyContent:     replyContent,
+		ForwardedContent: forwardedContent,
 		Text:             text,
 		HasCommand:       hasCommand,
 		DeliveryOptions: deliveryfmt.Options{
@@ -287,6 +297,31 @@ func replyContentFromMessage(message *client.Message) string {
 		return *message.ReplyToMessage.Caption
 	}
 	return richMessagePlainText(message.ReplyToMessage.RichMessage)
+}
+
+func forwardedContentFromMessage(message *client.Message) string {
+	if message == nil || message.ForwardOrigin == nil {
+		return ""
+	}
+	if message.Text != nil && strings.TrimSpace(*message.Text) != "" {
+		return *message.Text
+	}
+	if message.Caption != nil && strings.TrimSpace(*message.Caption) != "" {
+		return *message.Caption
+	}
+	return richMessagePlainText(message.RichMessage)
+}
+
+func forwardedOriginIsBot(origin *client.MessageOrigin) bool {
+	if origin == nil {
+		return false
+	}
+	user, ok := (*origin)["user"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	isBot, _ := user["is_bot"].(bool)
+	return isBot
 }
 
 func richMessagePlainText(rich *client.RichMessage) string {
@@ -690,10 +725,21 @@ func (a *Adapter) SendAgentReplyWithQuestion(ctx context.Context, locator delive
 
 // ClearQuestionControls removes the inline keyboard from a previously sent
 // Telegram question.
-func (a *Adapter) ClearQuestionControls(ctx context.Context, locator deliverycmd.Locator, messageID string) error {
+func (a *Adapter) ClearQuestionControls(ctx context.Context, locator deliverycmd.Locator, messageID, handle string) error {
 	chatID, _, err := telegramTuple(locator)
 	if err != nil {
 		return err
+	}
+	switch strings.TrimSpace(handle) {
+	case telegramQuestionControlHandleDeleteMessage:
+		id, err := strconv.Atoi(strings.TrimSpace(messageID))
+		if err != nil || id <= 0 {
+			return fmt.Errorf("invalid telegram message id %q", messageID)
+		}
+		return a.messenger.DeleteMessage(ctx, chatID, id)
+	case "", telegramQuestionControlHandleClearInlineKeyboard:
+	default:
+		return fmt.Errorf("unsupported telegram question control handle %q", handle)
 	}
 	if receiverUserID, ephemeralMessageID, ok := parseEphemeralProviderMessageID(messageID); ok {
 		return a.messenger.DeleteEphemeralMessage(ctx, chatID, receiverUserID, ephemeralMessageID)
@@ -701,6 +747,9 @@ func (a *Adapter) ClearQuestionControls(ctx context.Context, locator deliverycmd
 	id, err := strconv.Atoi(strings.TrimSpace(messageID))
 	if err != nil || id <= 0 {
 		return fmt.Errorf("invalid telegram message id %q", messageID)
+	}
+	if chatID > 0 && strings.TrimSpace(handle) == "" {
+		return a.messenger.DeleteMessage(ctx, chatID, id)
 	}
 	return a.messenger.ClearInlineKeyboard(ctx, chatID, id)
 }

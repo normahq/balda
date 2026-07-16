@@ -24,6 +24,7 @@ func up00026QuestionTables(ctx context.Context, tx *sql.Tx) error {
 			conversation_key TEXT NOT NULL DEFAULT '',
 			provider_message_id TEXT NOT NULL DEFAULT '',
 			reply_handle TEXT NOT NULL DEFAULT '',
+			control_handle TEXT NOT NULL DEFAULT '',
 			expires_at TEXT NOT NULL DEFAULT '',
 			answered_at TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,

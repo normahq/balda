@@ -39,7 +39,7 @@ func (d channelRouterDispatcher) Dispatch(ctx context.Context, payload deliveryc
 		}
 		return "", d.router.SendProgress(ctx, payload.Locator, *payload.Progress)
 	case deliverycmd.ModeClearQuestionControls:
-		return "", d.router.ClearQuestionControls(ctx, payload.Locator, payload.MessageID)
+		return "", d.router.ClearQuestionControls(ctx, payload.Locator, payload.MessageID, payload.Handle)
 	default:
 		return "", fmt.Errorf("unsupported delivery mode %q", payload.Mode)
 	}

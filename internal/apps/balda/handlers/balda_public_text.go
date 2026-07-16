@@ -11,14 +11,19 @@ import (
 
 func (h *BaldaHandler) normalizePublicText(messageCtx baldatelegram.MessageContext) (string, bool) {
 	botUserID, botUsername := h.getBotIdentity()
+	replyContent := strings.TrimSpace(messageCtx.ReplyContent)
+	forwardedContent := strings.TrimSpace(messageCtx.ForwardedContent)
 
 	if botUsername != "" {
 		mentionRanges := botMentionEntityRanges(messageCtx.Text, messageCtx.Entities, botUsername)
 		if len(mentionRanges) > 0 {
 			userMessage := strings.TrimSpace(removeTextByUTF16Ranges(messageCtx.Text, mentionRanges))
-			replyContent := strings.TrimSpace(messageCtx.ReplyContent)
-			return composeReplyAwareInput(userMessage, replyContent)
+			return composeContextAwareInput(userMessage, replyContent, forwardedContent)
 		}
+	}
+
+	if messageCtx.IsForwarded && messageCtx.ForwardedFromBot {
+		return composeContextAwareInput("", replyContent, forwardedContent)
 	}
 
 	if !messageCtx.IsReply || !messageCtx.ReplyToIsBot || botUserID == 0 {
@@ -29,30 +34,49 @@ func (h *BaldaHandler) normalizePublicText(messageCtx baldatelegram.MessageConte
 		return "", false
 	}
 
-	return composeReplyAwareInput(strings.TrimSpace(messageCtx.Text), strings.TrimSpace(messageCtx.ReplyContent))
+	return composeContextAwareInput(strings.TrimSpace(messageCtx.Text), replyContent, forwardedContent)
 }
 
 func (h *BaldaHandler) normalizeDMText(messageCtx baldatelegram.MessageContext) string {
-	if !messageCtx.IsReply {
+	if !messageCtx.IsReply && !messageCtx.IsForwarded {
 		return messageCtx.Text
 	}
-	if normalized, ok := composeReplyAwareInput(strings.TrimSpace(messageCtx.Text), strings.TrimSpace(messageCtx.ReplyContent)); ok {
+	if normalized, ok := composeContextAwareInput(
+		strings.TrimSpace(messageCtx.Text),
+		strings.TrimSpace(messageCtx.ReplyContent),
+		strings.TrimSpace(messageCtx.ForwardedContent),
+	); ok {
 		return normalized
 	}
 	return messageCtx.Text
 }
 
-func composeReplyAwareInput(userMessage, replyContent string) (string, bool) {
+func composeContextAwareInput(userMessage, replyContent, forwardedContent string) (string, bool) {
 	switch {
+	case replyContent != "" && forwardedContent != "" && userMessage != "":
+		return fmt.Sprintf("Reply context:\n%s\n\nForwarded context:\n%s\n\nUser message:\n%s", replyContent, forwardedContent, stripDuplicateUserMessage(userMessage, forwardedContent)), true
+	case replyContent != "" && forwardedContent != "":
+		return fmt.Sprintf("Reply context:\n%s\n\nForwarded context:\n%s", replyContent, forwardedContent), true
 	case replyContent != "" && userMessage != "":
 		return fmt.Sprintf("Reply context:\n%s\n\nUser message:\n%s", replyContent, userMessage), true
+	case forwardedContent != "" && userMessage != "":
+		return fmt.Sprintf("Forwarded context:\n%s\n\nUser message:\n%s", forwardedContent, stripDuplicateUserMessage(userMessage, forwardedContent)), true
 	case replyContent != "":
 		return fmt.Sprintf("Reply context:\n%s", replyContent), true
+	case forwardedContent != "":
+		return fmt.Sprintf("Forwarded context:\n%s", forwardedContent), true
 	case userMessage != "":
 		return userMessage, true
 	default:
 		return "", false
 	}
+}
+
+func stripDuplicateUserMessage(userMessage, forwardedContent string) string {
+	if strings.TrimSpace(userMessage) == strings.TrimSpace(forwardedContent) {
+		return ""
+	}
+	return userMessage
 }
 
 type utf16Range struct {

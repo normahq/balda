@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/baldaworks/go-actorlayer"
@@ -39,6 +40,7 @@ type ControlClearRequest struct {
 	QuestionID        string
 	Locator           deliverycmd.Locator
 	ProviderMessageID string
+	ControlHandle     string
 }
 
 // ControlPublisher projects question lifecycle changes to delivery channels.
@@ -52,6 +54,8 @@ type Service struct {
 	controls  ControlPublisher
 	logger    zerolog.Logger
 	now       func() time.Time
+	waitMu    sync.Mutex
+	waiters   map[string]chan SessionResult
 }
 
 // SetControlPublisher attaches the optional delivery-side projection used to
@@ -68,6 +72,7 @@ func New(store Store, scheduled ScheduledJobStore, logger zerolog.Logger) *Servi
 		scheduled: scheduled,
 		logger:    logger,
 		now:       time.Now,
+		waiters:   make(map[string]chan SessionResult),
 	}
 }
 
@@ -426,6 +431,7 @@ func (s *Service) clearControls(ctx context.Context, record baldastate.QuestionR
 		QuestionID:        strings.TrimSpace(record.QuestionID),
 		Locator:           interaction.Locator,
 		ProviderMessageID: strings.TrimSpace(record.ProviderMessageID),
+		ControlHandle:     strings.TrimSpace(record.ControlHandle),
 	}); err != nil {
 		s.logger.Warn().Err(err).Str("question_id", record.QuestionID).Msg("clear settled question controls")
 	}

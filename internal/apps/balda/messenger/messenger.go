@@ -455,6 +455,31 @@ func (m *Messenger) ClearInlineKeyboard(ctx context.Context, chatID int64, messa
 	return nil
 }
 
+// DeleteMessage removes a regular Telegram message in full.
+func (m *Messenger) DeleteMessage(ctx context.Context, chatID int64, messageID int) error {
+	request := client.DeleteMessageJSONRequestBody{ChatId: chatID, MessageId: messageID}
+	sendCtx, cancel := telegramSendContext(ctx)
+	defer cancel()
+	resp, err := m.client.DeleteMessageWithResponse(sendCtx, request)
+	if err != nil {
+		return fmt.Errorf("delete message %d: %w", messageID, err)
+	}
+	if resp == nil {
+		return fmt.Errorf("delete message %d: no response body", messageID)
+	}
+	if resp.JSON400 != nil {
+		description := strings.TrimSpace(resp.JSON400.Description)
+		if strings.Contains(strings.ToLower(description), "message to delete not found") {
+			return nil
+		}
+		return fmt.Errorf("delete message %d: %s", messageID, description)
+	}
+	if resp.JSON200 == nil {
+		return fmt.Errorf("delete message %d: no response body", messageID)
+	}
+	return nil
+}
+
 // DeleteEphemeralMessage removes a settled ephemeral question in full.
 func (m *Messenger) DeleteEphemeralMessage(ctx context.Context, chatID, receiverUserID int64, ephemeralMessageID int) error {
 	request := client.DeleteEphemeralMessageJSONRequestBody{

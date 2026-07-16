@@ -14,12 +14,21 @@ import (
 
 type inlineKeyboardClient struct {
 	client.ClientWithResponsesInterface
-	richBody       []byte
-	richBodyError  error
-	richFallback   []client.SendRichMessageJSONRequestBody
-	editRequests   []client.EditMessageReplyMarkupJSONRequestBody
-	deleteRequests []client.DeleteEphemeralMessageJSONRequestBody
-	answers        []client.AnswerCallbackQueryJSONRequestBody
+	richBody              []byte
+	richBodyError         error
+	richFallback          []client.SendRichMessageJSONRequestBody
+	editRequests          []client.EditMessageReplyMarkupJSONRequestBody
+	deleteMessageRequests []client.DeleteMessageJSONRequestBody
+	deleteRequests        []client.DeleteEphemeralMessageJSONRequestBody
+	answers               []client.AnswerCallbackQueryJSONRequestBody
+}
+
+func (f *inlineKeyboardClient) DeleteMessageWithResponse(_ context.Context, body client.DeleteMessageJSONRequestBody, _ ...client.RequestEditorFn) (*client.DeleteMessageResponse, error) {
+	f.deleteMessageRequests = append(f.deleteMessageRequests, body)
+	return &client.DeleteMessageResponse{JSON200: &struct {
+		Ok     client.DeleteMessage200Ok `json:"ok"`
+		Result bool                      `json:"result"`
+	}{Ok: true, Result: true}}, nil
 }
 
 func (f *inlineKeyboardClient) DeleteEphemeralMessageWithResponse(_ context.Context, body client.DeleteEphemeralMessageJSONRequestBody, _ ...client.RequestEditorFn) (*client.DeleteEphemeralMessageResponse, error) {
@@ -117,6 +126,12 @@ func TestQuestionControlLifecycleCallsTelegramAPIs(t *testing.T) {
 	}
 	if len(tgClient.editRequests) != 1 || tgClient.editRequests[0].ReplyMarkup != nil {
 		t.Fatalf("edit requests = %+v", tgClient.editRequests)
+	}
+	if err := messenger.DeleteMessage(context.Background(), 9001, 41); err != nil {
+		t.Fatalf("DeleteMessage() error = %v", err)
+	}
+	if len(tgClient.deleteMessageRequests) != 1 || tgClient.deleteMessageRequests[0].ChatId != 9001 || tgClient.deleteMessageRequests[0].MessageId != 41 {
+		t.Fatalf("delete message requests = %+v", tgClient.deleteMessageRequests)
 	}
 	if err := messenger.DeleteEphemeralMessage(context.Background(), 9001, 101, 73); err != nil {
 		t.Fatalf("DeleteEphemeralMessage() error = %v", err)

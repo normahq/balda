@@ -14,6 +14,10 @@ import (
 
 const QuestionCallbackPrefix = "balda:q:"
 const ephemeralProviderMessagePrefix = "ephemeral:"
+const (
+	telegramQuestionControlHandleClearInlineKeyboard = "telegram:inline:clear"
+	telegramQuestionControlHandleDeleteMessage       = "telegram:message:delete"
+)
 
 // CallbackContext is the channel-normalized context of a Telegram question
 // selection.

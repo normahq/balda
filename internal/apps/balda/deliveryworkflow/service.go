@@ -229,6 +229,7 @@ func (s *Service) bindQuestionDelivery(ctx context.Context, payload deliverycmd.
 		Provider:          strings.TrimSpace(payload.Locator.ChannelType),
 		ConversationKey:   strings.TrimSpace(payload.Locator.AddressKey),
 		ProviderMessageID: providerMessageID,
+		ControlHandle:     strings.TrimSpace(payload.Refs["question_control_handle"]),
 	})
 }
 
