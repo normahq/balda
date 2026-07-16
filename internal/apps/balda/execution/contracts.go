@@ -19,6 +19,7 @@ const (
 	NamespaceGoalCommand       = actorcmd.NamespaceGoalCommand
 	NamespaceJobControl        = actorcmd.NamespaceJobControl
 	NamespaceMemoryCommand     = actorcmd.NamespaceMemoryCommand
+	NamespaceAutoModeCommand   = actorcmd.NamespaceAutoModeCommand
 	NamespaceTelemetry         = actorcmd.NamespaceTelemetry
 
 	KindMessage        = actorcmd.KindMessage

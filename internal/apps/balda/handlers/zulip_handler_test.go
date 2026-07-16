@@ -15,6 +15,8 @@ import (
 	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	"github.com/normahq/balda/internal/apps/balda/auth"
+	"github.com/normahq/balda/internal/apps/balda/automode"
+	"github.com/normahq/balda/internal/apps/balda/automodecmd"
 	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
 	"github.com/normahq/balda/internal/apps/balda/session"
@@ -464,7 +466,7 @@ func TestZulipBaldaHandlerResetRecreatesSessionAndSendsWelcome(t *testing.T) {
 		},
 		startupNotices: map[string]string{locator.SessionID: "startup ready"},
 	}
-	dispatcher := &recordingZulipDispatcher{}
+	dispatcher := &recordingZulipDispatcher{stateManager: manager}
 	handler := &ZulipBaldaHandler{
 		sessionManager:  manager,
 		actorDispatcher: dispatcher,
@@ -982,6 +984,7 @@ type fakeZulipSessionManager struct {
 	metadata       session.AgentMetadata
 	sessionInfo    map[string]session.TopicSessionInfo
 	startupNotices map[string]string
+	runtimeState   map[string]map[string]any
 }
 
 func (f *fakeZulipSessionManager) CreateSession(_ context.Context, sessionCtx session.SessionContext, agentName string) error {
@@ -1031,8 +1034,29 @@ func (f *fakeZulipSessionManager) ResetSession(_ context.Context, locator sessio
 	return nil
 }
 
-func (*fakeZulipSessionManager) RuntimeStateValue(context.Context, session.SessionLocator, string) (any, bool, error) {
-	return nil, false, nil
+func (f *fakeZulipSessionManager) RuntimeStateValue(_ context.Context, locator session.SessionLocator, key string) (any, bool, error) {
+	if f.runtimeState == nil {
+		return nil, false, nil
+	}
+	state := f.runtimeState[locator.SessionID]
+	if state == nil {
+		return nil, false, nil
+	}
+	value, ok := state[key]
+	return value, ok, nil
+}
+
+func (f *fakeZulipSessionManager) UpdateRuntimeState(_ context.Context, locator session.SessionLocator, state map[string]any) error {
+	if f.runtimeState == nil {
+		f.runtimeState = map[string]map[string]any{}
+	}
+	if f.runtimeState[locator.SessionID] == nil {
+		f.runtimeState[locator.SessionID] = map[string]any{}
+	}
+	for key, value := range state {
+		f.runtimeState[locator.SessionID][key] = value
+	}
+	return nil
 }
 
 func (f *fakeZulipSessionManager) TakeStartupNotice(sessionID string) string {
@@ -1041,14 +1065,50 @@ func (f *fakeZulipSessionManager) TakeStartupNotice(sessionID string) string {
 	return notice
 }
 
+func TestZulipBaldaHandlerAutoCommandTogglesState(t *testing.T) {
+	locator := baldazulip.NewDMLocator(101)
+	manager := &fakeZulipSessionManager{}
+	dispatcher := &recordingZulipDispatcher{stateManager: manager}
+	handler := &ZulipBaldaHandler{
+		sessionManager:  manager,
+		actorDispatcher: dispatcher,
+		logger:          zerolog.Nop(),
+	}
+
+	handler.handleAutoCommand(context.Background(), locator, "on")
+
+	payloads := zulipDeliveryPayloads(t, dispatcher.commands)
+	if len(payloads) != 1 {
+		t.Fatalf("delivery payloads = %d, want 1", len(payloads))
+	}
+	if !strings.Contains(payloads[0].Text, "Auto mode: on") {
+		t.Fatalf("payload text = %q, want auto on", payloads[0].Text)
+	}
+	if got := manager.runtimeState[locator.SessionID][automode.StateKeyEnabled]; got != true {
+		t.Fatalf("runtime auto enabled = %#v, want true", got)
+	}
+}
+
 var errFakeZulipSessionNotFound = errors.New("zulip session not found")
 
 type recordingZulipDispatcher struct {
-	commands []actorlayer.Envelope
-	err      error
+	commands     []actorlayer.Envelope
+	err          error
+	stateManager interface {
+		UpdateRuntimeState(context.Context, session.SessionLocator, map[string]any) error
+	}
 }
 
 func (d *recordingZulipDispatcher) Dispatch(_ context.Context, env actorlayer.Envelope) (*actortransport.DispatchReceipt, error) {
+	if env.Namespace == baldaexecution.NamespaceAutoModeCommand && d.stateManager != nil {
+		var payload automodecmd.Payload
+		if err := actorlayer.UnmarshalPayload(env.Payload, &payload); err != nil {
+			return nil, err
+		}
+		if err := d.stateManager.UpdateRuntimeState(context.Background(), session.SessionLocator(payload.Locator), payload.State); err != nil {
+			return nil, err
+		}
+	}
 	d.commands = append(d.commands, env)
 	if d.err != nil {
 		return nil, d.err

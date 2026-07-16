@@ -13,9 +13,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/baldaworks/go-actorlayer"
+	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/actorcmd"
 	"github.com/normahq/balda/internal/apps/balda/appports"
 	"github.com/normahq/balda/internal/apps/balda/auth"
+	"github.com/normahq/balda/internal/apps/balda/automode"
 	baldachannel "github.com/normahq/balda/internal/apps/balda/channel"
 	baldazulip "github.com/normahq/balda/internal/apps/balda/channel/zulip"
 	"github.com/normahq/balda/internal/apps/balda/deliverycmd"
@@ -27,8 +30,6 @@ import (
 	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/balda/turncmd"
 	"github.com/normahq/balda/internal/apps/balda/welcome"
-	"github.com/baldaworks/go-actorlayer"
-	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"go.uber.org/fx"
@@ -103,6 +104,7 @@ type zulipSessionManager interface {
 	GetSession(locator baldasession.SessionLocator) (*baldasession.TopicSession, error)
 	GetSessionInfo(ctx context.Context, sessionID string) (baldasession.TopicSessionInfo, error)
 	RuntimeStateValue(ctx context.Context, locator baldasession.SessionLocator, key string) (any, bool, error)
+	UpdateRuntimeState(ctx context.Context, locator baldasession.SessionLocator, state map[string]any) error
 	RestoreSession(ctx context.Context, sessionCtx baldasession.SessionContext) (*baldasession.TopicSession, error)
 	BaldaProviderID() string
 	ResetSession(ctx context.Context, locator baldasession.SessionLocator) error
@@ -526,12 +528,49 @@ func (h *ZulipBaldaHandler) handleCommand(
 		h.handleGoalCommand(ctx, locator, senderID, args)
 	case commandUsage:
 		h.handleUsageCommand(ctx, locator, args)
+	case commandAuto:
+		h.handleAutoCommand(ctx, locator, args)
 	case commandClose:
 		h.handleCloseCommand(ctx, locator, senderID, args, isDM)
 	case commandUser:
 		h.handleUserCommand(ctx, locator, senderID, args)
 	default:
 		_ = h.sendPlain(ctx, locator, fmt.Sprintf("Unknown command: /%s", cmd))
+	}
+}
+
+func (h *ZulipBaldaHandler) handleAutoCommand(
+	ctx context.Context,
+	locator baldasession.SessionLocator,
+	args string,
+) {
+	arg := strings.ToLower(strings.TrimSpace(args))
+	switch arg {
+	case "":
+		status, err := loadAutoStatus(ctx, h.sessionManager, locator)
+		if err != nil {
+			_ = h.sendPlain(ctx, locator, "Could not read auto mode status.")
+			return
+		}
+		_ = h.sendPlain(ctx, locator, automode.RenderStatus(status))
+	case "on":
+		if err := dispatchAutoStateUpdate(ctx, h.actorDispatcher, locator, automode.EnableState(time.Now())); err != nil {
+			_ = h.sendPlain(ctx, locator, "Could not enable auto mode.")
+			return
+		}
+		_ = h.sendPlain(ctx, locator, automode.RenderStatus(automode.Normalize(automode.Status{
+			Enabled:  true,
+			State:    automode.StateIdle,
+			MaxTurns: automode.DefaultMaxTurns,
+		})))
+	case "off":
+		if err := dispatchAutoStateUpdate(ctx, h.actorDispatcher, locator, automode.DisableState()); err != nil {
+			_ = h.sendPlain(ctx, locator, "Could not disable auto mode.")
+			return
+		}
+		_ = h.sendPlain(ctx, locator, automode.RenderStatus(automode.DefaultStatus()))
+	default:
+		_ = h.sendPlain(ctx, locator, "Usage: /auto [on|off]")
 	}
 }
 

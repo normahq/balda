@@ -80,3 +80,17 @@ func (s *TopicSession) RuntimeStateValue(ctx context.Context, key string) (any, 
 	}
 	return value, true, nil
 }
+
+func (s *TopicSession) UpdateRuntimeState(ctx context.Context, state map[string]any) error {
+	if s == nil || s.sess == nil || s.sessionSvc == nil || len(state) == 0 {
+		return nil
+	}
+	updater, ok := s.sessionSvc.(interface {
+		UpdateSessionState(ctx context.Context, appName string, userID string, sessionID string, state map[string]any) (session.Session, error)
+	})
+	if !ok {
+		return nil
+	}
+	_, err := updater.UpdateSessionState(ctx, s.sess.AppName(), s.sess.UserID(), s.GetAgentSessionID(), state)
+	return err
+}

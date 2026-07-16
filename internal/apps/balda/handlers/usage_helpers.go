@@ -10,7 +10,11 @@ import (
 
 type usageSnapshot = usageview.Snapshot
 
-func loadUsageSnapshot(ctx context.Context, sessions commandSessionManager, locator baldasession.SessionLocator) (usageSnapshot, bool, error) {
+type usageStateReader interface {
+	RuntimeStateValue(ctx context.Context, locator baldasession.SessionLocator, key string) (any, bool, error)
+}
+
+func loadUsageSnapshot(ctx context.Context, sessions usageStateReader, locator baldasession.SessionLocator) (usageSnapshot, bool, error) {
 	if sessions == nil {
 		return usageSnapshot{}, false, nil
 	}

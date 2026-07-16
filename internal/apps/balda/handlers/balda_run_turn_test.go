@@ -1654,7 +1654,7 @@ func TestRunTurnWithDelivery_AcceptsSlackLocator(t *testing.T) {
 	h := &BaldaHandler{
 		actorDispatcher: bus,
 		logger:          zerolog.Nop(),
-		turnExecution:   sessionturnapp.NewTurnExecutionServiceWithJobEvents(bus, nil, zerolog.Nop()),
+		turnExecution:   sessionturnapp.NewTurnExecutionServiceWithJobEvents(bus, nil, nil, zerolog.Nop()),
 	}
 	adkRunner, sessionID := newBaldaRunTurnTestRunnerWithEvents(t, func(invocationID string) []*adksession.Event {
 		reply := adksession.NewEvent(context.Background(), invocationID)
@@ -1883,7 +1883,7 @@ func newBaldaRunTurnHandlerWithChannel(channel *baldatelegram.Adapter, now func(
 		actorDispatcher: bus,
 		logger:          zerolog.Nop(),
 		now:             now,
-		turnExecution:   sessionturnapp.NewTurnExecutionServiceWithJobEvents(bus, nil, zerolog.Nop()),
+		turnExecution:   sessionturnapp.NewTurnExecutionServiceWithJobEvents(bus, nil, nil, zerolog.Nop()),
 	}
 }
 
@@ -1935,7 +1935,7 @@ func newBaldaRunTurnTaskTestHandler(t *testing.T) (*BaldaHandler, *baldaRunTurnT
 		actorDispatcher: bus,
 		jobEvents:       tasks,
 		logger:          zerolog.Nop(),
-		turnExecution:   sessionturnapp.NewTurnExecutionServiceWithJobEvents(bus, tasks, zerolog.Nop()),
+		turnExecution:   sessionturnapp.NewTurnExecutionServiceWithJobEvents(bus, tasks, nil, zerolog.Nop()),
 	}, tgClient, bus, tasks
 }
 

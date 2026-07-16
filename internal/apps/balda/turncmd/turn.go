@@ -15,6 +15,7 @@ const (
 	SourceTelegram = "telegram"
 	SourceWebhook  = "webhook"
 	SourceSchedule = "schedule"
+	SourceAuto     = "auto"
 )
 
 type SessionTurnPayload struct {

@@ -22,6 +22,7 @@ const (
 	NamespaceMemoryCommand     = "memory.command"
 	NamespaceQuestionCommand   = "question.command"
 	NamespacePermissionCommand = "permission.command"
+	NamespaceAutoModeCommand   = "auto_mode.command"
 	NamespaceTelemetry         = "telemetry"
 
 	KindMessage          = "message"

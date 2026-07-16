@@ -12,9 +12,11 @@ import (
 	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/actorcmd"
 	"github.com/normahq/balda/internal/apps/balda/appports"
+	"github.com/normahq/balda/internal/apps/balda/automodecmd"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	"github.com/normahq/balda/internal/apps/balda/questioncmd"
 	"github.com/normahq/balda/internal/apps/balda/questions"
+	baldasession "github.com/normahq/balda/internal/apps/balda/session"
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/turncmd"
 	"go.uber.org/fx"
@@ -46,6 +48,11 @@ type sessionActorExecutor struct {
 	scheduler  appports.ScheduledJobRecorder
 	dispatcher actortransport.Dispatcher
 	questions  *questions.Service
+	sessions   sessionRuntimeStateUpdater
+}
+
+type sessionRuntimeStateUpdater interface {
+	GetSession(locator baldasession.SessionLocator) (*baldasession.TopicSession, error)
 }
 
 type sessionActorExecutorParams struct {
@@ -57,6 +64,7 @@ type sessionActorExecutorParams struct {
 	Tasks      sessionJobLifecycle           `optional:"true"`
 	Scheduler  appports.ScheduledJobRecorder `optional:"true"`
 	Questions  *questions.Service            `optional:"true"`
+	Sessions   *baldasession.Manager         `optional:"true"`
 }
 
 func (e *sessionActorExecutor) Address() string {
@@ -67,9 +75,32 @@ func (e *sessionActorExecutor) Handle(ctx context.Context, env actorlayer.Envelo
 	switch strings.TrimSpace(env.Namespace) {
 	case baldaexecution.NamespaceHumanInbound, baldaexecution.NamespaceWebhookInbound, baldaexecution.NamespaceScheduleInbound, baldaexecution.NamespaceGoalkeeperCommand, baldaexecution.NamespaceJobControl:
 		return e.enqueueTurn(ctx, env)
+	case baldaexecution.NamespaceAutoModeCommand:
+		return e.updateAutoModeState(ctx, env)
 	default:
 		return actorlayer.PolicyError(fmt.Errorf("unsupported session namespace %q", env.Namespace))
 	}
+}
+
+func (e *sessionActorExecutor) updateAutoModeState(ctx context.Context, env actorlayer.Envelope) error {
+	if e == nil || e.sessions == nil {
+		return actorlayer.TransientError(fmt.Errorf("session runtime state updater is required"))
+	}
+	var payload automodecmd.Payload
+	if err := actorlayer.UnmarshalPayload(env.Payload, &payload); err != nil {
+		return actorlayer.PermanentError(fmt.Errorf("decode auto mode payload: %w", err))
+	}
+	ts, err := e.sessions.GetSession(baldasession.SessionLocator(payload.Locator))
+	if err != nil {
+		return actorlayer.TransientError(fmt.Errorf("lookup session for auto mode update: %w", err))
+	}
+	if ts == nil {
+		return actorlayer.TransientError(fmt.Errorf("session %q unavailable for auto mode update", payload.Locator.SessionID))
+	}
+	if err := ts.UpdateRuntimeState(ctx, payload.State); err != nil {
+		return actorlayer.TransientError(fmt.Errorf("update auto mode runtime state: %w", err))
+	}
+	return nil
 }
 
 func (e *sessionActorExecutor) enqueueTurn(ctx context.Context, env actorlayer.Envelope) error {

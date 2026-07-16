@@ -109,6 +109,14 @@ func (m *Manager) RuntimeStateValue(ctx context.Context, locator SessionLocator,
 	return ts.RuntimeStateValue(ctx, key)
 }
 
+func (m *Manager) UpdateRuntimeState(ctx context.Context, locator SessionLocator, state map[string]any) error {
+	ts, err := m.GetSession(locator)
+	if err != nil || ts == nil {
+		return err
+	}
+	return ts.UpdateRuntimeState(ctx, state)
+}
+
 type TopicSessionInfo struct {
 	SessionID    string
 	UserID       string

@@ -46,6 +46,10 @@ func actorLaneKeyFromEnvelope(env actorlayer.Envelope) string {
 			if id := strings.TrimSpace(env.ID); id != "" {
 				return "session-command:" + id
 			}
+		case NamespaceAutoModeCommand:
+			if sessionID := strings.TrimSpace(env.To.Key); sessionID != "" {
+				return "session:" + sessionID
+			}
 		}
 	}
 	switch namespace {
@@ -53,7 +57,7 @@ func actorLaneKeyFromEnvelope(env actorlayer.Envelope) string {
 		if key := strings.TrimSpace(env.To.Key); key != "" {
 			return "goalkeeper:" + key
 		}
-	case NamespaceHumanInbound, NamespaceWebhookInbound, NamespaceScheduleInbound:
+	case NamespaceHumanInbound, NamespaceWebhookInbound, NamespaceScheduleInbound, NamespaceAutoModeCommand:
 		if sessionID := strings.TrimSpace(EnvelopeSessionID(env)); sessionID != "" {
 			return "session:" + sessionID
 		}

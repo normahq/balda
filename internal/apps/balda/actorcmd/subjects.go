@@ -81,6 +81,8 @@ func SubjectForEnvelope(env actorlayer.Envelope) string {
 			return SubjectCommandQuestion
 		case NamespacePermissionCommand:
 			return SubjectCommandPermission
+		case NamespaceAutoModeCommand:
+			return SubjectCommandSession
 		case NamespaceWebhookInbound, NamespaceScheduleInbound:
 			return SubjectCommandJob
 		case NamespaceHumanInbound:

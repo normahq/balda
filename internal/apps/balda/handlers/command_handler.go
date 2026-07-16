@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	"github.com/normahq/balda/internal/apps/balda/appports"
 	"github.com/normahq/balda/internal/apps/balda/auth"
+	"github.com/normahq/balda/internal/apps/balda/automode"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	baldajobs "github.com/normahq/balda/internal/apps/balda/jobs"
 	"github.com/normahq/balda/internal/apps/balda/locatorref"
@@ -14,7 +17,6 @@ import (
 	baldastate "github.com/normahq/balda/internal/apps/balda/state"
 	"github.com/normahq/balda/internal/apps/balda/tgbotkit"
 	"github.com/normahq/balda/internal/apps/balda/welcome"
-	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	"github.com/rs/zerolog/log"
 	"github.com/tgbotkit/runtime/events"
 	"go.uber.org/fx"
@@ -25,6 +27,7 @@ type commandSessionManager interface {
 	GetAgentMetadata(agentName string) session.AgentMetadata
 	GetSessionInfo(ctx context.Context, sessionID string) (session.TopicSessionInfo, error)
 	RuntimeStateValue(ctx context.Context, locator session.SessionLocator, key string) (any, bool, error)
+	UpdateRuntimeState(ctx context.Context, locator session.SessionLocator, state map[string]any) error
 	BaldaProviderID() string
 	ResetSession(ctx context.Context, locator session.SessionLocator) error
 	TakeStartupNotice(sessionID string) string
@@ -46,6 +49,7 @@ const (
 	commandGoal     = "goal"
 	commandUser     = "user"
 	commandUsage    = "usage"
+	commandAuto     = "auto"
 	commandReset    = "reset"
 	commandRestart  = "restart"
 	commandClose    = "close"
@@ -111,11 +115,44 @@ func (h *CommandHandler) onCommand(ctx context.Context, event *events.CommandEve
 		return h.onGoalCommand(ctx, commandCtx)
 	case commandUsage:
 		return h.onUsageCommand(ctx, commandCtx)
+	case commandAuto:
+		return h.onAutoCommand(ctx, commandCtx)
 	case commandUser:
 		// Route to UserHandler
 		return h.userHandler.HandleUserCommand(ctx, commandCtx)
 	default:
 		return nil
+	}
+}
+
+func (h *CommandHandler) onAutoCommand(ctx context.Context, commandCtx baldatelegram.CommandContext) error {
+	if !h.canUseSessionCommand(ctx, commandCtx.UserID) {
+		return sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Only the bot owner or collaborators can use this command.")
+	}
+	arg := strings.ToLower(strings.TrimSpace(commandCtx.Args))
+	switch arg {
+	case "":
+		status, err := loadAutoStatus(ctx, h.sessionManager, commandCtx.Locator)
+		if err != nil {
+			return sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Could not read auto mode status.")
+		}
+		return sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, automode.RenderStatus(status))
+	case "on":
+		if err := dispatchAutoStateUpdate(ctx, h.actorDispatcher, commandCtx.Locator, automode.EnableState(time.Now())); err != nil {
+			return sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Could not enable auto mode.")
+		}
+		return sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, automode.RenderStatus(automode.Normalize(automode.Status{
+			Enabled:  true,
+			State:    automode.StateIdle,
+			MaxTurns: automode.DefaultMaxTurns,
+		})))
+	case "off":
+		if err := dispatchAutoStateUpdate(ctx, h.actorDispatcher, commandCtx.Locator, automode.DisableState()); err != nil {
+			return sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Could not disable auto mode.")
+		}
+		return sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, automode.RenderStatus(automode.DefaultStatus()))
+	default:
+		return sendPlain(ctx, h.actorDispatcher, commandHandlerActorAddress, commandCtx.Locator, "Usage: /auto\n/auto on\n/auto off")
 	}
 }
 

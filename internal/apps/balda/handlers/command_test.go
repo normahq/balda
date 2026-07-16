@@ -11,6 +11,8 @@ import (
 	actortransport "github.com/baldaworks/go-actorlayer/transport"
 	"github.com/normahq/balda/internal/apps/balda/actors"
 	"github.com/normahq/balda/internal/apps/balda/auth"
+	"github.com/normahq/balda/internal/apps/balda/automode"
+	"github.com/normahq/balda/internal/apps/balda/automodecmd"
 	baldatelegram "github.com/normahq/balda/internal/apps/balda/channel/telegram"
 	"github.com/normahq/balda/internal/apps/balda/deliveryfmt"
 	baldaexecution "github.com/normahq/balda/internal/apps/balda/execution"
@@ -217,6 +219,31 @@ func TestCommandHandlerOnCommand_UsageWithArgsShowsUsage(t *testing.T) {
 		t.Fatalf("onCommand() error = %v", err)
 	}
 	assertLastSentContains(t, tgClient, "Usage: /usage")
+}
+
+func TestCommandHandlerOnCommand_AutoOnOffAndStatus(t *testing.T) {
+	handler, sm, _, tgClient := newCommandHandlerTestHarness(t)
+
+	if err := handler.onCommand(context.Background(), newCommandEvent("auto", "on", 101, 9001, nil)); err != nil {
+		t.Fatalf("auto on error = %v", err)
+	}
+	if got := sm.runtimeState[testRootSessionID][automode.StateKeyEnabled]; got != true {
+		t.Fatalf("auto enabled state = %#v, want true", got)
+	}
+	assertLastSentContains(t, tgClient, "Auto mode: on")
+
+	if err := handler.onCommand(context.Background(), newCommandEvent("auto", "", 101, 9001, nil)); err != nil {
+		t.Fatalf("auto status error = %v", err)
+	}
+	assertLastSentContains(t, tgClient, "State: idle")
+
+	if err := handler.onCommand(context.Background(), newCommandEvent("auto", "off", 101, 9001, nil)); err != nil {
+		t.Fatalf("auto off error = %v", err)
+	}
+	if got := sm.runtimeState[testRootSessionID][automode.StateKeyEnabled]; got != false {
+		t.Fatalf("auto enabled state after off = %#v, want false", got)
+	}
+	assertLastSentContains(t, tgClient, "Auto mode: off")
 }
 
 func TestCommandHandlerOnCommand_LocatorWithArgsShowsUsage(t *testing.T) {
@@ -1103,6 +1130,19 @@ func (f *fakeCommandSessionManager) RuntimeStateValue(_ context.Context, locator
 	return value, ok, nil
 }
 
+func (f *fakeCommandSessionManager) UpdateRuntimeState(_ context.Context, locator session.SessionLocator, state map[string]any) error {
+	if f.runtimeState == nil {
+		f.runtimeState = map[string]map[string]any{}
+	}
+	if f.runtimeState[locator.SessionID] == nil {
+		f.runtimeState[locator.SessionID] = map[string]any{}
+	}
+	for key, value := range state {
+		f.runtimeState[locator.SessionID][key] = value
+	}
+	return nil
+}
+
 func (f *fakeCommandSessionManager) TakeStartupNotice(sessionID string) string {
 	if f.startupNotices == nil {
 		return ""
@@ -1117,6 +1157,9 @@ type fakeTurnDispatcher struct {
 	deliveryCommands []actorlayer.Envelope
 	cancelCalls      []cancelSessionCall
 	deliveryAdapter  *baldatelegram.Adapter
+	stateManager     interface {
+		UpdateRuntimeState(context.Context, session.SessionLocator, map[string]any) error
+	}
 }
 
 func (*fakeTurnDispatcher) Enqueue(context.Context, actors.TurnTask) (<-chan error, int, error) {
@@ -1124,6 +1167,15 @@ func (*fakeTurnDispatcher) Enqueue(context.Context, actors.TurnTask) (<-chan err
 }
 
 func (f *fakeTurnDispatcher) Dispatch(_ context.Context, env actorlayer.Envelope) (*actortransport.DispatchReceipt, error) {
+	if env.Namespace == baldaexecution.NamespaceAutoModeCommand && f.stateManager != nil {
+		var payload automodecmd.Payload
+		if err := actorlayer.UnmarshalPayload(env.Payload, &payload); err != nil {
+			return nil, err
+		}
+		if err := f.stateManager.UpdateRuntimeState(context.Background(), session.SessionLocator(payload.Locator), payload.State); err != nil {
+			return nil, err
+		}
+	}
 	if env.To.Target == baldaexecution.ActorTypeDelivery && f.deliveryAdapter != nil {
 		f.deliveryCommands = append(f.deliveryCommands, env)
 		if err := handleDeliveryCommandForTest(context.Background(), f.deliveryAdapter, env); err != nil {
@@ -1192,7 +1244,7 @@ func newCommandHandlerTestHarness(t *testing.T) (*CommandHandler, *fakeCommandSe
 	tgClient := &fakeTelegramClient{}
 	adapter := newTestTelegramAdapter(tgClient, "none")
 	sessionManager := &fakeCommandSessionManager{}
-	turnDispatcher := &fakeTurnDispatcher{deliveryAdapter: adapter}
+	turnDispatcher := &fakeTurnDispatcher{deliveryAdapter: adapter, stateManager: sessionManager}
 	sessionManager.baldaProvider = testProviderAlpha
 	sessionManager.sessionInfo = map[string]session.TopicSessionInfo{
 		testRootSessionID: {
