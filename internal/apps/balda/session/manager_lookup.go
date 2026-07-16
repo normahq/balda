@@ -102,7 +102,7 @@ func (m *Manager) RestoreSession(ctx context.Context, sessionCtx SessionContext)
 }
 
 func (m *Manager) RuntimeStateValue(ctx context.Context, locator SessionLocator, key string) (any, bool, error) {
-	ts, err := m.GetSession(locator)
+	ts, err := m.sessionForRuntimeState(ctx, locator)
 	if err != nil || ts == nil {
 		return nil, false, err
 	}
@@ -110,11 +110,19 @@ func (m *Manager) RuntimeStateValue(ctx context.Context, locator SessionLocator,
 }
 
 func (m *Manager) UpdateRuntimeState(ctx context.Context, locator SessionLocator, state map[string]any) error {
-	ts, err := m.GetSession(locator)
+	ts, err := m.sessionForRuntimeState(ctx, locator)
 	if err != nil || ts == nil {
 		return err
 	}
 	return ts.UpdateRuntimeState(ctx, state)
+}
+
+func (m *Manager) sessionForRuntimeState(ctx context.Context, locator SessionLocator) (*TopicSession, error) {
+	ts, err := m.GetSession(locator)
+	if err == nil && ts != nil {
+		return ts, nil
+	}
+	return m.RestoreSession(ctx, SessionContext{Locator: locator})
 }
 
 type TopicSessionInfo struct {

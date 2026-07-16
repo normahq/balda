@@ -195,6 +195,64 @@ func TestGetSessionInfo_ReturnsPersistedSession(t *testing.T) {
 	}
 }
 
+func TestRuntimeStateAccessRestoresPersistedSession(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name string
+		run  func(context.Context, *Manager, SessionLocator) error
+	}{
+		{
+			name: "read",
+			run: func(ctx context.Context, manager *Manager, locator SessionLocator) error {
+				_, _, err := manager.RuntimeStateValue(ctx, locator, "balda_auto_enabled")
+				return err
+			},
+		},
+		{
+			name: "update",
+			run: func(ctx context.Context, manager *Manager, locator SessionLocator) error {
+				return manager.UpdateRuntimeState(ctx, locator, map[string]any{"balda_auto_enabled": true})
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			locator := testTelegramLocator(10, 42)
+			builder := &fakeAgentBuilder{}
+			manager := &Manager{
+				baldaProviderName: "balda-provider",
+				runtimeManager:    &fakeBaldaRuntimeManager{providerID: "balda-provider"},
+				agentBuilder:      builder,
+				logger:            zerolog.Nop(),
+				sessions:          make(map[string]*TopicSession),
+				sessionStore: &fakeSessionStore{recordsByAddress: map[string]baldastate.SessionRecord{
+					sessionAddressKey(baldastate.ChannelTypeTelegram, "10:42"): {
+						SessionID:   locator.SessionID,
+						UserID:      "tg-201",
+						ChannelType: baldastate.ChannelTypeTelegram,
+						AddressKey:  "10:42",
+						AddressJSON: `{"chat_id":10,"topic_id":42}`,
+						AgentName:   "balda",
+						Status:      baldastate.SessionStatusActive,
+					},
+				}},
+			}
+
+			if err := tt.run(context.Background(), manager, locator); err != nil {
+				t.Fatalf("runtime state %s error = %v", tt.name, err)
+			}
+			if len(builder.createRuntimeSessionSessionIDs) != 1 {
+				t.Fatalf("restored runtime session ids = %v, want one", builder.createRuntimeSessionSessionIDs)
+			}
+			if _, ok := manager.sessions[locator.SessionID]; !ok {
+				t.Fatalf("Balda session %q was not restored", locator.SessionID)
+			}
+		})
+	}
+}
+
 func TestGetSessionInfo_ReturnsActiveTransportUserID(t *testing.T) {
 	m := &Manager{
 		logger: zerolog.Nop(),
