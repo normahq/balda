@@ -27,6 +27,7 @@ components:
       - internal/apps/balda/deliverycmd
       - internal/apps/balda/deliveryfmt
       - internal/apps/balda/goalcmd
+      - internal/apps/balda/goalkeepercmd
       - internal/apps/balda/goalresultcmd
       - internal/apps/balda/locatorref
       - internal/apps/balda/progress
