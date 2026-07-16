@@ -297,6 +297,17 @@ func (s *TurnExecutionService) Execute(ctx context.Context, req ExecutionRequest
 				}
 				if part.FunctionResponse != nil {
 					functionResponsePartCount++
+					if failure, ok := toolFailureFromFunctionResponse(part.FunctionResponse); ok {
+						zerolog.Ctx(runCtx).Warn().
+							Str("tool_name", failure.ToolName).
+							Str("tool_server", failure.Server).
+							Str("tool_status", failure.Status).
+							Str("tool_error_code", failure.Code).
+							Str("tool_error_message", failure.Message).
+							Str("function_name", strings.TrimSpace(part.FunctionResponse.Name)).
+							Str("tool_call_id", strings.TrimSpace(part.FunctionResponse.ID)).
+							Msg("ADK tool call failed")
+					}
 				}
 				if part.ExecutableCode != nil {
 					executableCodePartCount++

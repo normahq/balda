@@ -17,6 +17,7 @@ Status: active
 - Balda keeps that ownership inside explicit app layers: `actorcmd` owns the canonical wire taxonomy; `execution` owns runtime policy and re-exports that taxonomy as the runtime-facing compatibility facade; `jobs` owns durable job state, event outbox, and projections; `actors` owns product behavior; `sessionturn` owns queued-turn restoration; `internalmcp` owns bundled MCP lifecycle; and `handlers` owns ingress plus the provider-turn executor adapter.
 - `agent` owns provider-backed runtime construction, root runtime prompt/session-state bootstrap, isolated goal runtime preparation, runtime-adjacent workspace support, and adaptation of ADK-facing permission callbacks into provider-neutral Balda contracts. It does not own session lifecycle semantics, queued-turn orchestration, or permission policy.
 - `permissions` owns provider-neutral agent permission policy and interactive review orchestration; provider protocol types stay below the `agent` adapter boundary.
+- `sessionturnapp` records failed ADK tool responses with redacted error metadata and never logs raw tool arguments or complete tool responses.
 - `github.com/baldaworks/go-actorlayer` owns generic envelopes, retry/error helpers, runtime primitives, and transport-facing contracts, but does not make Balda-specific product policy decisions.
 - Delivery boundaries are explicit: `deliverycmd` owns transport-neutral delivery contracts, `deliveryfmt` owns delivery formatting normalization, `locatorref` owns public locator parsing/formatting, and `channel/*` owns only concrete provider delivery behavior.
 - Slack mode boundaries are explicit: the current Slack compatibility path is `slack_chat`; future Slack AI Agents behavior lives in a separate `slack_agent` path with its own ingress/response contracts. See [Slack agent mode](slack-agent-mode.md).
@@ -57,6 +58,7 @@ Status: active
   - Shared transport-neutral types must live in dedicated contract packages, not inside concrete adapter packages.
   - Concrete transport adapters must not import application lifecycle/use-case packages just to reuse locator/profile/progress types.
   - Public locator parsing/formatting must not require importing concrete transport adapter packages.
+  - Bundled session MCP tools reconstruct canonical provider address JSON from `channel_type` and `address_key`; callers do not need to supply compatibility `address_json`.
 
 ## Related tests
 

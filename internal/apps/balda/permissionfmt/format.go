@@ -55,7 +55,7 @@ func writeMarkdownRequest(out *strings.Builder, request permissioncmd.Request) {
 
 func writeMarkdownAction(out *strings.Builder, toolCall permissioncmd.ToolCall) {
 	title := displayValue(toolCall.Title)
-	kind := displayValue(toolCall.Kind)
+	kind := displayKind(toolCall.Kind)
 	if title == "" && kind == "" {
 		return
 	}
@@ -123,7 +123,7 @@ func renderPlain(request permissioncmd.Request) string {
 		out.WriteString("\n\nAction: ")
 		out.WriteString(title)
 	}
-	if kind := displayValue(request.ToolCall.Kind); kind != "" {
+	if kind := displayKind(request.ToolCall.Kind); kind != "" {
 		out.WriteString("\nKind: ")
 		out.WriteString(kind)
 	}
@@ -169,6 +169,15 @@ func displayValue(value string) string {
 		return value
 	}
 	return value[:maxContentLength] + "…"
+}
+
+func displayKind(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "other", "unknown":
+		return ""
+	default:
+		return displayValue(value)
+	}
 }
 
 func plainText(value string) string {

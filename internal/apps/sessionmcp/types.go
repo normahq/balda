@@ -8,7 +8,7 @@ type SessionLocatorInput struct {
 	SessionID   string `json:"session_id" jsonschema:"target session id, e.g. tg-123-0"`
 	ChannelType string `json:"channel_type" jsonschema:"channel type, e.g. telegram"`
 	AddressKey  string `json:"address_key" jsonschema:"canonical address key, e.g. 12345:0"`
-	AddressJSON string `json:"address_json" jsonschema:"provider address JSON supplied for compatibility; Balda reconstructs the canonical value from channel_type and address_key"`
+	AddressJSON string `json:"address_json,omitempty" jsonschema:"optional provider address JSON supplied for compatibility; Balda reconstructs the canonical value from channel_type and address_key"`
 }
 
 // ToolError represents an error from a tool operation.

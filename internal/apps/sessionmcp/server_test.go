@@ -132,6 +132,11 @@ func TestSessionStateToolDescriptionsAndSchemas(t *testing.T) {
 	if _, ok := waitProps["locator"]; !ok {
 		t.Fatal("balda.session.wait input schema missing locator property")
 	}
+	locatorSchema := waitProps["locator"].(map[string]any)
+	requiredFields, _ := json.Marshal(locatorSchema["required"])
+	if strings.Contains(string(requiredFields), `"address_json"`) {
+		t.Fatalf("session locator required fields = %s, want address_json optional", requiredFields)
+	}
 	questionSchema, ok := toolByName["balda.session.question"].InputSchema.(map[string]any)
 	if !ok {
 		t.Fatalf("balda.session.question input schema type = %T, want map[string]any", toolByName["balda.session.question"].InputSchema)

@@ -49,6 +49,24 @@ func TestRenderSlackAgentKeepsTextOptions(t *testing.T) {
 	}
 }
 
+func TestRenderOmitsGenericOtherKind(t *testing.T) {
+	t.Parallel()
+
+	presentation := Render(permissioncmd.Request{
+		Interaction: questioncmd.InteractionContext{Locator: deliverycmd.Locator{ChannelType: "telegram"}},
+		ToolCall: permissioncmd.ToolCall{
+			Title: "MCP elicitation request",
+			Kind:  "other",
+		},
+	})
+	if !strings.Contains(presentation.Prompt, "**Action:** MCP elicitation request") {
+		t.Fatalf("prompt = %q, want action title", presentation.Prompt)
+	}
+	if strings.Contains(presentation.Prompt, "other") {
+		t.Fatalf("prompt = %q, want generic kind omitted", presentation.Prompt)
+	}
+}
+
 func TestRenderFallbackIsPlain(t *testing.T) {
 	presentation := Render(permissioncmd.Request{
 		Interaction: questioncmd.InteractionContext{Locator: deliverycmd.Locator{ChannelType: "zulip"}},

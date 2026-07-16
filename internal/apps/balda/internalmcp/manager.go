@@ -206,12 +206,7 @@ type sessionQuestionService struct {
 }
 
 func (s sessionWaitService) ScheduleSessionWait(ctx context.Context, in sessionmcp.SessionWaitInput) error {
-	locator, err := session.NewSessionLocator(
-		in.Locator.ChannelType,
-		in.Locator.AddressKey,
-		in.Locator.AddressJSON,
-		in.Locator.SessionID,
-	)
+	locator, err := canonicalSessionLocator(in.Locator)
 	if err != nil {
 		return err
 	}
@@ -229,7 +224,11 @@ func (s sessionWaitService) ListSessionWaits(ctx context.Context, locator sessio
 	if s.jobs == nil {
 		return nil, fmt.Errorf("scheduled job store is required")
 	}
-	records, err := s.jobs.ListByAddress(ctx, locator.ChannelType, locator.AddressKey)
+	canonical, err := canonicalSessionLocator(locator)
+	if err != nil {
+		return nil, err
+	}
+	records, err := s.jobs.ListByAddress(ctx, canonical.ChannelType, canonical.AddressKey)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +237,7 @@ func (s sessionWaitService) ListSessionWaits(ctx context.Context, locator sessio
 		if strings.TrimSpace(record.ScheduleSpec) != "@once" {
 			continue
 		}
-		if strings.TrimSpace(record.SessionID) != strings.TrimSpace(locator.SessionID) && strings.TrimSpace(locator.SessionID) != "" {
+		if strings.TrimSpace(record.SessionID) != canonical.SessionID {
 			continue
 		}
 		items = append(items, sessionmcp.SessionWaitListItem{
@@ -260,7 +259,7 @@ func (s sessionQuestionService) StartSessionQuestion(ctx context.Context, in ses
 	if s.service == nil {
 		return sessionmcp.SessionQuestionOutput{}, fmt.Errorf("session question service is required")
 	}
-	locator, err := canonicalSessionQuestionLocator(in.Locator)
+	locator, err := canonicalSessionLocator(in.Locator)
 	if err != nil {
 		return sessionmcp.SessionQuestionOutput{}, err
 	}
@@ -309,16 +308,16 @@ func (s sessionQuestionService) StartSessionQuestion(ctx context.Context, in ses
 	}, nil
 }
 
-func canonicalSessionQuestionLocator(in sessionmcp.SessionLocatorInput) (deliverycmd.Locator, error) {
+func canonicalSessionLocator(in sessionmcp.SessionLocatorInput) (deliverycmd.Locator, error) {
 	channelType := strings.ToLower(strings.TrimSpace(in.ChannelType))
 	addressKey := strings.TrimSpace(in.AddressKey)
 	locator, err := locatorref.Parse(channelType + ":" + addressKey)
 	if err != nil {
-		return deliverycmd.Locator{}, fmt.Errorf("canonicalize session question locator: %w", err)
+		return deliverycmd.Locator{}, fmt.Errorf("canonicalize session locator: %w", err)
 	}
 	expectedSessionID := strings.TrimSpace(in.SessionID)
 	if expectedSessionID == "" || expectedSessionID != locator.SessionID {
-		return deliverycmd.Locator{}, fmt.Errorf("session question locator mismatch: session_id=%q canonical=%q", expectedSessionID, locator.SessionID)
+		return deliverycmd.Locator{}, fmt.Errorf("session locator mismatch: session_id=%q canonical=%q", expectedSessionID, locator.SessionID)
 	}
 	return locator, nil
 }
@@ -326,6 +325,10 @@ func canonicalSessionQuestionLocator(in sessionmcp.SessionLocatorInput) (deliver
 func (s sessionWaitService) CancelSessionWait(ctx context.Context, locator sessionmcp.SessionLocatorInput, jobID string) (bool, error) {
 	if s.jobs == nil {
 		return false, fmt.Errorf("scheduled job store is required")
+	}
+	canonical, err := canonicalSessionLocator(locator)
+	if err != nil {
+		return false, err
 	}
 	record, ok, err := s.jobs.GetByID(ctx, jobID)
 	if err != nil {
@@ -337,10 +340,10 @@ func (s sessionWaitService) CancelSessionWait(ctx context.Context, locator sessi
 	if strings.TrimSpace(record.ScheduleSpec) != "@once" {
 		return false, nil
 	}
-	if strings.TrimSpace(record.ChannelType) != strings.TrimSpace(locator.ChannelType) || strings.TrimSpace(record.AddressKey) != strings.TrimSpace(locator.AddressKey) {
+	if strings.TrimSpace(record.ChannelType) != canonical.ChannelType || strings.TrimSpace(record.AddressKey) != canonical.AddressKey {
 		return false, nil
 	}
-	if strings.TrimSpace(locator.SessionID) != "" && strings.TrimSpace(record.SessionID) != strings.TrimSpace(locator.SessionID) {
+	if strings.TrimSpace(record.SessionID) != canonical.SessionID {
 		return false, nil
 	}
 	if err := s.jobs.Delete(ctx, jobID); err != nil {

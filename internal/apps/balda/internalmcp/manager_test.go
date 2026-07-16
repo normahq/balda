@@ -12,12 +12,24 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/baldaworks/go-actorlayer"
+	actortransport "github.com/baldaworks/go-actorlayer/transport"
+	"github.com/normahq/balda/internal/apps/balda/controlcmd"
 	"github.com/normahq/balda/internal/apps/balda/session"
 	"github.com/normahq/balda/internal/apps/sessionmcp"
 	"github.com/normahq/runtime/v2/mcpregistry"
 	"github.com/rs/zerolog"
 	"go.uber.org/fx"
 )
+
+type recordingDispatcher struct {
+	envelopes []actorlayer.Envelope
+}
+
+func (d *recordingDispatcher) Dispatch(_ context.Context, env actorlayer.Envelope) (*actortransport.DispatchReceipt, error) {
+	d.envelopes = append(d.envelopes, env)
+	return &actortransport.DispatchReceipt{}, nil
+}
 
 type testSessionStore struct {
 	mu     sync.RWMutex
@@ -171,33 +183,61 @@ func TestBundledBaldaServerInstructionsReflectWorkspaceMode(t *testing.T) {
 	}
 }
 
-func TestCanonicalSessionQuestionLocatorReconstructsTelegramAddress(t *testing.T) {
+func TestCanonicalSessionLocatorReconstructsTelegramAddress(t *testing.T) {
 	t.Parallel()
 
-	got, err := canonicalSessionQuestionLocator(sessionmcp.SessionLocatorInput{
+	got, err := canonicalSessionLocator(sessionmcp.SessionLocatorInput{
 		SessionID:   "tg-2317500-536036",
 		ChannelType: "telegram",
 		AddressKey:  "2317500:536036",
-		AddressJSON: `{"chat_id":2317500,"message_thread_id":536036}`,
 	})
 	if err != nil {
-		t.Fatalf("canonicalSessionQuestionLocator() error = %v", err)
+		t.Fatalf("canonicalSessionLocator() error = %v", err)
 	}
 	if got.AddressJSON != `{"chat_id":2317500,"topic_id":536036}` {
 		t.Fatalf("address_json = %q, want canonical Telegram topic", got.AddressJSON)
 	}
 }
 
-func TestCanonicalSessionQuestionLocatorRejectsSessionMismatch(t *testing.T) {
+func TestCanonicalSessionLocatorRejectsSessionMismatch(t *testing.T) {
 	t.Parallel()
 
-	_, err := canonicalSessionQuestionLocator(sessionmcp.SessionLocatorInput{
+	_, err := canonicalSessionLocator(sessionmcp.SessionLocatorInput{
 		SessionID:   "tg-2317500-1",
 		ChannelType: "telegram",
 		AddressKey:  "2317500:536036",
 	})
 	if err == nil || !strings.Contains(err.Error(), "locator mismatch") {
-		t.Fatalf("canonicalSessionQuestionLocator() error = %v, want mismatch", err)
+		t.Fatalf("canonicalSessionLocator() error = %v, want mismatch", err)
+	}
+}
+
+func TestScheduleSessionWaitReconstructsMissingAddressJSON(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := &recordingDispatcher{}
+	service := sessionWaitService{dispatcher: dispatcher}
+	err := service.ScheduleSessionWait(context.Background(), sessionmcp.SessionWaitInput{
+		Locator: sessionmcp.SessionLocatorInput{
+			SessionID:   "tg-2317500-536036",
+			ChannelType: "telegram",
+			AddressKey:  "2317500:536036",
+		},
+		Content:      "wake me",
+		DelaySeconds: 60,
+	})
+	if err != nil {
+		t.Fatalf("ScheduleSessionWait() error = %v", err)
+	}
+	if len(dispatcher.envelopes) != 1 {
+		t.Fatalf("dispatched envelopes = %d, want 1", len(dispatcher.envelopes))
+	}
+	var payload controlcmd.Payload
+	if err := actorlayer.UnmarshalPayload(dispatcher.envelopes[0].Payload, &payload); err != nil {
+		t.Fatalf("decode control payload: %v", err)
+	}
+	if got, want := payload.Locator.AddressJSON, `{"chat_id":2317500,"topic_id":536036}`; got != want {
+		t.Fatalf("address_json = %q, want %q", got, want)
 	}
 }
 
