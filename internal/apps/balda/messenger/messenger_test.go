@@ -512,6 +512,29 @@ func TestSendAgentReply_RichMarkdownFallsBackToPlainText(t *testing.T) {
 	}
 }
 
+func TestSendAgentReply_RichMarkdownTransportErrorDoesNotFallbackToPlainText(t *testing.T) {
+	t.Parallel()
+
+	tgClient := &fakeChatActionClient{
+		sendRichResults: []sendRichMessageResult{
+			{err: context.DeadlineExceeded},
+		},
+	}
+	m := NewMessenger(tgClient, zerolog.Nop())
+
+	_, err := m.SendAgentReplyWithResult(context.Background(), 9001, "**final**", 77)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("SendAgentReplyWithResult() error = %v, want deadline exceeded", err)
+	}
+
+	if len(tgClient.richMessages) != 1 {
+		t.Fatalf("rich message calls = %d, want 1 failed attempt", len(tgClient.richMessages))
+	}
+	if len(tgClient.messages) != 0 {
+		t.Fatalf("legacy message calls = %d, want 0 on transport error", len(tgClient.messages))
+	}
+}
+
 func TestSendAgentReply_UsesConfiguredFormattingMode(t *testing.T) {
 	t.Parallel()
 

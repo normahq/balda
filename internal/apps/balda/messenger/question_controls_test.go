@@ -3,8 +3,8 @@ package messenger
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
+	"net/http"
 	"testing"
 
 	"github.com/normahq/balda/internal/apps/balda/telegramfmt"
@@ -16,6 +16,7 @@ type inlineKeyboardClient struct {
 	client.ClientWithResponsesInterface
 	richBody              []byte
 	richBodyError         error
+	richBodyResponse      *client.SendRichMessageResponse
 	richFallback          []client.SendRichMessageJSONRequestBody
 	editRequests          []client.EditMessageReplyMarkupJSONRequestBody
 	deleteMessageRequests []client.DeleteMessageJSONRequestBody
@@ -57,6 +58,9 @@ func (f *inlineKeyboardClient) SendRichMessageWithBodyWithResponse(_ context.Con
 	f.richBody, _ = io.ReadAll(body)
 	if f.richBodyError != nil {
 		return nil, f.richBodyError
+	}
+	if f.richBodyResponse != nil {
+		return f.richBodyResponse, nil
 	}
 	return successfulSendRichMessageResponse(42), nil
 }
@@ -105,7 +109,12 @@ func TestSendAgentReplyWithInlineKeyboardIncludesMarkup(t *testing.T) {
 }
 
 func TestSendAgentReplyWithInlineKeyboardFallsBackToTextChoices(t *testing.T) {
-	tgClient := &inlineKeyboardClient{richBodyError: errors.New("reply markup rejected")}
+	tgClient := &inlineKeyboardClient{
+		richBodyResponse: &client.SendRichMessageResponse{
+			HTTPResponse: &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+			JSON400:      &client.ErrorResponse{Description: "reply markup rejected"},
+		},
+	}
 	messenger := NewMessenger(tgClient, zerolog.Nop())
 	keyboard := client.InlineKeyboardMarkup{InlineKeyboard: [][]client.InlineKeyboardButton{{{Text: "Allow"}}}}
 

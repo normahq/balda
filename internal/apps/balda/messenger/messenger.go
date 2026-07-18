@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -23,6 +24,25 @@ type Messenger struct {
 	responder              *respond.Responder
 	logger                 zerolog.Logger
 	telegramFormattingMode string
+}
+
+type richDeliveryError struct {
+	err        error
+	statusCode int
+}
+
+func (e *richDeliveryError) Error() string {
+	if e == nil || e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+func (e *richDeliveryError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
 }
 
 // AgentReplyResult carries provider delivery metadata for a final agent reply.
@@ -369,16 +389,19 @@ func (m *Messenger) sendRichMessageWithInlineKeyboard(ctx context.Context, chatI
 	defer cancel()
 	resp, err := m.client.SendRichMessageWithBodyWithResponse(sendCtx, "application/json", bytes.NewReader(body))
 	if err != nil {
-		return 0, fmt.Errorf("send rich telegram question to chat %d: %w", chatID, err)
+		return 0, &richDeliveryError{err: fmt.Errorf("send rich telegram question to chat %d: %w", chatID, err)}
 	}
 	if resp == nil {
-		return 0, fmt.Errorf("send rich telegram question to chat %d: no response body", chatID)
+		return 0, &richDeliveryError{err: fmt.Errorf("send rich telegram question to chat %d: no response body", chatID)}
 	}
 	if resp.JSON400 != nil {
-		return 0, fmt.Errorf("send rich telegram question to chat %d: %s", chatID, resp.JSON400.Description)
+		return 0, &richDeliveryError{
+			err:        fmt.Errorf("send rich telegram question to chat %d: %s", chatID, resp.JSON400.Description),
+			statusCode: http.StatusBadRequest,
+		}
 	}
 	if resp.JSON200 == nil {
-		return 0, fmt.Errorf("send rich telegram question to chat %d: no response body", chatID)
+		return 0, &richDeliveryError{err: fmt.Errorf("send rich telegram question to chat %d: no response body", chatID)}
 	}
 	return resp.JSON200.Result.MessageId, nil
 }
@@ -638,16 +661,19 @@ func (m *Messenger) sendRichDraft(ctx context.Context, chatID int64, draftID int
 
 	resp, err := m.client.SendRichMessageDraftWithResponse(sendCtx, req)
 	if err != nil {
-		return fmt.Errorf("sending rich draft to chat %d: %w", chatID, err)
+		return &richDeliveryError{err: fmt.Errorf("sending rich draft to chat %d: %w", chatID, err)}
 	}
 	if resp == nil {
-		return fmt.Errorf("sending rich draft to chat %d: no response body", chatID)
+		return &richDeliveryError{err: fmt.Errorf("sending rich draft to chat %d: no response body", chatID)}
 	}
 	if resp.JSON400 != nil {
-		return fmt.Errorf("sending rich draft to chat %d: %s", chatID, resp.JSON400.Description)
+		return &richDeliveryError{
+			err:        fmt.Errorf("sending rich draft to chat %d: %s", chatID, resp.JSON400.Description),
+			statusCode: http.StatusBadRequest,
+		}
 	}
 	if resp.JSON200 == nil {
-		return fmt.Errorf("sending rich draft to chat %d: no response body", chatID)
+		return &richDeliveryError{err: fmt.Errorf("sending rich draft to chat %d: no response body", chatID)}
 	}
 	return nil
 }
@@ -688,16 +714,19 @@ func (m *Messenger) sendRichMessage(ctx context.Context, chatID int64, rich clie
 
 	resp, err := m.client.SendRichMessageWithResponse(sendCtx, req)
 	if err != nil {
-		return 0, fmt.Errorf("send rich message to chat %d: %w", chatID, err)
+		return 0, &richDeliveryError{err: fmt.Errorf("send rich message to chat %d: %w", chatID, err)}
 	}
 	if resp == nil {
-		return 0, fmt.Errorf("send rich message to chat %d: no response body", chatID)
+		return 0, &richDeliveryError{err: fmt.Errorf("send rich message to chat %d: no response body", chatID)}
 	}
 	if resp.JSON400 != nil {
-		return 0, fmt.Errorf("send rich message to chat %d: %s", chatID, resp.JSON400.Description)
+		return 0, &richDeliveryError{
+			err:        fmt.Errorf("send rich message to chat %d: %s", chatID, resp.JSON400.Description),
+			statusCode: http.StatusBadRequest,
+		}
 	}
 	if resp.JSON200 == nil {
-		return 0, fmt.Errorf("send rich message to chat %d: no response body", chatID)
+		return 0, &richDeliveryError{err: fmt.Errorf("send rich message to chat %d: no response body", chatID)}
 	}
 	return resp.JSON200.Result.MessageId, nil
 }
@@ -720,7 +749,11 @@ func shouldFallbackRichSend(ctx context.Context, err error) bool {
 	if ctx != nil && ctx.Err() != nil {
 		return false
 	}
-	return true
+	var deliveryErr *richDeliveryError
+	if !errors.As(err, &deliveryErr) {
+		return false
+	}
+	return deliveryErr.statusCode >= 400 && deliveryErr.statusCode < 500
 }
 
 func (m *Messenger) sendMessageWithMode(ctx context.Context, chatID int64, text string, topicID int, mode, logMsg string) (int, error) {
