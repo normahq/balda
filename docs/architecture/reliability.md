@@ -10,6 +10,7 @@ Status: active
 - DLQ entries include enough context for diagnosis and replay planning.
 - User-visible delivery paths remain transport-durable; provider-side dedupe/outbox policy depends on the ingress/runtime path.
 - Concrete channel adapters classify provider failures as retryable or permanent at the transport-neutral `deliverycmd` boundary. Unknown legacy errors retain the existing bounded external-delivery retry behavior.
+- Provider runtime log adapters redact credentials before forwarding generated request errors to application logging.
 - Delivery adapters may retry locally only when the provider explicitly rejected presentation semantics before accepting the side effect, such as a Telegram entity-parse error. Transport timeouts must not trigger a second immediate send through a different presentation path.
 - Retried interactive-question delivery rechecks durable question state before every provider side effect. A question that is already answered, timed out, or failed is never presented again by a late command retry.
 - Job state transitions atomically enqueue semantic events in `execution_job_event_outbox`; publication is at-least-once with stable envelope IDs and background retry.

@@ -73,7 +73,7 @@ func NewBot(
 	opts := []runtime.OptOptionsSetter{
 		runtime.WithUpdateSource(updateSource),
 		runtime.WithClient(client),
-		runtime.WithLogger(logger.NewZerolog(l)),
+		runtime.WithLogger(newRedactingRuntimeLogger(logger.NewZerolog(l))),
 	}
 	if strings.TrimSpace(cfg.Token) == "" {
 		// Skip GetMe API call when Telegram is not configured.
@@ -141,7 +141,7 @@ func NewUpdateSource(
 	opts := updatepoller.NewOptions(
 		client,
 		updatepoller.WithOffsetStore(offsetStore),
-		updatepoller.WithLogger(logger.NewZerolog(l)),
+		updatepoller.WithLogger(newRedactingRuntimeLogger(logger.NewZerolog(l))),
 		updatepoller.WithAllowedUpdates(telegramAllowedUpdates),
 	)
 	return updatepoller.NewPoller(opts)
